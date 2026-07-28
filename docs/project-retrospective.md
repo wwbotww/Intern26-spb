@@ -66,16 +66,16 @@ flowchart LR
 
 主要代码位置：
 
-- `src/spb_pipeline/inventory.py`：栏目目录；
-- `src/spb_pipeline/crawler.py`：详情页和附件抓取；
-- `src/spb_pipeline/parser.py`：网页解析；
-- `src/spb_pipeline/attachments.py`：附件解析；
-- `src/spb_pipeline/ocr.py`：OCR 流程；
-- `src/spb_pipeline/chunker.py`：法规文本切分；
-- `src/spb_pipeline/embedding.py`：向量生成与缓存；
-- `src/spb_pipeline/sinks/milvus.py`：Milvus schema 和写入；
-- `src/spb_pipeline/quality.py`：质量报告；
-- `src/spb_pipeline/cli.py`：统一命令行入口。
+- `apps/offline-pipeline/src/spb_pipeline/inventory.py`：栏目目录；
+- `apps/offline-pipeline/src/spb_pipeline/crawler.py`：详情页和附件抓取；
+- `apps/offline-pipeline/src/spb_pipeline/parser.py`：网页解析；
+- `apps/offline-pipeline/src/spb_pipeline/attachments.py`：附件解析；
+- `apps/offline-pipeline/src/spb_pipeline/ocr.py`：OCR 流程；
+- `apps/offline-pipeline/src/spb_pipeline/chunker.py`：法规文本切分；
+- `apps/offline-pipeline/src/spb_pipeline/embedding.py`：向量生成与缓存；
+- `apps/offline-pipeline/src/spb_pipeline/sinks/milvus.py`：Milvus schema 和写入；
+- `apps/offline-pipeline/src/spb_pipeline/quality.py`：质量报告；
+- `apps/offline-pipeline/src/spb_pipeline/cli.py`：统一命令行入口。
 
 ## 三、实施过程
 
@@ -398,29 +398,29 @@ OCR 结果是独立 sidecar，而不是不可逆地写回原文件。可以定�
 
 ```bash
 # 更新目录和详情页
-uv run spb-pipeline inventory
-uv run spb-pipeline crawl-details
+uv run --package spb-policy-pipeline spb-pipeline inventory
+uv run --package spb-policy-pipeline spb-pipeline crawl-details
 
 # 解析、附件和 OCR
-uv run spb-pipeline parse
-uv run spb-pipeline crawl-attachments
-uv run spb-pipeline ocr
-uv run spb-pipeline parse
+uv run --package spb-policy-pipeline spb-pipeline parse
+uv run --package spb-policy-pipeline spb-pipeline crawl-attachments
+uv run --package spb-policy-pipeline spb-pipeline ocr
+uv run --package spb-policy-pipeline spb-pipeline parse
 
 # 模型适配切分和向量
-uv run spb-pipeline chunk --max-chars 360 --overlap-chars 50
-uv run spb-pipeline embed --model moka-ai/m3e-base
+uv run --package spb-policy-pipeline spb-pipeline chunk --max-chars 360 --overlap-chars 50
+uv run --package spb-policy-pipeline spb-pipeline embed --model moka-ai/m3e-base
 
 # 质量检查
-uv run spb-pipeline report
+uv run --package spb-policy-pipeline spb-pipeline report
 
 # Milvus 增量同步与只读检查
-uv run spb-pipeline milvus-sync \
+uv run --package spb-policy-pipeline spb-pipeline milvus-sync \
   --uri http://milvus-host:19530 \
   --database aisv \
   --collection spb_policy_chunks
 
-uv run spb-pipeline milvus-check \
+uv run --package spb-policy-pipeline spb-pipeline milvus-check \
   --uri http://milvus-host:19530 \
   --database aisv \
   --collection spb_policy_chunks

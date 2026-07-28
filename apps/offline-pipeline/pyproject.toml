@@ -1,0 +1,36 @@
+[project]
+name = "spb-policy-pipeline"
+version = "0.2.0"
+description = "国家邮政局政策法规标准离线抓取、解析、OCR、切分与入库流水线"
+requires-python = ">=3.11"
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "httpx>=0.27,<1",
+  "lxml>=5,<7",
+  "numpy>=2,<3",
+  "openpyxl>=3.1,<4",
+  "pypdf>=5,<7",
+  "python-docx>=1.1,<2",
+  "spb-contracts",
+]
+
+[project.optional-dependencies]
+embedding = [
+  "sentence-transformers>=3,<6",
+]
+milvus = [
+  "pymilvus>=2.5,<3",
+]
+
+[project.scripts]
+spb-pipeline = "spb_pipeline.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spb_pipeline"]
+
+[tool.uv.sources]
+spb-contracts = { workspace = true }

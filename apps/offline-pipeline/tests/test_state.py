@@ -39,4 +39,3 @@ def test_state_is_idempotent(tmp_path):
         assert resource is not None
         assert resource.status == "success"
         assert state.counts() == {"detail:success": 1}
-

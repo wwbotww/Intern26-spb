@@ -88,4 +88,3 @@ def write_json_atomic(path: Path, value: Any) -> None:
         except FileNotFoundError:
             pass
         raise
-

@@ -21,4 +21,3 @@ def inventory_item() -> InventoryItem:
         discovered_at="2026-07-27T00:00:00+00:00",
         inventory_hash="inventory-hash",
     )
-

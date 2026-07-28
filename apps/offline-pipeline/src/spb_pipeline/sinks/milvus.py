@@ -4,13 +4,20 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from spb_contracts import (
+    COLLECTION_NAME,
+    DENSE_FIELD,
+    M3E_BASE_CONTRACT,
+    SPARSE_FIELD,
+    TEXT_FIELD,
+)
 
 
 @dataclass(frozen=True)
 class MilvusConfig:
     uri: str
     database: str
-    collection: str = "spb_policy_chunks"
+    collection: str = COLLECTION_NAME
     token: str = ""
     timeout: float = 30.0
 
@@ -41,6 +48,11 @@ class MilvusSink:
     def create_collection(self, dimension: int) -> dict[str, Any]:
         from pymilvus import DataType, Function, FunctionType, MilvusClient
 
+        if dimension != M3E_BASE_CONTRACT.dimension:
+            raise ValueError(
+                f"dimension={dimension} 与共享 embedding 契约 "
+                f"{M3E_BASE_CONTRACT.dimension} 不一致"
+            )
         if self.client.has_collection(self.config.collection):
             raise RuntimeError(
                 f"{self.config.database}.{self.config.collection} 已存在；"
@@ -51,7 +63,7 @@ class MilvusSink:
             enable_dynamic_field=False,
             description=(
                 "国家邮政局政策法规标准正文及附件分块；"
-                "dense=moka-ai/m3e-base，sparse=BM25"
+                f"dense={M3E_BASE_CONTRACT.model}，sparse=BM25"
             ),
         )
         schema.add_field(
@@ -61,7 +73,7 @@ class MilvusSink:
         schema.add_field("parent_document_id", DataType.VARCHAR, max_length=64)
         schema.add_field("title", DataType.VARCHAR, max_length=1024)
         schema.add_field(
-            "text",
+            TEXT_FIELD,
             DataType.VARCHAR,
             max_length=8192,
             enable_analyzer=True,
@@ -69,8 +81,8 @@ class MilvusSink:
             analyzer_params={"type": "chinese"},
         )
         schema.add_field("embedding_text", DataType.VARCHAR, max_length=8192)
-        schema.add_field("text_dense", DataType.FLOAT_VECTOR, dim=dimension)
-        schema.add_field("text_sparse", DataType.SPARSE_FLOAT_VECTOR)
+        schema.add_field(DENSE_FIELD, DataType.FLOAT_VECTOR, dim=dimension)
+        schema.add_field(SPARSE_FIELD, DataType.SPARSE_FLOAT_VECTOR)
         schema.add_field("source_url", DataType.VARCHAR, max_length=4096)
         schema.add_field("source_host", DataType.VARCHAR, max_length=256)
         schema.add_field("document_type", DataType.VARCHAR, max_length=32)
@@ -86,21 +98,21 @@ class MilvusSink:
             Function(
                 name="text_bm25_emb",
                 function_type=FunctionType.BM25,
-                input_field_names=["text"],
-                output_field_names=["text_sparse"],
+                input_field_names=[TEXT_FIELD],
+                output_field_names=[SPARSE_FIELD],
             )
         )
 
         indexes = MilvusClient.prepare_index_params()
         indexes.add_index(
-            field_name="text_dense",
+            field_name=DENSE_FIELD,
             index_name="text_dense_index",
             index_type="HNSW",
-            metric_type="COSINE",
+            metric_type=M3E_BASE_CONTRACT.metric,
             params={"M": 16, "efConstruction": 200},
         )
         indexes.add_index(
-            field_name="text_sparse",
+            field_name=SPARSE_FIELD,
             index_name="text_sparse_index",
             index_type="SPARSE_INVERTED_INDEX",
             metric_type="BM25",

@@ -15,4 +15,3 @@ class JsonlSink:
 
     def upsert(self, records: list[dict]) -> None:
         write_jsonl_atomic(self.path, records)
-

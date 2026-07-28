@@ -123,4 +123,3 @@ def load_inventory(path: Path) -> list[InventoryItem]:
     from .io_utils import read_jsonl
 
     return [InventoryItem(**record) for record in read_jsonl(path)]
-

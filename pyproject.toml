@@ -1,40 +1,31 @@
 [project]
-name = "spb-policy-pipeline"
-version = "0.1.0"
-description = "国家邮政局“政策法规标准”栏目抓取、解析、切分与向量库前置流水线"
-readme = "README.md"
+name = "intern26-spb-workspace"
+version = "0.2.0"
+description = "国家邮政局政策知识库离线流水线与在线 RAG 服务工作区"
 requires-python = ">=3.11"
-dependencies = [
-  "beautifulsoup4>=4.12,<5",
-  "httpx>=0.27,<1",
-  "lxml>=5,<7",
-  "openpyxl>=3.1,<4",
-  "pypdf>=5,<7",
-  "python-docx>=1.1,<2",
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+  "apps/offline-pipeline",
+  "apps/rag-api",
+  "packages/contracts",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
+  "httpx>=0.27,<1",
   "pytest>=8,<10",
   "pytest-cov>=5,<8",
 ]
-milvus = [
-  "pymilvus>=2.5,<3",
-]
-embedding = [
-  "sentence-transformers>=3,<6",
-]
-
-[project.scripts]
-spb-pipeline = "spb_pipeline.cli:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/spb_pipeline"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = [
+  "apps/offline-pipeline/tests",
+  "apps/rag-api/tests",
+  "packages/contracts/tests",
+]
 addopts = "-q"

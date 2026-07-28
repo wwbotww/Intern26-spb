@@ -1,19 +1,20 @@
 from __future__ import annotations
 
+import json
 import os
 import tempfile
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from spb_contracts import M3E_BASE_CONTRACT
 
 from .config import Settings
 from .io_utils import file_hash, read_jsonl, write_json_atomic
 
 
-DEFAULT_MODEL = "moka-ai/m3e-base"
+DEFAULT_MODEL = M3E_BASE_CONTRACT.model
 
 
 def _device_name(requested: str | None) -> str:

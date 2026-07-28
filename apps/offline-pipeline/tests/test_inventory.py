@@ -29,4 +29,3 @@ def test_inventory_normalization_filters_string_null():
     assert item.title == "测试 标题"
     assert item.source_url.startswith("https://")
     assert item.domain_metadata == {"source": "国家邮政局"}
-

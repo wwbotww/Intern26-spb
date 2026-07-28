@@ -226,4 +226,3 @@ class CrawlState:
 
     def as_dicts(self) -> list[dict[str, Any]]:
         return [state.__dict__.copy() for state in self.all()]
-

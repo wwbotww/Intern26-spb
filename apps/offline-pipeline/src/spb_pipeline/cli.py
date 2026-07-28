@@ -5,6 +5,12 @@ import json
 import os
 import sys
 
+from spb_contracts import (
+    COLLECTION_NAME,
+    DATABASE_NAME,
+    M3E_BASE_CONTRACT,
+)
+
 from .chunker import chunk_documents
 from .config import Settings
 from .crawler import crawl_attachments, crawl_details
@@ -45,11 +51,11 @@ def _add_milvus_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--database",
-        default=os.getenv("MILVUS_DATABASE", "aisv"),
+        default=os.getenv("MILVUS_DATABASE", DATABASE_NAME),
     )
     parser.add_argument(
         "--collection",
-        default=os.getenv("MILVUS_COLLECTION", "spb_policy_chunks"),
+        default=os.getenv("MILVUS_COLLECTION", COLLECTION_NAME),
     )
     parser.add_argument(
         "--token",
@@ -158,7 +164,11 @@ def build_parser() -> argparse.ArgumentParser:
         "milvus-create", help="创建独立的政策 collection"
     )
     _add_milvus_arguments(milvus_create)
-    milvus_create.add_argument("--dimension", type=int, default=768)
+    milvus_create.add_argument(
+        "--dimension",
+        type=int,
+        default=M3E_BASE_CONTRACT.dimension,
+    )
 
     milvus_ingest = subparsers.add_parser(
         "milvus-ingest", help="将 chunks 和 embeddings 写入空 collection"
