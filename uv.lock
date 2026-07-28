@@ -2036,11 +2036,15 @@ provides-extras = ["embedding", "milvus"]
 
 [[package]]
 name = "spb-rag-api"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "apps/rag-api" }
 dependencies = [
     { name = "fastapi" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pydantic-settings" },
+    { name = "pymilvus" },
+    { name = "sentence-transformers" },
     { name = "spb-contracts" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -2048,7 +2052,10 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "numpy", specifier = ">=2,<3" },
     { name = "pydantic-settings", specifier = ">=2.7,<3" },
+    { name = "pymilvus", specifier = ">=2.6,<3" },
+    { name = "sentence-transformers", specifier = ">=3,<6" },
     { name = "spb-contracts", editable = "packages/contracts" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
 ]

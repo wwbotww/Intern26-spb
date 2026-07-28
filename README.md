@@ -99,16 +99,44 @@ HNSW/COSINE dense 检索和内置 BM25 sparse 检索。
 
 ## 在线 RAG API
 
-阶段 1 已建立独立应用骨架、领域端口、共享契约和存活检查，尚未连接 Milvus
-或 DeepSeek：
+阶段 2 已实现独立的只读检索服务：
+
+- 使用 `moka-ai/m3e-base` 生成归一化的 768 维查询向量；
+- 同时检索 HNSW/COSINE dense index 和 BM25 sparse index；
+- 由 Milvus `RRFRanker` 融合两路候选；
+- 支持文档类型、有效性、发布机构和发布日期结构化过滤；
+- `/health/live` 只检查进程，`/health/ready` 检查模型和 Milvus；
+- 在线进程不包含建表、写入、更新或删除接口。
 
 ```bash
+# 将示例复制为部署环境变量，并填写只读 Milvus 连接信息
+cp apps/rag-api/.env.example apps/rag-api/.env
+
+# 当前配置使用 RAG_ 前缀
+export RAG_MILVUS_URI=http://milvus-host:19530
+export RAG_MILVUS_DATABASE=aisv
+export RAG_MILVUS_COLLECTION=spb_policy_chunks
+
 uv run --package spb-rag-api spb-rag-api
 curl http://127.0.0.1:8080/health/live
+curl http://127.0.0.1:8080/health/ready
+
+curl -X POST http://127.0.0.1:8080/v1/retrieve \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "query": "快递业务经营许可需要符合哪些条件？",
+    "top_k": 5,
+    "filters": {
+      "validity_statuses": ["有效", "unknown"],
+      "published_from": "2018-01-01"
+    }
+  }'
 ```
 
 在线配置示例位于
 [`apps/rag-api/.env.example`](apps/rag-api/.env.example)。
+DeepSeek 问答和 SSE 流式输出将在阶段 3 接入，阶段 2 的接口只返回可验证的
+检索结果。
 
 ## 测试
 
