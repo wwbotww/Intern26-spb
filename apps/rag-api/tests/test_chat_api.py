@@ -110,6 +110,7 @@ def test_streaming_chat_returns_metadata_deltas_usage_and_done() -> None:
     with TestClient(_app(retriever, provider)) as client:
         response = client.post(
             "/v1/chat",
+            headers={"X-Request-ID": "stream-request"},
             json={
                 "question": "经营快递业务需要什么许可？",
                 "stream": True,
@@ -127,6 +128,8 @@ def test_streaming_chat_returns_metadata_deltas_usage_and_done() -> None:
     assert "event: delta" in body
     assert "event: usage" in body
     assert "event: done" in body
+    assert '"request_id": "stream-request"' in body
+    assert response.headers["x-request-id"] == "stream-request"
     assert "国务院令第697号" in body
     assert provider.messages is not None
     assert "<knowledge_base>" in provider.messages[1]["content"]
@@ -143,6 +146,7 @@ def test_non_streaming_chat_collects_answer_and_citations() -> None:
     ) as client:
         response = client.post(
             "/v1/chat",
+            headers={"X-Request-ID": "non-stream-request"},
             json={
                 "question": "经营快递业务需要什么许可？",
                 "stream": False,
@@ -155,6 +159,8 @@ def test_non_streaming_chat_collects_answer_and_citations() -> None:
     assert payload["citations"][0]["source_url"].startswith("https://")
     assert payload["usage"]["total_tokens"] == 110
     assert payload["finish_reason"] == "stop"
+    assert payload["request_id"] == "non-stream-request"
+    assert response.headers["x-request-id"] == "non-stream-request"
 
 
 def test_no_context_short_circuits_model_call() -> None:

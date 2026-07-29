@@ -1,5 +1,9 @@
 # 在线检索问答 API
 
+本文档说明服务端实现边界和 grounding 规则。面向业务调用方的完整接口契约、
+字段、示例、SSE 协议和错误处理见
+[`api-reference.md`](api-reference.md)。
+
 ## 边界
 
 在线应用位于 `apps/rag-api`，只读访问 Milvus，不导入离线流水线。它包含两个

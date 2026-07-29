@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
-from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
@@ -244,7 +243,7 @@ async def chat(
         provider=provider,
         settings=settings,
     )
-    request_id = uuid4().hex
+    request_id = request.state.request_id
     if payload.stream:
         return StreamingResponse(
             _stream_events(

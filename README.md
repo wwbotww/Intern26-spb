@@ -168,8 +168,9 @@ curl -X POST http://127.0.0.1:8080/v1/chat \
 
 在线配置示例位于
 [`apps/rag-api/.env.example`](apps/rag-api/.env.example)。
-完整 API、SSE 事件和 grounding 规则见
-[`docs/rag-api.md`](docs/rag-api.md)。
+面向调用方的完整接口、字段、SSE 事件和错误码见
+[`docs/api-reference.md`](docs/api-reference.md)；服务端实现与 grounding
+规则见 [`docs/rag-api.md`](docs/rag-api.md)。
 Linux/Docker、安全、监控和压测说明见
 [`docs/deployment.md`](docs/deployment.md)。
 
