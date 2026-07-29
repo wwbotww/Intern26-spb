@@ -37,8 +37,15 @@ class Retriever(Protocol):
 
 
 class ChatProvider(Protocol):
+    @property
+    def model(self) -> str: ...
+
     async def stream(
         self,
         *,
         messages: list[dict[str, str]],
     ) -> AsyncIterator[ChatEvent]: ...
+
+    def readiness(self) -> dict[str, str]: ...
+
+    async def close(self) -> None: ...

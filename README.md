@@ -99,13 +99,17 @@ HNSW/COSINE dense 检索和内置 BM25 sparse 检索。
 
 ## 在线 RAG API
 
-阶段 2 已实现独立的只读检索服务：
+阶段 3 已实现独立的检索增强问答服务：
 
 - 使用 `moka-ai/m3e-base` 生成归一化的 768 维查询向量；
 - 同时检索 HNSW/COSINE dense index 和 BM25 sparse index；
 - 由 Milvus `RRFRanker` 融合两路候选；
 - 支持文档类型、有效性、发布机构和发布日期结构化过滤；
-- `/health/live` 只检查进程，`/health/ready` 检查模型和 Milvus；
+- 使用 DeepSeek V4 Flash 根据检索上下文生成引用式回答；
+- 同时支持 JSON 响应和 SSE 流式输出；
+- 无匹配资料时不调用大模型，直接返回资料不足；
+- `/health/live` 检查进程，`/health/ready` 检查 embedding、Milvus 和
+  DeepSeek 配置；
 - 在线进程不包含建表、写入、更新或删除接口。
 
 ```bash
@@ -116,6 +120,8 @@ cp apps/rag-api/.env.example apps/rag-api/.env
 export RAG_MILVUS_URI=http://milvus-host:19530
 export RAG_MILVUS_DATABASE=aisv
 export RAG_MILVUS_COLLECTION=spb_policy_chunks
+export RAG_DEEPSEEK_API_KEY=your-api-key
+export RAG_DEEPSEEK_MODEL=deepseek-v4-flash
 
 uv run --package spb-rag-api spb-rag-api
 curl http://127.0.0.1:8080/health/live
@@ -131,12 +137,32 @@ curl -X POST http://127.0.0.1:8080/v1/retrieve \
       "published_from": "2018-01-01"
     }
   }'
+
+# SSE 流式问答；-N 禁止 curl 缓冲
+curl -N -X POST http://127.0.0.1:8080/v1/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "question": "快递业务经营许可需要符合哪些条件？",
+    "stream": true,
+    "top_k": 5,
+    "filters": {
+      "validity_statuses": ["有效", "unknown"]
+    }
+  }'
+
+# 非流式 JSON 问答
+curl -X POST http://127.0.0.1:8080/v1/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "question": "快递业务经营许可需要符合哪些条件？",
+    "stream": false
+  }'
 ```
 
 在线配置示例位于
 [`apps/rag-api/.env.example`](apps/rag-api/.env.example)。
-DeepSeek 问答和 SSE 流式输出将在阶段 3 接入，阶段 2 的接口只返回可验证的
-检索结果。
+完整 API、SSE 事件和 grounding 规则见
+[`docs/rag-api.md`](docs/rag-api.md)。
 
 ## 测试
 

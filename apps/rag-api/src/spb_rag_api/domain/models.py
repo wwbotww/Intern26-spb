@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -41,5 +41,12 @@ class SearchHit:
 
 @dataclass(frozen=True)
 class ChatEvent:
-    event: Literal["metadata", "delta", "usage", "done", "error"]
-    data: dict
+    event: Literal[
+        "metadata",
+        "delta",
+        "usage",
+        "done",
+        "error",
+        "keepalive",
+    ]
+    data: dict[str, Any]

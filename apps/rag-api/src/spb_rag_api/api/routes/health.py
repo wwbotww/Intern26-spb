@@ -21,7 +21,7 @@ async def live() -> HealthResponse:
         status="ok",
         service="spb-rag-api",
         version=__version__,
-        phase=2,
+        phase=3,
         checks={
             "workspace": "ok",
             "collection_contract": (
@@ -47,7 +47,7 @@ async def ready(request: Request) -> HealthResponse | JSONResponse:
             status="not_ready",
             service="spb-rag-api",
             version=__version__,
-            phase=2,
+            phase=3,
             checks={
                 "retriever": "not_ready",
                 "reason": getattr(
@@ -62,12 +62,22 @@ async def ready(request: Request) -> HealthResponse | JSONResponse:
             content=response.model_dump(),
         )
     checks = retriever.readiness()
+    provider = getattr(request.app.state, "chat_provider", None)
+    if provider is None:
+        checks["deepseek"] = "not_ready"
+        checks["deepseek_reason"] = getattr(
+            request.app.state,
+            "chat_initialization_error",
+            "not_initialized",
+        )
+    else:
+        checks.update(provider.readiness())
     is_ready = all(value == "ready" for value in checks.values())
     response = HealthResponse(
         status="ok" if is_ready else "not_ready",
         service="spb-rag-api",
         version=__version__,
-        phase=2,
+        phase=3,
         checks=checks,
     )
     if not is_ready:

@@ -8,11 +8,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .. import __version__
+from ..adapters.deepseek import DeepSeekChatProvider, DeepSeekConfig
 from ..adapters.embedding import SentenceTransformerQueryEmbedder
 from ..adapters.milvus import MilvusHybridSearchStore, MilvusReadConfig
-from ..domain.ports import Retriever
+from ..domain.ports import ChatProvider, Retriever
 from ..services.search import HybridSearchService
 from ..settings import ApiSettings
+from .routes.chat import router as chat_router
 from .routes.health import router as health_router
 from .routes.search import router as search_router
 
@@ -41,17 +43,33 @@ def _build_retriever(settings: ApiSettings) -> HybridSearchService:
     return HybridSearchService(embedder=embedder, store=store)
 
 
+def _build_chat_provider(settings: ApiSettings) -> DeepSeekChatProvider:
+    return DeepSeekChatProvider(
+        DeepSeekConfig(
+            base_url=settings.deepseek_base_url,
+            api_key=settings.deepseek_api_key.get_secret_value(),
+            model=settings.deepseek_model,
+            thinking=settings.deepseek_thinking,
+            timeout_seconds=settings.deepseek_timeout_seconds,
+            max_tokens=settings.deepseek_max_tokens,
+            temperature=settings.deepseek_temperature,
+        )
+    )
+
+
 def create_app(
     *,
     settings: ApiSettings | None = None,
     retriever: Retriever | None = None,
+    chat_provider: ChatProvider | None = None,
 ) -> FastAPI:
     resolved_settings = settings or ApiSettings()
     managed_retriever: Retriever | None = None
+    managed_chat_provider: ChatProvider | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal managed_retriever
+        nonlocal managed_chat_provider, managed_retriever
         app.state.settings = resolved_settings
         app.state.capacity = asyncio.Semaphore(
             resolved_settings.max_concurrency
@@ -77,9 +95,22 @@ def create_app(
                 managed_retriever = None
             else:
                 app.state.retriever = managed_retriever
+        app.state.chat_initialization_error = ""
+        if chat_provider is not None:
+            app.state.chat_provider = chat_provider
+        elif not resolved_settings.deepseek_api_key.get_secret_value():
+            app.state.chat_provider = None
+            app.state.chat_initialization_error = "deepseek_not_configured"
+        else:
+            managed_chat_provider = _build_chat_provider(
+                resolved_settings
+            )
+            app.state.chat_provider = managed_chat_provider
         try:
             yield
         finally:
+            if managed_chat_provider is not None:
+                await managed_chat_provider.close()
             if managed_retriever is not None:
                 await managed_retriever.close()
 
@@ -91,4 +122,5 @@ def create_app(
     )
     app.include_router(health_router)
     app.include_router(search_router)
+    app.include_router(chat_router)
     return app

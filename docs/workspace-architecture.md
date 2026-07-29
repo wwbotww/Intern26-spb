@@ -39,9 +39,9 @@ flowchart LR
 - DeepSeek 适配和 SSE；
 - 在线鉴权、限流、日志和监控。
 
-它可以依赖 `spb-contracts`，但不得导入 `spb_pipeline`。阶段 2 已包含查询
+它可以依赖 `spb-contracts`，但不得导入 `spb_pipeline`。阶段 3 已包含查询
 embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、`/v1/retrieve`
-及健康检查；尚不调用大模型。
+以及 DeepSeek grounded answer、引用和 SSE。
 
 ### `packages/contracts`
 
@@ -107,7 +107,7 @@ sparse field    text_sparse
 
 1. Workspace 隔离：已完成；
 2. 纯检索 API：已完成 m3e-base、Milvus、Dense/BM25、RRF；
-3. DeepSeek 与 SSE：grounded answer、引用、流式响应；
+3. DeepSeek 与 SSE：已完成 grounded answer、引用、流式响应；
 4. Linux/Docker：只读凭据、鉴权、限流、日志、监控和压测。
 
 ## 阶段 2 在线检索流程
@@ -118,13 +118,16 @@ sequenceDiagram
     participant A as "rag-api"
     participant E as "m3e-base"
     participant M as "Milvus"
-    U->>A: "POST /v1/retrieve"
+    participant D as "DeepSeek"
+    U->>A: "POST /v1/chat"
     A->>E: "查询文本 embedding"
     E-->>A: "768 维归一化向量"
     A->>M: "Dense HNSW + BM25 candidates"
     M->>M: "RRF rerank"
     M-->>A: "Top K chunks + metadata"
-    A-->>U: "排序结果与原文引用字段"
+    A->>D: "问题 + 编号知识上下文"
+    D-->>A: "SSE answer deltas"
+    A-->>U: "metadata / delta / usage / done"
 ```
 
 客户端只能提交白名单结构化过滤字段。服务端负责构造 Milvus filter，

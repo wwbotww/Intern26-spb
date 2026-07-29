@@ -42,6 +42,19 @@ class ApiSettings(BaseSettings):
     search_rrf_k: int = Field(default=60, ge=1, le=1000)
     search_dense_ef: int = Field(default=64, ge=1, le=4096)
 
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_api_key: SecretStr = SecretStr("")
+    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_thinking: Literal["enabled", "disabled"] = "disabled"
+    deepseek_timeout_seconds: float = Field(default=90.0, gt=0, le=600)
+    deepseek_max_tokens: int = Field(default=1200, ge=1, le=32768)
+    deepseek_temperature: float = Field(default=0.1, ge=0, le=2)
+    chat_context_max_chars: int = Field(
+        default=16000,
+        ge=1000,
+        le=200000,
+    )
+
     @model_validator(mode="after")
     def validate_search_limits(self) -> "ApiSettings":
         if self.search_default_top_k > self.search_max_top_k:

@@ -80,7 +80,8 @@ def test_retrieve_maps_request_and_results() -> None:
     assert retriever.query.candidate_k == 12
     assert retriever.query.filters.validity_statuses == ("有效",)
     assert retriever.query.filters.published_from == "2020-01-01"
-    assert ready.status_code == 200
+    assert ready.status_code == 503
+    assert ready.json()["checks"]["deepseek"] == "not_ready"
 
 
 def test_retrieve_rejects_service_limit_violation() -> None:

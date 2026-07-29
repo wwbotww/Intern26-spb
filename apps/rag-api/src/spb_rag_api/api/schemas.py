@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -11,6 +11,7 @@ from pydantic import (
 )
 
 from ..domain.models import SearchFilters, SearchHit, SearchQuery
+from ..services.chat import Citation
 from ..settings import ApiSettings
 
 
@@ -139,3 +140,49 @@ class SearchResponse(BaseModel):
     count: int
     elapsed_ms: float
     results: list[SearchResult]
+
+
+class ChatRequest(BaseModel):
+    question: QueryText
+    stream: bool = True
+    top_k: int | None = Field(default=None, ge=1, le=100)
+    candidate_k: int | None = Field(default=None, ge=1, le=500)
+    filters: SearchFiltersRequest = Field(
+        default_factory=SearchFiltersRequest
+    )
+
+    def to_search_query(self, settings: ApiSettings) -> SearchQuery:
+        search = SearchRequest(
+            query=self.question,
+            top_k=self.top_k,
+            candidate_k=self.candidate_k,
+            filters=self.filters,
+        )
+        return search.to_domain(settings)
+
+
+class ChatCitation(BaseModel):
+    index: int
+    chunk_id: str
+    document_id: str
+    title: str
+    source_url: str
+    document_no: str
+    published_at: str
+    source_org: str
+    section_path: str
+    score: float
+    excerpt: str
+
+    @classmethod
+    def from_domain(cls, citation: Citation) -> "ChatCitation":
+        return cls(**citation.to_dict())
+
+
+class ChatResponse(BaseModel):
+    request_id: str
+    model: str
+    answer: str
+    citations: list[ChatCitation]
+    usage: dict[str, Any] = Field(default_factory=dict)
+    finish_reason: str
