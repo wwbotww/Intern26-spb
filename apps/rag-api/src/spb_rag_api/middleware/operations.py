@@ -208,9 +208,13 @@ class OperationsMiddleware:
     def _is_valid_key(self, supplied: str) -> bool:
         if not supplied:
             return False
+        supplied_bytes = supplied.encode("utf-8")
         matched = False
         for expected in self._config.api_keys:
-            matched |= hmac.compare_digest(supplied, expected)
+            matched |= hmac.compare_digest(
+                supplied_bytes,
+                expected.encode("utf-8"),
+            )
         return matched
 
     @staticmethod

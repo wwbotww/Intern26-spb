@@ -90,6 +90,32 @@ def test_auth_fails_closed_when_enabled_without_keys() -> None:
     assert response.json()["detail"]["code"] == "auth_not_configured"
 
 
+def test_auth_rejects_non_ascii_key_with_401() -> None:
+    app = create_app(
+        settings=_settings(
+            auth_enabled=True,
+            api_keys="test_key",
+            rate_limit_enabled=False,
+        ),
+        retriever=FakeRetriever(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/retrieve",
+            headers=[
+                (
+                    b"Authorization",
+                    "Bearer ‘test_key’".encode("utf-8"),
+                )
+            ],
+            json={"query": "问题"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "unauthorized"
+
+
 def test_rate_limit_and_request_id_headers() -> None:
     app = create_app(
         settings=_settings(

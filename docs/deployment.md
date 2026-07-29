@@ -113,7 +113,7 @@ docker compose \
   up -d
 ```
 
-Prometheus 只绑定本机 `127.0.0.1:9090`。主要指标：
+Prometheus 只绑定本机 `127.0.0.1:9091`。主要指标：
 
 - `spb_http_requests_total`；
 - `spb_http_request_duration_seconds`；
