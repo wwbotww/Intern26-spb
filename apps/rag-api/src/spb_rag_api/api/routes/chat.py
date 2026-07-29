@@ -174,6 +174,8 @@ async def _stream_events(
                     yield ": keep-alive\n\n"
                     continue
                 data = dict(event.data)
+                if event.event == "usage":
+                    request.app.state.metrics.observe_tokens(data)
                 if event.event == "done":
                     data["request_id"] = request_id
                     saw_done = True
@@ -267,6 +269,7 @@ async def chat(
                     service,
                     prepared,
                 )
+                request.app.state.metrics.observe_tokens(usage)
             except ChatProviderError as exc:
                 logger.exception("chat provider failed")
                 raise HTTPException(

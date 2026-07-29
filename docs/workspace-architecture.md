@@ -108,7 +108,7 @@ sparse field    text_sparse
 1. Workspace 隔离：已完成；
 2. 纯检索 API：已完成 m3e-base、Milvus、Dense/BM25、RRF；
 3. DeepSeek 与 SSE：已完成 grounded answer、引用、流式响应；
-4. Linux/Docker：只读凭据、鉴权、限流、日志、监控和压测。
+4. Linux/Docker：已完成鉴权、限流、日志、监控、容器隔离和压测工具。
 
 ## 阶段 2 在线检索流程
 

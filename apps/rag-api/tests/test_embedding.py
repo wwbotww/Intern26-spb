@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 
 import numpy as np
 import pytest
@@ -72,3 +74,41 @@ def test_embedder_rejects_query_over_model_token_limit() -> None:
             await embedder.embed("邮" * 513)
 
     asyncio.run(scenario())
+
+
+def test_embedder_serializes_access_to_shared_model() -> None:
+    class ConcurrencyTrackingModel(FakeModel):
+        def __init__(self) -> None:
+            self.active = 0
+            self.peak = 0
+            self.lock = threading.Lock()
+
+        def encode(
+            self,
+            texts: list[str],
+            **kwargs: object,
+        ) -> np.ndarray:
+            with self.lock:
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            time.sleep(0.02)
+            with self.lock:
+                self.active -= 1
+            return super().encode(texts, **kwargs)
+
+    model = ConcurrencyTrackingModel()
+
+    async def scenario() -> None:
+        embedder = SentenceTransformerQueryEmbedder(
+            model_name="moka-ai/m3e-base",
+            device="cpu",
+            max_concurrency=5,
+            model_factory=lambda _name, _device: model,
+        )
+        await asyncio.gather(
+            *(embedder.embed(f"查询 {index}") for index in range(5))
+        )
+
+    asyncio.run(scenario())
+
+    assert model.peak == 1

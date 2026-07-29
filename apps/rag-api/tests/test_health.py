@@ -15,7 +15,7 @@ def test_live_reports_workspace_contract() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    assert payload["phase"] == 3
+    assert payload["phase"] == 4
     assert payload["checks"]["workspace"] == "ok"
     assert "spb_policy_chunks" in payload["checks"]["collection_contract"]
 

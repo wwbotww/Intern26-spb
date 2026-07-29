@@ -13,6 +13,15 @@
 没有匹配资料时，`/v1/chat` 固定返回“当前知识库资料不足以回答该问题”，不会
 调用 DeepSeek。
 
+除健康检查和 `/metrics` 外，所有接口默认需要以下任一请求头：
+
+```text
+Authorization: Bearer <service-api-key>
+X-API-Key: <service-api-key>
+```
+
+服务 API Key 由 `RAG_API_KEYS` 配置，与 `RAG_DEEPSEEK_API_KEY` 相互独立。
+
 ## 问答请求
 
 ```json
@@ -94,3 +103,6 @@ RAG_DEEPSEEK_TEMPERATURE=0.1
 
 未配置 DeepSeek 时，纯检索接口仍可使用，但整体 readiness 返回 503，问答
 接口返回 `chat_provider_unavailable`。
+
+鉴权、限流、Docker 和监控配置见
+[`deployment.md`](deployment.md)。

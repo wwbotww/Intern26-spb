@@ -48,6 +48,8 @@ class FakeRetriever:
 def test_retrieve_maps_request_and_results() -> None:
     retriever = FakeRetriever()
     settings = ApiSettings(
+        auth_enabled=False,
+        deepseek_api_key="",
         search_default_top_k=5,
         search_max_top_k=20,
         search_candidate_k=40,
@@ -86,7 +88,10 @@ def test_retrieve_maps_request_and_results() -> None:
 
 def test_retrieve_rejects_service_limit_violation() -> None:
     app = create_app(
-        settings=ApiSettings(search_max_top_k=10),
+        settings=ApiSettings(
+            auth_enabled=False,
+            search_max_top_k=10,
+        ),
         retriever=FakeRetriever(),
     )
 
@@ -102,7 +107,10 @@ def test_retrieve_rejects_service_limit_violation() -> None:
 
 def test_retrieve_rejects_excessive_candidate_count() -> None:
     app = create_app(
-        settings=ApiSettings(search_max_candidate_k=50),
+        settings=ApiSettings(
+            auth_enabled=False,
+            search_max_candidate_k=50,
+        ),
         retriever=FakeRetriever(),
     )
 
@@ -122,7 +130,12 @@ def test_retrieve_rejects_excessive_candidate_count() -> None:
 
 def test_retrieve_is_unavailable_without_configuration() -> None:
     with TestClient(
-        create_app(settings=ApiSettings(milvus_uri=""))
+        create_app(
+            settings=ApiSettings(
+                auth_enabled=False,
+                milvus_uri="",
+            )
+        )
     ) as client:
         response = client.post(
             "/v1/retrieve",

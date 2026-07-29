@@ -12,10 +12,13 @@ from ..adapters.deepseek import DeepSeekChatProvider, DeepSeekConfig
 from ..adapters.embedding import SentenceTransformerQueryEmbedder
 from ..adapters.milvus import MilvusHybridSearchStore, MilvusReadConfig
 from ..domain.ports import ChatProvider, Retriever
+from ..middleware.operations import OperationsConfig, OperationsMiddleware
+from ..observability.metrics import ServiceMetrics
 from ..services.search import HybridSearchService
 from ..settings import ApiSettings
 from .routes.chat import router as chat_router
 from .routes.health import router as health_router
+from .routes.metrics import router as metrics_router
 from .routes.search import router as search_router
 
 
@@ -64,6 +67,7 @@ def create_app(
     chat_provider: ChatProvider | None = None,
 ) -> FastAPI:
     resolved_settings = settings or ApiSettings()
+    service_metrics = ServiceMetrics()
     managed_retriever: Retriever | None = None
     managed_chat_provider: ChatProvider | None = None
 
@@ -71,6 +75,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         nonlocal managed_chat_provider, managed_retriever
         app.state.settings = resolved_settings
+        app.state.metrics = service_metrics
         app.state.capacity = asyncio.Semaphore(
             resolved_settings.max_concurrency
         )
@@ -120,7 +125,27 @@ def create_app(
         description="国家邮政局政策知识库在线检索与问答服务",
         lifespan=lifespan,
     )
+    app.state.settings = resolved_settings
+    app.state.metrics = service_metrics
+    app.add_middleware(
+        OperationsMiddleware,
+        config=OperationsConfig(
+            auth_enabled=resolved_settings.auth_enabled,
+            api_keys=resolved_settings.parsed_api_keys(),
+            rate_limit_enabled=resolved_settings.rate_limit_enabled,
+            rate_limit_requests=resolved_settings.rate_limit_requests,
+            rate_limit_window_seconds=(
+                resolved_settings.rate_limit_window_seconds
+            ),
+            max_request_body_bytes=(
+                resolved_settings.max_request_body_bytes
+            ),
+        ),
+        metrics=service_metrics,
+    )
     app.include_router(health_router)
     app.include_router(search_router)
     app.include_router(chat_router)
+    if resolved_settings.metrics_enabled:
+        app.include_router(metrics_router)
     return app

@@ -21,7 +21,20 @@ class ApiSettings(BaseSettings):
     port: int = Field(default=8080, ge=1, le=65535)
     max_concurrency: int = Field(default=5, ge=1, le=100)
     log_level: str = "info"
+    log_json: bool = True
     initialize_on_startup: bool = True
+
+    auth_enabled: bool = True
+    api_keys: SecretStr = SecretStr("")
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = Field(default=60, ge=1, le=100000)
+    rate_limit_window_seconds: int = Field(default=60, ge=1, le=3600)
+    max_request_body_bytes: int = Field(
+        default=1_048_576,
+        ge=1024,
+        le=16_777_216,
+    )
+    metrics_enabled: bool = True
 
     milvus_uri: str = ""
     milvus_token: SecretStr = SecretStr("")
@@ -70,3 +83,13 @@ class ApiSettings(BaseSettings):
                 "search_candidate_k 不能大于 search_max_candidate_k"
             )
         return self
+
+    def parsed_api_keys(self) -> tuple[str, ...]:
+        value = self.api_keys.get_secret_value()
+        return tuple(
+            dict.fromkeys(
+                item.strip()
+                for item in value.split(",")
+                if item.strip()
+            )
+        )

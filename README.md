@@ -110,6 +110,9 @@ HNSW/COSINE dense 检索和内置 BM25 sparse 检索。
 - 无匹配资料时不调用大模型，直接返回资料不足；
 - `/health/live` 检查进程，`/health/ready` 检查 embedding、Milvus 和
   DeepSeek 配置；
+- 业务 API 默认启用 API Key 鉴权、滑动窗口限流和 1 MiB 请求体上限；
+- 输出带 request ID 的 JSON 日志，并提供 Prometheus `/metrics`；
+- 提供非 root、只读文件系统的 Linux/Docker 部署；
 - 在线进程不包含建表、写入、更新或删除接口。
 
 ```bash
@@ -122,12 +125,14 @@ export RAG_MILVUS_DATABASE=aisv
 export RAG_MILVUS_COLLECTION=spb_policy_chunks
 export RAG_DEEPSEEK_API_KEY=your-api-key
 export RAG_DEEPSEEK_MODEL=deepseek-v4-flash
+export RAG_API_KEYS=your-service-api-key
 
 uv run --package spb-rag-api spb-rag-api
 curl http://127.0.0.1:8080/health/live
 curl http://127.0.0.1:8080/health/ready
 
 curl -X POST http://127.0.0.1:8080/v1/retrieve \
+  -H 'Authorization: Bearer your-service-api-key' \
   -H 'Content-Type: application/json' \
   -d '{
     "query": "快递业务经营许可需要符合哪些条件？",
@@ -140,6 +145,7 @@ curl -X POST http://127.0.0.1:8080/v1/retrieve \
 
 # SSE 流式问答；-N 禁止 curl 缓冲
 curl -N -X POST http://127.0.0.1:8080/v1/chat \
+  -H 'Authorization: Bearer your-service-api-key' \
   -H 'Content-Type: application/json' \
   -d '{
     "question": "快递业务经营许可需要符合哪些条件？",
@@ -152,6 +158,7 @@ curl -N -X POST http://127.0.0.1:8080/v1/chat \
 
 # 非流式 JSON 问答
 curl -X POST http://127.0.0.1:8080/v1/chat \
+  -H 'Authorization: Bearer your-service-api-key' \
   -H 'Content-Type: application/json' \
   -d '{
     "question": "快递业务经营许可需要符合哪些条件？",
@@ -163,6 +170,8 @@ curl -X POST http://127.0.0.1:8080/v1/chat \
 [`apps/rag-api/.env.example`](apps/rag-api/.env.example)。
 完整 API、SSE 事件和 grounding 规则见
 [`docs/rag-api.md`](docs/rag-api.md)。
+Linux/Docker、安全、监控和压测说明见
+[`docs/deployment.md`](docs/deployment.md)。
 
 ## 测试
 

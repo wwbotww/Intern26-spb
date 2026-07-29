@@ -94,6 +94,7 @@ def _app(
 ):
     return create_app(
         settings=ApiSettings(
+            auth_enabled=False,
             milvus_uri="",
             deepseek_api_key="test-key",
         ),
@@ -175,9 +176,10 @@ def test_no_context_short_circuits_model_call() -> None:
 
 def test_chat_requires_provider_configuration() -> None:
     app = create_app(
-        settings=ApiSettings(
-            milvus_uri="",
-            deepseek_api_key="",
+            settings=ApiSettings(
+                auth_enabled=False,
+                milvus_uri="",
+                deepseek_api_key="",
         ),
         retriever=FakeRetriever([_hit()]),
     )

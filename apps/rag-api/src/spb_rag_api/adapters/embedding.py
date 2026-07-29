@@ -30,6 +30,10 @@ class SentenceTransformerQueryEmbedder:
         self._model: Any | None = None
         self._initialize_lock = asyncio.Lock()
         self._capacity = asyncio.Semaphore(max_concurrency)
+        # Hugging Face fast tokenizers mutate shared truncation/padding state.
+        # A shared SentenceTransformer instance therefore cannot safely encode
+        # from multiple worker threads at once ("Already borrowed").
+        self._encode_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         if self._model is not None:
@@ -64,7 +68,8 @@ class SentenceTransformerQueryEmbedder:
     async def embed(self, text: str) -> Sequence[float]:
         await self.initialize()
         async with self._capacity:
-            return await asyncio.to_thread(self._encode, text)
+            async with self._encode_lock:
+                return await asyncio.to_thread(self._encode, text)
 
     def _encode(self, text: str) -> list[float]:
         model = self._model
