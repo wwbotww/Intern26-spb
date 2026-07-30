@@ -3,15 +3,12 @@
 `eval/` 是独立的轻量评估包，只通过 HTTP 调用 `rag-api`。它不导入在线或
 离线应用、不直连 Milvus，也不读取本地爬取数据。
 
-第一版关注：
+当前评估能力包括：
 
 - 可回答问题的 Recall@K、MRR@K 和 Gold 文档存活率；
 - 双重相关性门槛的错误拒答率、错误回答率和 `finish_reason` 分布；
 - 最终引用的 Gold 文档命中率与必需事实覆盖率；
-- 检索/问答 P50、P95 延迟和 API 报告的生成 Token。
-
-第二阶段增加：
-
+- 检索/问答 P50、P95 延迟和 API 报告的生成 Token；
 - 基于 shadow-mode 检索结果离线扫描 reranker threshold；
 - 按错误回答、错误拒答和 Gold 存活约束推荐候选阈值；
 - 对同一数据集的 baseline 与 experiment 报告做指标及逐样本对比；
@@ -154,5 +151,5 @@ uv run --package spb-eval spb-eval compare \
 - 指标的改善、退化、持平或不可比标记；
 - 逐样本 gate、retrieval 和 citation 回归/改善列表。
 
-第二阶段仍不使用 LLM-as-a-Judge。人工质量判断通过每次运行自动生成的
+当前评估不使用 LLM-as-a-Judge 作为唯一结论。人工质量判断通过每次运行自动生成的
 `review-queue.md` 完成，避免让 DeepSeek 自评成为唯一结论。

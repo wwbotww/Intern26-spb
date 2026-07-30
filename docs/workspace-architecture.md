@@ -11,7 +11,7 @@ flowchart LR
     C["packages/contracts"] --> O["apps/offline-pipeline"]
     C --> R["apps/rag-api"]
     O -->|"写入/同步"| M["Milvus spb_policy_chunks"]
-    M -->|"只读检索（阶段 2）"| R
+    M -->|"只读检索"| R
     E["eval"] -->|"HTTP 黑盒评估"| R
 ```
 
@@ -41,9 +41,9 @@ flowchart LR
 - DeepSeek 证据充分性 Judge、答案生成和 SSE；
 - 在线鉴权、限流、日志和监控。
 
-它可以依赖 `spb-contracts`，但不得导入 `spb_pipeline`。阶段 3 已包含查询
-embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、`/v1/retrieve`
-以及 DeepSeek grounded answer、引用和 SSE。
+它可以依赖 `spb-contracts`，但不得导入 `spb_pipeline`。当前包含查询
+embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、
+`/v1/retrieve`，以及 DeepSeek grounded answer、引用和 SSE。
 
 ### `packages/contracts`
 
@@ -96,8 +96,8 @@ spb-contracts -> 任一应用
 | Milvus 权限 | 建表/写入 | 只读 |
 | 本地数据目录 | 需要 | 禁止依赖 |
 | OCR/Poppler | 可选需要 | 不安装 |
-| DeepSeek | 不需要 | 阶段 3 接入 |
-| Docker 镜像 | offline | rag-api |
+| DeepSeek | 不需要 | Judge 与答案生成 |
+| Docker 镜像 | 未提供专用镜像 | rag-api |
 | 发布节奏 | 数据任务 | 在线服务 |
 
 ## 共享契约
@@ -119,15 +119,7 @@ sparse field    text_sparse
 离线建表和在线启动检查都必须使用该契约。未来 schema 发生不兼容变更时，
 应增加 schema version 或创建新 collection，不能让在线服务静默适配。
 
-## 阶段划分
-
-1. Workspace 隔离：已完成；
-2. 纯检索 API：已完成 m3e-base、Milvus、Dense/BM25、RRF；
-3. DeepSeek 与 SSE：已完成 grounded answer、引用、流式响应；
-4. Linux/Docker：已完成鉴权、限流、日志、监控、容器隔离和压测工具；
-5. 双重相关性门槛：已完成 BGE reranker 和 DeepSeek JSON Judge。
-
-## 阶段 2 在线检索流程
+## 在线问答流程
 
 ```mermaid
 sequenceDiagram

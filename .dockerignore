@@ -8,7 +8,6 @@
 **/.env
 .env
 data
-samples
 htmlcov
 .coverage
 docs

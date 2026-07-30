@@ -2,7 +2,6 @@
 .env
 .venv/
 .cache/
-samples/
 __pycache__/
 *.py[cod]
 .pytest_cache/
