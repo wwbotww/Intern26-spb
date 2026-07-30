@@ -31,7 +31,7 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     return round(ordered[index], 3)
 
 
-def _is_gold(source: SourceLike, case: EvalCase) -> bool:
+def is_gold_source(source: SourceLike, case: EvalCase) -> bool:
     if source.document_id in case.gold_document_ids:
         return True
     normalized_url = source.source_url.rstrip("/")
@@ -40,7 +40,7 @@ def _is_gold(source: SourceLike, case: EvalCase) -> bool:
     }
 
 
-def _fact_coverage(answer: str, facts: list[list[str]]) -> float:
+def fact_coverage(answer: str, facts: list[list[str]]) -> float:
     if not facts:
         return 0.0
     normalized = "".join(answer.lower().split())
@@ -52,6 +52,26 @@ def _fact_coverage(answer: str, facts: list[list[str]]) -> float:
         for alternatives in facts
     )
     return matched / len(facts)
+
+
+def is_rejected(finish_reason: str) -> bool:
+    return finish_reason in REJECTION_REASONS
+
+
+def gold_rank(
+    sources: list[SourceLike],
+    case: EvalCase,
+    *,
+    top_k: int,
+) -> int | None:
+    return next(
+        (
+            rank
+            for rank, source in enumerate(sources[:top_k], start=1)
+            if is_gold_source(source, case)
+        ),
+        None,
+    )
 
 
 def calculate_metrics(
@@ -84,20 +104,14 @@ def calculate_metrics(
         if observation.status == "error":
             retrieval_errors += 1
             continue
-        gold_rank = next(
-            (
-                rank
-                for rank, source in enumerate(
-                    observation.results[:top_k],
-                    start=1,
-                )
-                if _is_gold(source, item.case)
-            ),
-            None,
+        first_gold_rank = gold_rank(
+            observation.results,
+            item.case,
+            top_k=top_k,
         )
-        if gold_rank is not None:
+        if first_gold_rank is not None:
             retrieval_hits += 1
-            reciprocal_rank_sum += 1 / gold_rank
+            reciprocal_rank_sum += 1 / first_gold_rank
 
     successful_chats = [
         item
@@ -116,12 +130,12 @@ def calculate_metrics(
     ]
     false_rejects = sum(
         item.chat is not None
-        and item.chat.finish_reason in REJECTION_REASONS
+        and is_rejected(item.chat.finish_reason)
         for item in answerable_chats
     )
     false_accepts = sum(
         item.chat is not None
-        and item.chat.finish_reason not in REJECTION_REASONS
+        and not is_rejected(item.chat.finish_reason)
         for item in reject_chats
     )
     stage_distribution = Counter(
@@ -134,10 +148,13 @@ def calculate_metrics(
         item
         for item in answerable_chats
         if item.chat is not None
-        and item.chat.finish_reason not in REJECTION_REASONS
+        and not is_rejected(item.chat.finish_reason)
     ]
     citation_hits = sum(
-        any(_is_gold(source, item.case) for source in item.chat.citations)
+        any(
+            is_gold_source(source, item.case)
+            for source in item.chat.citations
+        )
         for item in citation_cases
         if item.chat is not None
     )
@@ -147,10 +164,10 @@ def calculate_metrics(
         if item.case.required_facts
     ]
     fact_coverage_sum = sum(
-        _fact_coverage(
+        fact_coverage(
             item.chat.answer
             if item.chat is not None
-            and item.chat.finish_reason not in REJECTION_REASONS
+            and not is_rejected(item.chat.finish_reason)
             else "",
             item.case.required_facts,
         )
@@ -176,7 +193,7 @@ def calculate_metrics(
     )
     rejected_chats = sum(
         item.chat is not None
-        and item.chat.finish_reason in REJECTION_REASONS
+        and is_rejected(item.chat.finish_reason)
         for item in successful_chats
     )
 

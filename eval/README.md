@@ -10,6 +10,13 @@
 - 最终引用的 Gold 文档命中率与必需事实覆盖率；
 - 检索/问答 P50、P95 延迟和 API 报告的生成 Token。
 
+第二阶段增加：
+
+- 基于 shadow-mode 检索结果离线扫描 reranker threshold；
+- 按错误回答、错误拒答和 Gold 存活约束推荐候选阈值；
+- 对同一数据集的 baseline 与 experiment 报告做指标及逐样本对比；
+- 为每次运行自动生成 `review-queue.md` 人工复核队列。
+
 ## 数据集
 
 数据集使用 JSONL，每行一个样本：
@@ -72,6 +79,7 @@ uv run --package spb-eval spb-eval run \
 run.json       完整运行配置、汇总和逐样本结果
 cases.jsonl    便于脚本继续分析的逐样本结果
 summary.md     面向人工阅读的核心指标与错误路由
+review-queue.md 自动筛出的检索、门槛、引用和事实覆盖问题
 ```
 
 报告可能包含业务问题和模型回答，因此 `eval/reports/` 默认不会进入 Git。
@@ -86,5 +94,65 @@ summary.md     面向人工阅读的核心指标与错误路由
 - 引用 Gold 命中率只检查已生成答案的样本，错误拒答由门槛指标单独反映。
 - 必需事实覆盖率是简单、可解释的字符串归一化匹配，不代表完整语义正确率。
 
-第一版不包含 LLM-as-a-Judge、阈值扫描或运行结果对比，后续可在保持 HTTP
-黑盒边界的前提下扩展。
+## Reranker 阈值扫描
+
+阈值扫描必须使用只执行检索的 shadow-mode 实验。shadow mode 会计算并返回
+rerank 分数，但不会在服务端按当前阈值删除候选：
+
+```bash
+RAG_RERANK_ENABLED=true \
+RAG_RERANK_SHADOW_MODE=true \
+uv run --package spb-rag-api spb-rag-api
+
+uv run --package spb-eval spb-eval run \
+  --dataset eval/datasets/private/core.jsonl \
+  --mode retrieve \
+  --top-k 20 \
+  --label rerank-shadow
+```
+
+对生成的 `run.json` 扫描阈值：
+
+```bash
+uv run --package spb-eval spb-eval threshold-scan \
+  --report eval/reports/<run>/run.json \
+  --start 0.10 \
+  --stop 0.90 \
+  --step 0.05 \
+  --max-false-accept-rate 0.10 \
+  --max-false-reject-rate 0.15 \
+  --min-gold-survival-rate 0.80
+```
+
+也可以重复使用 `--threshold 0.3 --threshold 0.5` 指定离散候选。输出包括：
+
+- answer 样本中所有候选均低于阈值的错误拒答率；
+- reject 样本中至少一个候选高于阈值的错误回答风险；
+- Gold 来源经过该阈值后仍保留的比例；
+- 满足全部约束时的最高安全阈值；
+- 没有候选满足约束时，总违约量最小但明确标记“未通过”的参考值。
+
+只要本次 shadow run 存在检索 API 错误或非空候选缺少 `rerank_score`，工具就
+不会给出可直接采用的阈值，避免从不完整样本中产生误导性推荐。
+
+不要使用 shadow-mode 的 `/v1/chat` 结果评估完整双门槛链路，因为此时第一道
+本地拒答已被旁路。
+
+## Baseline / Experiment 对比
+
+两份报告必须使用完全相同的样本 ID、Gold 标签和 `top_k`：
+
+```bash
+uv run --package spb-eval spb-eval compare \
+  --baseline eval/reports/<baseline>/run.json \
+  --experiment eval/reports/<experiment>/run.json
+```
+
+对比报告包含：
+
+- Recall、MRR、误拒、误放、引用、事实覆盖、延迟、Token 和 API 错误差异；
+- 指标的改善、退化、持平或不可比标记；
+- 逐样本 gate、retrieval 和 citation 回归/改善列表。
+
+第二阶段仍不使用 LLM-as-a-Judge。人工质量判断通过每次运行自动生成的
+`review-queue.md` 完成，避免让 DeepSeek 自评成为唯一结论。

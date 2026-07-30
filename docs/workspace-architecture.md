@@ -62,6 +62,8 @@ embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、`/v1/retrie
 - 加载人工标注 JSONL 评估集；
 - 以真实客户端方式调用 `/v1/retrieve` 和 `/v1/chat`；
 - 计算召回、门槛、引用、事实覆盖与延迟指标；
+- 离线扫描 reranker 阈值并对比 baseline/experiment；
+- 生成失败样本人工复核队列；
 - 生成本地 JSON、JSONL 和 Markdown 报告。
 
 它不得导入 `spb_rag_api` 或 `spb_pipeline`，不得直连 Milvus，也不加入在线

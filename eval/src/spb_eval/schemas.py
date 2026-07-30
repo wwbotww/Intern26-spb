@@ -114,3 +114,64 @@ class RunReport(BaseModel):
     service: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any]
     results: list[CaseResult]
+
+
+class ThresholdPoint(BaseModel):
+    threshold: float = Field(ge=0, le=1)
+    answerable_count: int
+    unanswerable_count: int
+    false_reject_count: int
+    false_reject_rate: float | None
+    false_accept_count: int
+    false_accept_rate: float | None
+    gold_survival_count: int
+    gold_survival_rate: float | None
+    accepted_query_rate: float | None
+    constraints_met: bool
+
+
+class ThresholdScanReport(BaseModel):
+    source_report: str
+    generated_at: str
+    constraints: dict[str, float]
+    coverage: dict[str, int]
+    recommended_threshold: float | None
+    recommendation_constraints_met: bool
+    recommendation_reason: str
+    points: list[ThresholdPoint]
+
+
+class MetricDelta(BaseModel):
+    metric: str
+    baseline: float | int | None
+    experiment: float | int | None
+    delta: float | int | None
+    direction: Literal["higher", "lower"]
+    improved: bool | None
+
+
+class CaseTransition(BaseModel):
+    case_id: str
+    category: str
+    change: Literal[
+        "gate_regression",
+        "gate_improvement",
+        "retrieval_regression",
+        "retrieval_improvement",
+        "citation_regression",
+        "citation_improvement",
+    ]
+    baseline: str
+    experiment: str
+
+
+class ComparisonReport(BaseModel):
+    generated_at: str
+    baseline_report: str
+    experiment_report: str
+    baseline_label: str
+    experiment_label: str
+    sample_coverage: dict[str, Any]
+    metrics: list[MetricDelta]
+    regressions: list[CaseTransition]
+    improvements: list[CaseTransition]

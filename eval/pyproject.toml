@@ -1,6 +1,6 @@
 [project]
 name = "spb-eval"
-version = "0.1.0"
+version = "0.2.0"
 description = "国家邮政局政策 RAG API 黑盒评估工具"
 requires-python = ">=3.11"
 dependencies = [

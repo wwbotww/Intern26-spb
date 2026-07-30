@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from spb_eval.reporting import render_markdown, write_report
+from spb_eval.reporting import (
+    render_markdown,
+    render_review_queue,
+    write_report,
+)
 from spb_eval.schemas import (
     CaseResult,
     ChatObservation,
@@ -90,9 +94,50 @@ def test_write_report_creates_json_jsonl_and_markdown(
     assert (output / "run.json").is_file()
     assert (output / "cases.jsonl").is_file()
     assert (output / "summary.md").is_file()
+    assert (output / "review-queue.md").is_file()
     assert json.loads(
         (output / "run.json").read_text(encoding="utf-8")
     )["config"]["label"] == "demo report"
     markdown = render_markdown(report)
     assert "错误回答率" in markdown
     assert "reranker_rejected" in markdown
+
+
+def test_review_queue_includes_wrong_answer_and_human_checklist() -> None:
+    report = RunReport(
+        generated_at="2026-07-30T12:00:00+00:00",
+        config=RunConfig(
+            label="review",
+            base_url="http://test",
+            dataset="private.jsonl",
+            mode="chat",
+            top_k=5,
+            candidate_k=40,
+            concurrency=5,
+            timeout_seconds=120,
+        ),
+        summary={},
+        results=[
+            CaseResult(
+                case=EvalCase(
+                    id="wrong-answer",
+                    category="out_of_domain",
+                    question="领域外问题",
+                    expected_outcome="reject",
+                ),
+                chat=ChatObservation(
+                    status="ok",
+                    client_elapsed_ms=50,
+                    finish_reason="stop",
+                    answer="不应生成的回答",
+                ),
+            )
+        ],
+    )
+
+    markdown = render_review_queue(report)
+
+    assert "无答案问题被回答" in markdown
+    assert "领域外问题" in markdown
+    assert "不应生成的回答" in markdown
+    assert "[ ] 正确" in markdown

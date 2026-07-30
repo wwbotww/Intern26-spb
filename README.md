@@ -182,7 +182,8 @@ Linux/Docker、安全、监控和压测说明见
 
 `eval/` 只把在线 API 当作外部服务，不导入在线实现、不访问 Milvus。第一版
 支持 JSONL 数据集、Recall@K/MRR@K、双重门槛误拒/误放、引用命中、事实覆盖
-以及延迟指标，并生成 JSON、JSONL 和 Markdown 报告。
+以及延迟指标，并生成 JSON、JSONL 和 Markdown 报告。第二阶段增加 shadow
+mode 阈值扫描、baseline/experiment 对比和人工复核队列。
 
 ```bash
 export EVAL_BASE_URL=http://127.0.0.1:8080
