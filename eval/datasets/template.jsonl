@@ -1,0 +1,2 @@
+{"id":"answer-example","category":"direct_answer","question":"请替换为知识库能够回答的问题","expected_outcome":"answer","gold_document_ids":["replace-with-document-id"],"gold_source_urls":[],"required_facts":[["应出现的事实或同义表达"]],"filters":{},"notes":"模板样本，不应直接用于正式评估"}
+{"id":"reject-example","category":"out_of_domain","question":"请替换为知识库不应回答的问题","expected_outcome":"reject","gold_document_ids":[],"gold_source_urls":[],"required_facts":[],"filters":{},"notes":"模板样本，不应直接用于正式评估"}

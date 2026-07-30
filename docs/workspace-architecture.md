@@ -2,9 +2,9 @@
 
 ## 目标
 
-仓库同时承载离线数据生产和在线检索问答，但两者必须在代码、依赖、进程、
-权限和发布层面保持隔离。唯一允许共享的是 Milvus collection 与 embedding
-的数据契约。
+仓库同时承载离线数据生产、在线检索问答和黑盒评估工具。离线与在线应用必须
+在代码、依赖、进程、权限和发布层面保持隔离；评估工具只能通过 HTTP 使用
+在线 API。
 
 ```mermaid
 flowchart LR
@@ -12,6 +12,7 @@ flowchart LR
     C --> R["apps/rag-api"]
     O -->|"写入/同步"| M["Milvus spb_policy_chunks"]
     M -->|"只读检索（阶段 2）"| R
+    E["eval"] -->|"HTTP 黑盒评估"| R
 ```
 
 ## Workspace 成员
@@ -53,6 +54,18 @@ embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、`/v1/retrie
 - 跨边界元数据结构。
 
 禁止包含 HTTP、Milvus、模型加载、文件读写或业务流程代码。
+
+### `eval`
+
+职责：
+
+- 加载人工标注 JSONL 评估集；
+- 以真实客户端方式调用 `/v1/retrieve` 和 `/v1/chat`；
+- 计算召回、门槛、引用、事实覆盖与延迟指标；
+- 生成本地 JSON、JSONL 和 Markdown 报告。
+
+它不得导入 `spb_rag_api` 或 `spb_pipeline`，不得直连 Milvus，也不加入在线
+Docker 镜像。私有评估集和运行报告默认不进入版本控制。
 
 ## 依赖方向
 

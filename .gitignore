@@ -14,3 +14,7 @@ data/raw/
 data/state/
 data/processed/
 data/reports/
+
+# 本地评估语料和运行报告可能包含业务问题与模型回答，不纳入版本控制。
+eval/datasets/private/
+eval/reports/

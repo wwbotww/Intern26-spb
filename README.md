@@ -1,8 +1,8 @@
 # 国家邮政局政策知识库
 
-该仓库采用 uv workspace，包含相互隔离的离线数据流水线、在线 RAG API
-和共享数据契约。离线应用负责抓取、解析、OCR、向量化和 Milvus 写入；
-在线应用只负责检索与问答，并只读访问 Milvus。
+该仓库采用 uv workspace，包含相互隔离的离线数据流水线、在线 RAG API、
+黑盒评估工具和共享数据契约。离线应用负责抓取、解析、OCR、向量化和
+Milvus 写入；在线应用只负责检索与问答，并只读访问 Milvus。
 
 完整实施过程、技术选型、难点和项目总结见
 [`docs/project-retrospective.md`](docs/project-retrospective.md)。
@@ -14,6 +14,7 @@
 ```text
 apps/offline-pipeline/   离线抓取、解析、OCR、向量化和入库
 apps/rag-api/            在线检索与问答 API
+eval/                    仅通过 HTTP 调用 API 的黑盒评估工具
 packages/contracts/      两个应用共享的稳定数据契约
 ```
 
@@ -99,7 +100,7 @@ HNSW/COSINE dense 检索和内置 BM25 sparse 检索。
 
 ## 在线 RAG API
 
-阶段 3 已实现独立的检索增强问答服务：
+阶段 5 已实现独立的检索增强问答服务：
 
 - 使用 `moka-ai/m3e-base` 生成归一化的 768 维查询向量；
 - 同时检索 HNSW/COSINE dense index 和 BM25 sparse index；
@@ -176,6 +177,25 @@ curl -X POST http://127.0.0.1:8080/v1/chat \
 规则见 [`docs/rag-api.md`](docs/rag-api.md)。
 Linux/Docker、安全、监控和压测说明见
 [`docs/deployment.md`](docs/deployment.md)。
+
+## RAG 评估
+
+`eval/` 只把在线 API 当作外部服务，不导入在线实现、不访问 Milvus。第一版
+支持 JSONL 数据集、Recall@K/MRR@K、双重门槛误拒/误放、引用命中、事实覆盖
+以及延迟指标，并生成 JSON、JSONL 和 Markdown 报告。
+
+```bash
+export EVAL_BASE_URL=http://127.0.0.1:8080
+export EVAL_API_KEY=your-service-api-key
+
+uv run --package spb-eval spb-eval run \
+  --dataset eval/datasets/private/core.jsonl \
+  --mode all \
+  --label full-chain
+```
+
+数据格式、指标口径和完整使用方式见
+[`eval/README.md`](eval/README.md)。私有数据集与运行报告默认不进入 Git。
 
 ## 测试
 

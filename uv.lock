@@ -20,6 +20,7 @@ resolution-markers = [
 members = [
     "intern26-spb-workspace",
     "spb-contracts",
+    "spb-eval",
     "spb-policy-pipeline",
     "spb-rag-api",
 ]
@@ -1784,6 +1785,21 @@ wheels = [
 name = "spb-contracts"
 version = "0.1.0"
 source = { editable = "packages/contracts" }
+
+[[package]]
+name = "spb-eval"
+version = "0.1.0"
+source = { editable = "eval" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "pydantic", specifier = ">=2.10,<3" },
+]
 
 [[package]]
 name = "spb-policy-pipeline"

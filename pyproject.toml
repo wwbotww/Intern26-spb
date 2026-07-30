@@ -12,6 +12,7 @@ package = false
 members = [
   "apps/offline-pipeline",
   "apps/rag-api",
+  "eval",
   "packages/contracts",
 ]
 
@@ -31,6 +32,7 @@ dev = [
 testpaths = [
   "apps/offline-pipeline/tests",
   "apps/rag-api/tests",
+  "eval/tests",
   "packages/contracts/tests",
 ]
 addopts = "-q"

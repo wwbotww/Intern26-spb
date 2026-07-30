@@ -50,3 +50,11 @@ def test_contracts_package_does_not_import_either_application() -> None:
         project_root / "packages" / "contracts" / "src" / "spb_contracts",
         ("spb_pipeline", "spb_rag_api"),
     )
+
+
+def test_eval_package_uses_api_as_a_black_box() -> None:
+    project_root = Path(__file__).parents[3]
+    _assert_forbidden_imports(
+        project_root / "eval" / "src" / "spb_eval",
+        ("spb_pipeline", "spb_rag_api", "pymilvus", "spb_contracts"),
+    )
