@@ -97,6 +97,11 @@ async def retrieve(
     ]
     return SearchResponse(
         query=query.text,
+        mode=(
+            "hybrid_rrf_rerank"
+            if settings.rerank_enabled
+            else "hybrid_rrf"
+        ),
         count=len(results),
         elapsed_ms=round(elapsed_ms, 3),
         results=results,

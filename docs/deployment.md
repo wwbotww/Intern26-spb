@@ -7,7 +7,8 @@
 - `spb-rag-api`；
 - `spb-contracts`；
 - Python 运行依赖；
-- `moka-ai/m3e-base` 模型权重。
+- `moka-ai/m3e-base` 模型权重；
+- `BAAI/bge-reranker-base` 重排序模型权重。
 
 离线抓取代码、测试、业务数据、`.env`、Git 历史和本地缓存不会进入镜像。
 容器以 UID 10001 非 root 用户运行，根文件系统只读，移除全部 Linux
@@ -57,9 +58,9 @@ docker compose -f deploy/docker-compose.yml up -d rag-api
 docker compose -f deploy/docker-compose.yml ps
 ```
 
-模型在构建阶段下载并写入镜像；运行时启用 Hugging Face 离线模式，不依赖
-公网模型仓库。Linux 锁文件将 PyTorch 固定到官方 CPU wheel index，避免将
-CUDA runtime 打入 CPU 服务镜像。
+embedding 和 reranker 模型均在构建阶段下载并写入镜像；运行时启用
+Hugging Face 离线模式，不依赖公网模型仓库。Linux 锁文件将 PyTorch 固定到
+官方 CPU wheel index，避免将 CUDA runtime 打入 CPU 服务镜像。
 
 查看日志：
 
@@ -85,6 +86,24 @@ curl http://127.0.0.1:8080/health/ready
 
 镜像和 Compose healthcheck 使用 `live`，避免临时上游故障触发容器重启；
 流量入口应使用 `ready` 决定是否转发业务请求。
+
+## 重排序和相关性门槛
+
+```text
+RAG_RERANK_ENABLED=true
+RAG_RERANK_MODEL=BAAI/bge-reranker-base
+RAG_RERANK_FETCH_K=20
+RAG_RERANK_BATCH_SIZE=8
+RAG_RERANK_MIN_SCORE=0.5
+RAG_RERANK_SHADOW_MODE=false
+RAG_RELEVANCE_JUDGE_ENABLED=true
+RAG_RELEVANCE_JUDGE_MAX_SOURCES=5
+```
+
+`RAG_RERANK_MIN_SCORE=0.5` 仅为 Demo 初始值。上线评测前应先使用
+`RAG_RERANK_SHADOW_MODE=true` 收集可回答、不可回答和 topic-only 问题的
+分数，再标定阈值。Judge 使用独立 DeepSeek JSON 请求，只在其通过后调用答案
+生成。
 
 ## 限流和并发
 
@@ -120,7 +139,12 @@ Prometheus 只绑定本机 `127.0.0.1:9091`。主要指标：
 - `spb_http_requests_in_flight`；
 - `spb_auth_failures_total`；
 - `spb_rate_limit_rejections_total`；
-- `spb_deepseek_tokens_total`。
+- `spb_deepseek_tokens_total`；
+- `spb_deepseek_relevance_judge_tokens_total`；
+- `spb_reranker_decisions_total`、`spb_reranker_duration_seconds`；
+- `spb_reranker_top_score`；
+- `spb_relevance_judge_decisions_total`；
+- `spb_relevance_judge_duration_seconds`。
 
 ## 结构化日志
 

@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 from typing import Protocol
 
-from .models import ChatEvent, SearchHit, SearchQuery
+from .models import (
+    ChatEvent,
+    RelevanceDecision,
+    SearchHit,
+    SearchQuery,
+)
 
 
 class QueryEmbedder(Protocol):
@@ -30,6 +35,34 @@ class Retriever(Protocol):
     async def initialize(self) -> None: ...
 
     async def search(self, query: SearchQuery) -> list[SearchHit]: ...
+
+    def readiness(self) -> dict[str, str]: ...
+
+    async def close(self) -> None: ...
+
+
+class Reranker(Protocol):
+    async def initialize(self) -> None: ...
+
+    async def score(
+        self,
+        *,
+        query: str,
+        hits: list[SearchHit],
+    ) -> list[float]: ...
+
+    def readiness(self) -> dict[str, str]: ...
+
+    async def close(self) -> None: ...
+
+
+class RelevanceJudge(Protocol):
+    async def assess(
+        self,
+        *,
+        question: str,
+        hits: list[SearchHit],
+    ) -> RelevanceDecision: ...
 
     def readiness(self) -> dict[str, str]: ...
 

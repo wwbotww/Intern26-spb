@@ -5,7 +5,12 @@ from collections.abc import AsyncIterator
 from fastapi.testclient import TestClient
 
 from spb_rag_api.api.app import create_app
-from spb_rag_api.domain.models import ChatEvent, SearchHit, SearchQuery
+from spb_rag_api.domain.models import (
+    ChatEvent,
+    RelevanceDecision,
+    SearchHit,
+    SearchQuery,
+)
 from spb_rag_api.settings import ApiSettings
 
 
@@ -70,6 +75,29 @@ class FakeChatProvider:
         return None
 
 
+class FakeRelevanceJudge:
+    def __init__(self, decision: RelevanceDecision) -> None:
+        self.decision = decision
+        self.calls = 0
+
+    async def assess(
+        self,
+        *,
+        question: str,
+        hits: list[SearchHit],
+    ) -> RelevanceDecision:
+        assert question
+        assert hits
+        self.calls += 1
+        return self.decision
+
+    def readiness(self) -> dict[str, str]:
+        return {"relevance_judge": "ready"}
+
+    async def close(self) -> None:
+        return None
+
+
 def _hit() -> SearchHit:
     return SearchHit(
         chunk_id="chunk-1",
@@ -97,6 +125,7 @@ def _app(
             auth_enabled=False,
             milvus_uri="",
             deepseek_api_key="test-key",
+            relevance_judge_enabled=False,
         ),
         retriever=retriever,
         chat_provider=provider,
@@ -201,3 +230,96 @@ def test_chat_requires_provider_configuration() -> None:
         response.json()["detail"]["code"]
         == "chat_provider_unavailable"
     )
+
+
+def test_llm_relevance_gate_rejects_without_answer_generation() -> None:
+    provider = FakeChatProvider()
+    judge = FakeRelevanceJudge(
+        RelevanceDecision(
+            answerable=False,
+            relevant_source_ids=(),
+            reason_code="topic_only",
+            usage={"total_tokens": 25},
+        )
+    )
+    app = create_app(
+        settings=ApiSettings(
+            auth_enabled=False,
+            milvus_uri="",
+            deepseek_api_key="test-key",
+            relevance_judge_enabled=True,
+        ),
+        retriever=FakeRetriever([_hit()]),
+        chat_provider=provider,
+        relevance_judge=judge,
+    )
+
+    with TestClient(app) as client:
+        json_response = client.post(
+            "/v1/chat",
+            json={"question": "无直接证据的问题", "stream": False},
+        )
+        stream_response = client.post(
+            "/v1/chat",
+            json={"question": "无直接证据的问题", "stream": True},
+        )
+
+    assert json_response.status_code == 200
+    assert json_response.json()["finish_reason"] == "llm_rejected"
+    assert json_response.json()["citations"] == []
+    assert "资料不足" in json_response.json()["answer"]
+    assert "event: metadata" in stream_response.text
+    assert '"citations": []' in stream_response.text
+    assert '"finish_reason": "llm_rejected"' in stream_response.text
+    assert provider.calls == 0
+    assert judge.calls == 2
+
+
+def test_llm_relevance_gate_keeps_only_approved_sources() -> None:
+    provider = FakeChatProvider()
+    judge = FakeRelevanceJudge(
+        RelevanceDecision(
+            answerable=True,
+            relevant_source_ids=(2,),
+            reason_code="direct_support",
+            usage={"total_tokens": 25},
+        )
+    )
+    app = create_app(
+        settings=ApiSettings(
+            auth_enabled=False,
+            milvus_uri="",
+            deepseek_api_key="test-key",
+            relevance_judge_enabled=True,
+        ),
+        retriever=FakeRetriever(
+            [
+                _hit(),
+                SearchHit(
+                    **{
+                        **_hit().__dict__,
+                        "chunk_id": "chunk-2",
+                        "document_id": "document-2",
+                        "title": "直接证据",
+                        "text": "直接回答问题的政策正文。",
+                    }
+                ),
+            ]
+        ),
+        chat_provider=provider,
+        relevance_judge=judge,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            json={"question": "问题", "stream": False},
+        )
+
+    assert response.status_code == 200
+    assert [item["chunk_id"] for item in response.json()["citations"]] == [
+        "chunk-2"
+    ]
+    assert provider.messages is not None
+    assert "直接回答问题的政策正文" in provider.messages[1]["content"]
+    assert "经营快递业务" not in provider.messages[1]["content"]

@@ -115,6 +115,7 @@ class SearchRequest(BaseModel):
 class SearchResult(BaseModel):
     rank: int
     score: float
+    rerank_score: float | None = None
     chunk_id: str
     document_id: str
     parent_document_id: str
@@ -136,7 +137,10 @@ class SearchResult(BaseModel):
 
 class SearchResponse(BaseModel):
     query: str
-    mode: Literal["hybrid_rrf"] = "hybrid_rrf"
+    mode: Literal[
+        "hybrid_rrf",
+        "hybrid_rrf_rerank",
+    ] = "hybrid_rrf"
     count: int
     elapsed_ms: float
     results: list[SearchResult]
@@ -172,6 +176,7 @@ class ChatCitation(BaseModel):
     source_org: str
     section_path: str
     score: float
+    rerank_score: float | None = None
     excerpt: str
 
     @classmethod

@@ -37,6 +37,26 @@ class SearchHit:
     source_org: str = ""
     validity_status: str = "unknown"
     chunk_index: int = 0
+    rerank_score: float | None = None
+
+
+class SearchResults(list[SearchHit]):
+    def __init__(
+        self,
+        values: list[SearchHit] | None = None,
+        *,
+        rejection_reason: str = "",
+    ) -> None:
+        super().__init__(values or [])
+        self.rejection_reason = rejection_reason
+
+
+@dataclass(frozen=True)
+class RelevanceDecision:
+    answerable: bool
+    relevant_source_ids: tuple[int, ...]
+    reason_code: str
+    usage: dict[str, Any]
 
 
 @dataclass(frozen=True)

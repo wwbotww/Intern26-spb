@@ -9,8 +9,26 @@ import pytest
 from spb_rag_api.adapters.deepseek import (
     DeepSeekChatProvider,
     DeepSeekConfig,
+    DeepSeekJudgeConfig,
+    DeepSeekRelevanceJudge,
 )
-from spb_rag_api.domain.exceptions import ChatProviderError
+from spb_rag_api.domain.exceptions import (
+    ChatProviderError,
+    RelevanceJudgeError,
+)
+from spb_rag_api.domain.models import SearchHit
+
+
+def _hit(index: int) -> SearchHit:
+    return SearchHit(
+        chunk_id=f"chunk-{index}",
+        document_id=f"document-{index}",
+        title=f"政策 {index}",
+        text=f"政策正文 {index}",
+        source_url="https://www.spb.gov.cn/example.html",
+        section_path=f"第{index}条",
+        score=0.03,
+    )
 
 
 def test_deepseek_provider_parses_stream_and_usage() -> None:
@@ -137,3 +155,110 @@ def test_thinking_mode_omits_temperature() -> None:
 
     assert captured["thinking"] == {"type": "enabled"}
     assert "temperature" not in captured
+
+
+def test_relevance_judge_uses_json_mode_and_validates_sources() -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "answerable": True,
+                                    "relevant_source_ids": [2],
+                                    "reason_code": "direct_support",
+                                }
+                            )
+                        }
+                    }
+                ],
+                "usage": {"total_tokens": 42},
+            },
+        )
+
+    async def scenario():
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com/",
+        )
+        judge = DeepSeekRelevanceJudge(
+            DeepSeekJudgeConfig(
+                base_url="https://api.deepseek.com",
+                api_key="test-key",
+            ),
+            client=client,
+        )
+        decision = await judge.assess(
+            question="需要什么条件？",
+            hits=[_hit(1), _hit(2)],
+        )
+        await client.aclose()
+        return decision
+
+    decision = asyncio.run(scenario())
+
+    assert decision.answerable is True
+    assert decision.relevant_source_ids == (2,)
+    assert decision.usage["total_tokens"] == 42
+    assert captured["stream"] is False
+    assert captured["temperature"] == 0
+    assert captured["response_format"] == {"type": "json_object"}
+    assert "只输出 JSON" in captured["messages"][0]["content"]
+
+
+def test_relevance_judge_retries_empty_json_and_rejects_invalid_ids() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        content = (
+            ""
+            if calls == 1
+            else json.dumps(
+                {
+                    "answerable": True,
+                    "relevant_source_ids": [9],
+                    "reason_code": "direct_support",
+                }
+            )
+        )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {},
+            },
+        )
+
+    async def scenario() -> None:
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com/",
+        )
+        judge = DeepSeekRelevanceJudge(
+            DeepSeekJudgeConfig(
+                base_url="https://api.deepseek.com",
+                api_key="test-key",
+                attempts=2,
+            ),
+            client=client,
+        )
+        with pytest.raises(
+            RelevanceJudgeError,
+            match="未返回有效 JSON",
+        ):
+            await judge.assess(
+                question="问题",
+                hits=[_hit(1)],
+            )
+        await client.aclose()
+
+    asyncio.run(scenario())
+    assert calls == 2

@@ -17,10 +17,14 @@ RUN uv sync \
     --no-install-workspace
 
 ARG EMBEDDING_MODEL=moka-ai/m3e-base
+ARG RERANK_MODEL=BAAI/bge-reranker-base
 ENV EMBEDDING_MODEL=${EMBEDDING_MODEL} \
+    RERANK_MODEL=${RERANK_MODEL} \
     HF_HOME=/opt/huggingface
 RUN /app/.venv/bin/python -c \
     'import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ["EMBEDDING_MODEL"], device="cpu")'
+RUN /app/.venv/bin/python -c \
+    'import os; from transformers import AutoModelForSequenceClassification, AutoTokenizer; name=os.environ["RERANK_MODEL"]; AutoTokenizer.from_pretrained(name); AutoModelForSequenceClassification.from_pretrained(name)'
 
 COPY apps/rag-api/src apps/rag-api/src
 COPY packages/contracts/src packages/contracts/src

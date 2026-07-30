@@ -35,8 +35,9 @@ flowchart LR
 - 在线 HTTP API；
 - 查询 embedding；
 - Milvus Hybrid Retrieval；
+- 轻量 Cross-Encoder 重排序与本地相关性门槛；
 - RAG 上下文与引用；
-- DeepSeek 适配和 SSE；
+- DeepSeek 证据充分性 Judge、答案生成和 SSE；
 - 在线鉴权、限流、日志和监控。
 
 它可以依赖 `spb-contracts`，但不得导入 `spb_pipeline`。阶段 3 已包含查询
@@ -108,7 +109,8 @@ sparse field    text_sparse
 1. Workspace 隔离：已完成；
 2. 纯检索 API：已完成 m3e-base、Milvus、Dense/BM25、RRF；
 3. DeepSeek 与 SSE：已完成 grounded answer、引用、流式响应；
-4. Linux/Docker：已完成鉴权、限流、日志、监控、容器隔离和压测工具。
+4. Linux/Docker：已完成鉴权、限流、日志、监控、容器隔离和压测工具；
+5. 双重相关性门槛：已完成 BGE reranker 和 DeepSeek JSON Judge。
 
 ## 阶段 2 在线检索流程
 
@@ -118,15 +120,27 @@ sequenceDiagram
     participant A as "rag-api"
     participant E as "m3e-base"
     participant M as "Milvus"
+    participant R as "BGE reranker"
     participant D as "DeepSeek"
     U->>A: "POST /v1/chat"
     A->>E: "查询文本 embedding"
     E-->>A: "768 维归一化向量"
     A->>M: "Dense HNSW + BM25 candidates"
-    M->>M: "RRF rerank"
-    M-->>A: "Top K chunks + metadata"
-    A->>D: "问题 + 编号知识上下文"
-    D-->>A: "SSE answer deltas"
+    M->>M: "RRF fusion"
+    M-->>A: "融合候选"
+    A->>R: "问题 + Top 20 candidates"
+    R-->>A: "重排序分数"
+    alt "没有候选通过本地门槛"
+        A-->>U: "固定资料不足"
+    else "本地门槛通过"
+        A->>D: "JSON 证据充分性判定"
+        alt "Judge 拒绝"
+            A-->>U: "固定资料不足"
+        else "Judge 通过"
+            A->>D: "问题 + Judge 认可的编号知识上下文"
+            D-->>A: "SSE answer deltas"
+        end
+    end
     A-->>U: "metadata / delta / usage / done"
 ```
 

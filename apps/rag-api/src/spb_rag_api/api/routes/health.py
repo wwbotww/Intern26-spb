@@ -21,7 +21,7 @@ async def live() -> HealthResponse:
         status="ok",
         service="spb-rag-api",
         version=__version__,
-        phase=4,
+        phase=5,
         checks={
             "workspace": "ok",
             "collection_contract": (
@@ -47,7 +47,7 @@ async def ready(request: Request) -> HealthResponse | JSONResponse:
             status="not_ready",
             service="spb-rag-api",
             version=__version__,
-            phase=4,
+            phase=5,
             checks={
                 "retriever": "not_ready",
                 "reason": getattr(
@@ -73,6 +73,18 @@ async def ready(request: Request) -> HealthResponse | JSONResponse:
     else:
         checks.update(provider.readiness())
     settings = request.app.state.settings
+    judge = getattr(request.app.state, "relevance_judge", None)
+    if not settings.relevance_judge_enabled:
+        checks["relevance_judge"] = "disabled"
+    elif judge is None:
+        checks["relevance_judge"] = "not_ready"
+        checks["relevance_judge_reason"] = getattr(
+            request.app.state,
+            "relevance_judge_initialization_error",
+            "not_initialized",
+        )
+    else:
+        checks.update(judge.readiness())
     checks["auth"] = (
         "ready"
         if not settings.auth_enabled or settings.parsed_api_keys()
@@ -89,7 +101,7 @@ async def ready(request: Request) -> HealthResponse | JSONResponse:
         status="ok" if is_ready else "not_ready",
         service="spb-rag-api",
         version=__version__,
-        phase=4,
+        phase=5,
         checks=checks,
     )
     if not is_ready:

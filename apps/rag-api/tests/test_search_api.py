@@ -50,6 +50,7 @@ def test_retrieve_maps_request_and_results() -> None:
     settings = ApiSettings(
         auth_enabled=False,
         deepseek_api_key="",
+        rerank_enabled=False,
         search_default_top_k=5,
         search_max_top_k=20,
         search_candidate_k=40,

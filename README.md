@@ -104,8 +104,11 @@ HNSW/COSINE dense 检索和内置 BM25 sparse 检索。
 - 使用 `moka-ai/m3e-base` 生成归一化的 768 维查询向量；
 - 同时检索 HNSW/COSINE dense index 和 BM25 sparse index；
 - 由 Milvus `RRFRanker` 融合两路候选；
+- 使用 `BAAI/bge-reranker-base` 对融合候选重排序并执行第一道相关性过滤；
 - 支持文档类型、有效性、发布机构和发布日期结构化过滤；
 - 使用 DeepSeek V4 Flash 根据检索上下文生成引用式回答；
+- 生成前由 DeepSeek JSON Judge 再判断证据是否足以回答；
+- 任一相关性门槛拒绝时固定返回资料不足，不把低相关片段交给答案生成；
 - 同时支持 JSON 响应和 SSE 流式输出；
 - 无匹配资料时不调用大模型，直接返回资料不足；
 - `/health/live` 检查进程，`/health/ready` 检查 embedding、Milvus 和

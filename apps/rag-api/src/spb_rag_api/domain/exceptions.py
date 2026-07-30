@@ -17,5 +17,13 @@ class QueryTooLongError(RetrievalError):
     """查询超出 embedding 模型可接受的 token 数。"""
 
 
+class RerankerError(RetrievalError):
+    """重排序模型调用失败。"""
+
+
 class ChatProviderError(RuntimeError):
     """大模型服务调用失败。"""
+
+
+class RelevanceJudgeError(ChatProviderError):
+    """大模型相关性判定失败。"""

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from html import escape
+from time import perf_counter
 from typing import Any
 
 from ..domain.models import ChatEvent, SearchHit, SearchQuery
-from ..domain.ports import ChatProvider, Retriever
+from ..domain.ports import ChatProvider, RelevanceJudge, Retriever
 
 
 SYSTEM_PROMPT = """你是国家邮政局政策法规标准知识库问答助手。
@@ -31,6 +32,7 @@ class Citation:
     source_org: str
     section_path: str
     score: float
+    rerank_score: float | None
     excerpt: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -41,6 +43,9 @@ class Citation:
 class PreparedChat:
     messages: list[dict[str, str]]
     citations: list[Citation]
+    rejection_reason: str = ""
+    judge_usage: dict[str, Any] | None = None
+    judge_elapsed_seconds: float = 0.0
 
 
 def prepare_grounded_chat(
@@ -104,6 +109,7 @@ def prepare_grounded_chat(
                 source_org=hit.source_org,
                 section_path=hit.section_path,
                 score=hit.score,
+                rerank_score=hit.rerank_score,
                 excerpt=hit.text[:240],
             )
         )
@@ -130,10 +136,12 @@ class GroundedChatService:
         *,
         retriever: Retriever,
         provider: ChatProvider,
+        relevance_judge: RelevanceJudge | None,
         max_context_chars: int,
     ) -> None:
         self._retriever = retriever
         self._provider = provider
+        self._relevance_judge = relevance_judge
         self._max_context_chars = max_context_chars
 
     @property
@@ -147,10 +155,53 @@ class GroundedChatService:
         search_query: SearchQuery,
     ) -> PreparedChat:
         hits = await self._retriever.search(search_query)
-        return prepare_grounded_chat(
+        if not hits:
+            return replace(
+                prepare_grounded_chat(
+                    question=question,
+                    hits=[],
+                    max_context_chars=self._max_context_chars,
+                ),
+                rejection_reason=(
+                    getattr(hits, "rejection_reason", "")
+                    or "no_context"
+                ),
+            )
+        if self._relevance_judge is None:
+            return prepare_grounded_chat(
+                question=question,
+                hits=hits,
+                max_context_chars=self._max_context_chars,
+            )
+        judge_started = perf_counter()
+        decision = await self._relevance_judge.assess(
             question=question,
             hits=hits,
-            max_context_chars=self._max_context_chars,
+        )
+        judge_elapsed_seconds = perf_counter() - judge_started
+        if not decision.answerable:
+            return replace(
+                prepare_grounded_chat(
+                    question=question,
+                    hits=[],
+                    max_context_chars=self._max_context_chars,
+                ),
+                rejection_reason="llm_rejected",
+                judge_usage=decision.usage,
+                judge_elapsed_seconds=judge_elapsed_seconds,
+            )
+        selected_hits = [
+            hits[index - 1]
+            for index in decision.relevant_source_ids
+        ]
+        return replace(
+            prepare_grounded_chat(
+                question=question,
+                hits=selected_hits,
+                max_context_chars=self._max_context_chars,
+            ),
+            judge_usage=decision.usage,
+            judge_elapsed_seconds=judge_elapsed_seconds,
         )
 
     async def stream(

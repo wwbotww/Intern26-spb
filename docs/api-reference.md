@@ -99,8 +99,9 @@ Retry-After: 42
 
 ### `POST /v1/retrieve`
 
-使用 `moka-ai/m3e-base` 稠密向量和 BM25 稀疏检索召回候选，再使用 RRF
-融合排序。该接口不调用 DeepSeek。
+使用 `moka-ai/m3e-base` 稠密向量和 BM25 稀疏检索召回候选，先用 RRF
+融合，再使用轻量 Cross-Encoder 重排序和相关性阈值过滤。该接口不调用
+DeepSeek。
 
 ### 3.1 请求
 
@@ -159,13 +160,14 @@ HTTP 200：
 ```json
 {
   "query": "快递业务经营许可需要符合哪些条件？",
-  "mode": "hybrid_rrf",
+  "mode": "hybrid_rrf_rerank",
   "count": 1,
   "elapsed_ms": 96.314,
   "results": [
     {
       "rank": 1,
       "score": 0.032,
+      "rerank_score": 0.918,
       "chunk_id": "chunk-id",
       "document_id": "document-id",
       "parent_document_id": "",
@@ -188,11 +190,12 @@ HTTP 200：
 
 | 字段 | 说明 |
 |---|---|
-| `mode` | 固定为 `hybrid_rrf` |
+| `mode` | 启用重排序时为 `hybrid_rrf_rerank`，否则为 `hybrid_rrf` |
 | `count` | 本次实际返回的结果数，可能小于 `top_k` |
 | `elapsed_ms` | 服务端 embedding 和 Milvus 检索耗时 |
 | `rank` | 从 1 开始的本次结果排序 |
 | `score` | RRF 融合分数，越高表示本次查询中的综合排名越靠前 |
+| `rerank_score` | Cross-Encoder 归一化相关性分数；未启用时为 `null` |
 | `chunk_id` | 知识片段唯一标识 |
 | `document_id` | 来源文档标识 |
 | `parent_document_id` | 父文档标识；没有时为空字符串 |
@@ -201,15 +204,18 @@ HTTP 200：
 | `section_path` | 片段在文档中的章节位置 |
 | `chunk_index` | 片段在文档中的顺序 |
 
-RRF `score` 不是相似度百分比，不应转换为置信度，也不建议跨不同查询直接
-比较。部分历史文件可能缺少文号、发布机构等元数据，对应字段会是空字符串。
+RRF `score` 和 `rerank_score` 都不等同于答案正确率。`rerank_score` 主要用于
+当前模型和当前数据集上的排序、门槛标定，不建议跨模型直接比较。部分历史
+文件可能缺少文号、发布机构等元数据，对应字段会是空字符串。
 
 ## 4. 检索增强问答
 
 ### `POST /v1/chat`
 
-服务先执行与 `/v1/retrieve` 相同的混合检索，再让 DeepSeek 仅依据检索结果
-回答，并要求关键结论使用 `[1]`、`[2]` 等编号引用来源。
+服务先执行与 `/v1/retrieve` 相同的混合检索和重排序。没有候选通过本地
+reranker 门槛时直接拒答；通过后由 DeepSeek 独立判断证据是否足以回答，只有
+判定通过才进入答案生成。生成阶段仅使用 Judge 认可的来源，并要求关键结论
+使用 `[1]`、`[2]` 等编号引用。
 
 `stream` 决定响应协议：
 
@@ -275,6 +281,7 @@ HTTP 200 响应：
       "source_org": "发布机构",
       "section_path": "第二章/第十条",
       "score": 0.032,
+      "rerank_score": 0.918,
       "excerpt": "用于展示的来源正文摘要"
     }
   ],
@@ -359,9 +366,15 @@ data: {"finish_reason":"stop","request_id":"chat-sse-example-001"}
 应使用 `fetch` 的 `ReadableStream`，服务端客户端可使用支持流式响应的 HTTP
 库。
 
-### 4.4 无匹配资料
+### 4.4 无匹配或证据不足
 
-没有可用检索资料时，服务不会调用 DeepSeek。
+以下情况均返回固定资料不足答案：
+
+- Milvus 没有召回候选：不调用 DeepSeek；
+- 候选全部低于 reranker 门槛：不调用 DeepSeek；
+- DeepSeek Judge 判定证据不充分：调用 Judge，但不调用答案生成。
+
+被拒绝的低相关候选不会作为 citations 返回客户端。
 
 非流式响应仍为 HTTP 200：
 
@@ -372,7 +385,7 @@ data: {"finish_reason":"stop","request_id":"chat-sse-example-001"}
   "answer": "当前知识库资料不足以回答该问题。",
   "citations": [],
   "usage": {},
-  "finish_reason": "no_context"
+  "finish_reason": "reranker_rejected"
 }
 ```
 
@@ -382,7 +395,15 @@ data: {"finish_reason":"stop","request_id":"chat-sse-example-001"}
 2. 包含固定资料不足提示的 `delta`；
 3. `finish_reason=no_context` 的 `done`。
 
-此时不会产生 `usage` 事件。
+`finish_reason` 可能是：
+
+| 值 | 含义 |
+|---|---|
+| `no_context` | 没有召回候选 |
+| `reranker_rejected` | 第一重本地相关性门槛拒绝 |
+| `llm_rejected` | DeepSeek 证据充分性门槛拒绝 |
+
+拒答时不会产生答案生成的 `usage` 事件。Judge 自身用量只进入服务监控指标。
 
 ## 5. 健康检查
 
@@ -400,8 +421,8 @@ curl -sS "${SPB_RAG_BASE_URL}/health/live"
 {
   "status": "ok",
   "service": "spb-rag-api",
-  "version": "0.4.0",
-  "phase": 4,
+  "version": "0.5.0",
+  "phase": 5,
   "checks": {
     "workspace": "ok",
     "collection_contract": "spb_policy_chunks:v1",
@@ -424,8 +445,8 @@ curl -sS "${SPB_RAG_BASE_URL}/health/ready"
 {
   "status": "ok",
   "service": "spb-rag-api",
-  "version": "0.4.0",
-  "phase": 4,
+  "version": "0.5.0",
+  "phase": 5,
   "checks": {
     "retriever": "ready",
     "embedding": "ready",
@@ -467,8 +488,10 @@ curl -sS "${SPB_RAG_BASE_URL}/health/ready"
 | 429 | `rate_limit_exceeded` | 请求超过限流 | 按 `Retry-After` 退避重试 |
 | 502 | `retrieval_failed` | Milvus 检索失败 | 使用指数退避有限重试 |
 | 502 | `chat_provider_failed` | DeepSeek 调用失败 | 使用指数退避有限重试 |
+| 502 | `relevance_gate_failed` | DeepSeek Judge 未返回有效判定 | 有限重试，联系管理员 |
 | 503 | `retrieval_unavailable` | 检索组件未就绪 | 稍后重试并检查 readiness |
 | 503 | `chat_provider_unavailable` | 问答模型未配置或未就绪 | 检查 readiness，联系管理员 |
+| 503 | `relevance_gate_unavailable` | DeepSeek Judge 未配置 | 检查 readiness，联系管理员 |
 | 503 | `auth_not_configured` | 服务端尚未配置调用方密钥 | 联系管理员 |
 
 请求字段类型、必填项或基础长度校验失败时，FastAPI 返回标准 HTTP 422：

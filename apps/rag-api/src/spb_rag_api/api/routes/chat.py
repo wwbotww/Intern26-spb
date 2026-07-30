@@ -11,10 +11,11 @@ from fastapi.responses import StreamingResponse
 from ...domain.exceptions import (
     ChatProviderError,
     QueryTooLongError,
+    RelevanceJudgeError,
     RetrievalError,
     RetrievalNotReadyError,
 )
-from ...domain.ports import ChatProvider, Retriever
+from ...domain.ports import ChatProvider, RelevanceJudge, Retriever
 from ...services.chat import (
     NO_CONTEXT_ANSWER,
     GroundedChatService,
@@ -65,18 +66,32 @@ def _get_dependencies(
                 "message": "问答模型尚未配置",
             },
         )
-    return retriever, provider, request.app.state.settings
+    settings: ApiSettings = request.app.state.settings
+    if (
+        settings.relevance_judge_enabled
+        and getattr(request.app.state, "relevance_judge", None) is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "relevance_gate_unavailable",
+                "message": "证据相关性判定服务尚未配置",
+            },
+        )
+    return retriever, provider, settings
 
 
 def _build_service(
     *,
     retriever: Retriever,
     provider: ChatProvider,
+    relevance_judge: RelevanceJudge | None,
     settings: ApiSettings,
 ) -> GroundedChatService:
     return GroundedChatService(
         retriever=retriever,
         provider=provider,
+        relevance_judge=relevance_judge,
         max_context_chars=settings.chat_context_max_chars,
     )
 
@@ -101,6 +116,15 @@ async def _prepare(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={"code": "query_too_long", "message": str(exc)},
+        ) from exc
+    except RelevanceJudgeError as exc:
+        logger.exception("relevance judge failed")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "relevance_gate_failed",
+                "message": "证据相关性判定失败",
+            },
         ) from exc
     except RetrievalNotReadyError as exc:
         raise HTTPException(
@@ -141,6 +165,14 @@ async def _stream_events(
     try:
         async with request.app.state.capacity:
             prepared = await _prepare(service, payload, settings)
+            if prepared.judge_usage is not None:
+                request.app.state.metrics.observe_relevance_judge(
+                    accepted=(
+                        prepared.rejection_reason != "llm_rejected"
+                    ),
+                    usage=prepared.judge_usage,
+                    duration_seconds=prepared.judge_elapsed_seconds,
+                )
             citations = [
                 ChatCitation.from_domain(item).model_dump()
                 for item in prepared.citations
@@ -162,7 +194,9 @@ async def _stream_events(
                     "done",
                     {
                         "request_id": request_id,
-                        "finish_reason": "no_context",
+                        "finish_reason": (
+                            prepared.rejection_reason or "no_context"
+                        ),
                     },
                 )
                 return
@@ -241,6 +275,11 @@ async def chat(
     service = _build_service(
         retriever=retriever,
         provider=provider,
+        relevance_judge=getattr(
+            request.app.state,
+            "relevance_judge",
+            None,
+        ),
         settings=settings,
     )
     request_id = request.state.request_id
@@ -262,6 +301,12 @@ async def chat(
 
     async with request.app.state.capacity:
         prepared = await _prepare(service, payload, settings)
+        if prepared.judge_usage is not None:
+            request.app.state.metrics.observe_relevance_judge(
+                accepted=prepared.rejection_reason != "llm_rejected",
+                usage=prepared.judge_usage,
+                duration_seconds=prepared.judge_elapsed_seconds,
+            )
         if prepared.citations:
             try:
                 answer, usage, finish_reason = await collect_answer(
@@ -281,7 +326,7 @@ async def chat(
         else:
             answer = NO_CONTEXT_ANSWER
             usage = {}
-            finish_reason = "no_context"
+            finish_reason = prepared.rejection_reason or "no_context"
     return ChatResponse(
         request_id=request_id,
         model=service.model,

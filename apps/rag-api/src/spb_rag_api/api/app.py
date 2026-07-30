@@ -8,12 +8,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .. import __version__
-from ..adapters.deepseek import DeepSeekChatProvider, DeepSeekConfig
+from ..adapters.deepseek import (
+    DeepSeekChatProvider,
+    DeepSeekConfig,
+    DeepSeekJudgeConfig,
+    DeepSeekRelevanceJudge,
+)
 from ..adapters.embedding import SentenceTransformerQueryEmbedder
 from ..adapters.milvus import MilvusHybridSearchStore, MilvusReadConfig
-from ..domain.ports import ChatProvider, Retriever
+from ..adapters.reranker import TransformerReranker
+from ..domain.ports import ChatProvider, RelevanceJudge, Retriever
 from ..middleware.operations import OperationsConfig, OperationsMiddleware
 from ..observability.metrics import ServiceMetrics
+from ..services.reranking import RerankingRetriever
 from ..services.search import HybridSearchService
 from ..settings import ApiSettings
 from .routes.chat import router as chat_router
@@ -25,7 +32,10 @@ from .routes.search import router as search_router
 logger = logging.getLogger(__name__)
 
 
-def _build_retriever(settings: ApiSettings) -> HybridSearchService:
+def _build_retriever(
+    settings: ApiSettings,
+    metrics: ServiceMetrics,
+) -> Retriever:
     embedder = SentenceTransformerQueryEmbedder(
         model_name=settings.embedding_model,
         device=settings.embedding_device,
@@ -43,7 +53,26 @@ def _build_retriever(settings: ApiSettings) -> HybridSearchService:
             dense_ef=settings.search_dense_ef,
         )
     )
-    return HybridSearchService(embedder=embedder, store=store)
+    retriever: Retriever = HybridSearchService(
+        embedder=embedder,
+        store=store,
+    )
+    if settings.rerank_enabled:
+        retriever = RerankingRetriever(
+            retriever=retriever,
+            reranker=TransformerReranker(
+                model_name=settings.rerank_model,
+                device=settings.rerank_device,
+                batch_size=settings.rerank_batch_size,
+                max_length=settings.rerank_max_length,
+                max_concurrency=settings.rerank_max_concurrency,
+            ),
+            fetch_k=settings.rerank_fetch_k,
+            min_score=settings.rerank_min_score,
+            shadow_mode=settings.rerank_shadow_mode,
+            metrics=metrics,
+        )
+    return retriever
 
 
 def _build_chat_provider(settings: ApiSettings) -> DeepSeekChatProvider:
@@ -60,20 +89,43 @@ def _build_chat_provider(settings: ApiSettings) -> DeepSeekChatProvider:
     )
 
 
+def _build_relevance_judge(
+    settings: ApiSettings,
+) -> DeepSeekRelevanceJudge:
+    return DeepSeekRelevanceJudge(
+        DeepSeekJudgeConfig(
+            base_url=settings.deepseek_base_url,
+            api_key=settings.deepseek_api_key.get_secret_value(),
+            model=settings.deepseek_model,
+            timeout_seconds=settings.deepseek_timeout_seconds,
+            max_sources=settings.relevance_judge_max_sources,
+            source_max_chars=(
+                settings.relevance_judge_source_max_chars
+            ),
+            max_tokens=settings.relevance_judge_max_tokens,
+            attempts=settings.relevance_judge_attempts,
+        )
+    )
+
+
 def create_app(
     *,
     settings: ApiSettings | None = None,
     retriever: Retriever | None = None,
     chat_provider: ChatProvider | None = None,
+    relevance_judge: RelevanceJudge | None = None,
 ) -> FastAPI:
     resolved_settings = settings or ApiSettings()
     service_metrics = ServiceMetrics()
     managed_retriever: Retriever | None = None
     managed_chat_provider: ChatProvider | None = None
+    managed_relevance_judge: RelevanceJudge | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal managed_chat_provider, managed_retriever
+        nonlocal managed_chat_provider
+        nonlocal managed_relevance_judge
+        nonlocal managed_retriever
         app.state.settings = resolved_settings
         app.state.metrics = service_metrics
         app.state.capacity = asyncio.Semaphore(
@@ -89,7 +141,10 @@ def create_app(
             app.state.retriever = None
             app.state.initialization_error = "startup_initialization_disabled"
         else:
-            managed_retriever = _build_retriever(resolved_settings)
+            managed_retriever = _build_retriever(
+                resolved_settings,
+                service_metrics,
+            )
             try:
                 await managed_retriever.initialize()
             except Exception as exc:
@@ -111,9 +166,27 @@ def create_app(
                 resolved_settings
             )
             app.state.chat_provider = managed_chat_provider
+        app.state.relevance_judge_initialization_error = ""
+        if not resolved_settings.relevance_judge_enabled:
+            app.state.relevance_judge = None
+            app.state.relevance_judge_initialization_error = "disabled"
+        elif relevance_judge is not None:
+            app.state.relevance_judge = relevance_judge
+        elif not resolved_settings.deepseek_api_key.get_secret_value():
+            app.state.relevance_judge = None
+            app.state.relevance_judge_initialization_error = (
+                "deepseek_not_configured"
+            )
+        else:
+            managed_relevance_judge = _build_relevance_judge(
+                resolved_settings
+            )
+            app.state.relevance_judge = managed_relevance_judge
         try:
             yield
         finally:
+            if managed_relevance_judge is not None:
+                await managed_relevance_judge.close()
             if managed_chat_provider is not None:
                 await managed_chat_provider.close()
             if managed_retriever is not None:

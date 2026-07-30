@@ -1,6 +1,6 @@
 [project]
 name = "spb-rag-api"
-version = "0.4.0"
+version = "0.5.0"
 description = "国家邮政局政策知识库在线检索与问答 API"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
   "sentence-transformers>=3,<6",
   "spb-contracts",
   "torch>=2.11,<3",
+  "transformers>=5,<6",
   "uvicorn[standard]>=0.30,<1",
 ]
 

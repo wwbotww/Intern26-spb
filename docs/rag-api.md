@@ -11,11 +11,26 @@
 
 | 接口 | 作用 | 是否调用 DeepSeek |
 |---|---|---|
-| `POST /v1/retrieve` | 返回 Hybrid/RRF 检索结果 | 否 |
-| `POST /v1/chat` | 根据检索资料生成带引用回答 | 有资料时调用 |
+| `POST /v1/retrieve` | 返回 Hybrid/RRF + reranker 结果 | 否 |
+| `POST /v1/chat` | 双重相关性门槛后生成带引用回答 | 有候选时先调用 Judge |
 
-没有匹配资料时，`/v1/chat` 固定返回“当前知识库资料不足以回答该问题”，不会
-调用 DeepSeek。
+没有候选或 reranker 全部拒绝时，`/v1/chat` 固定返回资料不足，不调用
+DeepSeek。第一道门槛通过后，DeepSeek Judge 只做 JSON 证据充分性分类；Judge
+拒绝时不进入答案生成。
+
+## 双重相关性门槛
+
+1. Dense/BM25 各召回候选并由 RRF 融合；
+2. 内部保留最多 `RAG_RERANK_FETCH_K` 条交给
+   `BAAI/bge-reranker-base`；
+3. reranker 批量重排，低于 `RAG_RERANK_MIN_SCORE` 的候选被过滤；
+4. DeepSeek Judge 使用 JSON mode 返回 `answerable` 和认可的来源 ID；
+5. 只使用 Judge 认可的来源重新编号、构建 prompt 和 citations；
+6. Judge JSON 无效属于技术错误，不伪装成“资料不足”。
+
+`RAG_RERANK_MIN_SCORE=0.5` 是 Demo 初始值，必须通过正例、不可回答问题和
+topic-only hard negative 重新标定。可先启用 `RAG_RERANK_SHADOW_MODE=true`
+只记录分数而不拦截。
 
 除健康检查和 `/metrics` 外，所有接口默认需要以下任一请求头：
 

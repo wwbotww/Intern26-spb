@@ -55,6 +55,16 @@ class ApiSettings(BaseSettings):
     search_rrf_k: int = Field(default=60, ge=1, le=1000)
     search_dense_ef: int = Field(default=64, ge=1, le=4096)
 
+    rerank_enabled: bool = True
+    rerank_model: str = "BAAI/bge-reranker-base"
+    rerank_device: Literal["cpu", "cuda", "mps"] = "cpu"
+    rerank_fetch_k: int = Field(default=20, ge=1, le=100)
+    rerank_batch_size: int = Field(default=8, ge=1, le=128)
+    rerank_max_length: int = Field(default=512, ge=64, le=8192)
+    rerank_max_concurrency: int = Field(default=1, ge=1, le=10)
+    rerank_min_score: float = Field(default=0.5, ge=0, le=1)
+    rerank_shadow_mode: bool = False
+
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_api_key: SecretStr = SecretStr("")
     deepseek_model: str = "deepseek-v4-flash"
@@ -67,6 +77,23 @@ class ApiSettings(BaseSettings):
         ge=1000,
         le=200000,
     )
+    relevance_judge_enabled: bool = True
+    relevance_judge_max_sources: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+    )
+    relevance_judge_source_max_chars: int = Field(
+        default=1200,
+        ge=200,
+        le=10000,
+    )
+    relevance_judge_max_tokens: int = Field(
+        default=180,
+        ge=64,
+        le=2048,
+    )
+    relevance_judge_attempts: int = Field(default=2, ge=1, le=3)
 
     @model_validator(mode="after")
     def validate_search_limits(self) -> "ApiSettings":
@@ -81,6 +108,13 @@ class ApiSettings(BaseSettings):
         if self.search_candidate_k > self.search_max_candidate_k:
             raise ValueError(
                 "search_candidate_k 不能大于 search_max_candidate_k"
+            )
+        if (
+            self.rerank_enabled
+            and self.rerank_fetch_k < self.search_default_top_k
+        ):
+            raise ValueError(
+                "rerank_fetch_k 不能小于 search_default_top_k"
             )
         return self
 
