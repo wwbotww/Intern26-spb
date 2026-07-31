@@ -28,6 +28,52 @@ def _safe_label(value: str) -> str:
     return normalized or "eval"
 
 
+def _display_with_ci(
+    value: Any,
+    interval: dict[str, Any] | None,
+    denominator: int,
+) -> str:
+    rendered = _display(value)
+    if value is None or not interval:
+        return rendered
+    return (
+        f"{rendered} "
+        f"[{_display(interval.get('lower'))}, "
+        f"{_display(interval.get('upper'))}], n={denominator}"
+    )
+
+
+def _slice_lines(
+    summary: dict[str, Any],
+    *,
+    top_k: int,
+) -> list[str]:
+    category_slices = summary.get("slices", {}).get("category", {})
+    if not category_slices:
+        return []
+    lines = [
+        "## 分类切片",
+        "",
+        (
+            "| 分类 | 样本 | Recall | 误拒 | 误放 | "
+            "引用命中 | 事实覆盖 | Chat P95 ms |"
+        ),
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for category, sliced in category_slices.items():
+        lines.append(
+            f"| {category} | {sliced['cases']['total']} | "
+            f"{_display(sliced['retrieval'][f'recall_at_{top_k}'])} | "
+            f"{_display(sliced['gates']['false_reject_rate'])} | "
+            f"{_display(sliced['gates']['false_accept_rate'])} | "
+            f"{_display(sliced['answers']['citation_gold_hit_rate'])} | "
+            f"{_display(sliced['answers']['required_fact_coverage'])} | "
+            f"{_display(sliced['efficiency']['chat_latency_ms']['p95'])} |"
+        )
+    lines.append("")
+    return lines
+
+
 def render_markdown(report: RunReport) -> str:
     summary = report.summary
     retrieval = summary["retrieval"]
@@ -35,6 +81,26 @@ def render_markdown(report: RunReport) -> str:
     answers = summary["answers"]
     efficiency = summary["efficiency"]
     top_k = report.config.top_k
+    recall_display = _display_with_ci(
+        retrieval[f"recall_at_{top_k}"],
+        retrieval.get(f"recall_at_{top_k}_ci95"),
+        retrieval["evaluated"],
+    )
+    false_reject_display = _display_with_ci(
+        gates["false_reject_rate"],
+        gates.get("false_reject_rate_ci95"),
+        gates["answerable_evaluated"],
+    )
+    false_accept_display = _display_with_ci(
+        gates["false_accept_rate"],
+        gates.get("false_accept_rate_ci95"),
+        gates["unanswerable_evaluated"],
+    )
+    citation_display = _display_with_ci(
+        answers["citation_gold_hit_rate"],
+        answers.get("citation_gold_hit_rate_ci95"),
+        answers["citation_evaluated"],
+    )
 
     incorrect = []
     for result in report.results:
@@ -73,7 +139,7 @@ def render_markdown(report: RunReport) -> str:
         "|---|---:|",
         (
             f"| Recall@{top_k} | "
-            f"{_display(retrieval[f'recall_at_{top_k}'])} |"
+            f"{recall_display} |"
         ),
         (
             f"| MRR@{top_k} | "
@@ -81,15 +147,15 @@ def render_markdown(report: RunReport) -> str:
         ),
         (
             "| 可回答问题错误拒答率 | "
-            f"{_display(gates['false_reject_rate'])} |"
+            f"{false_reject_display} |"
         ),
         (
             "| 无答案问题错误回答率 | "
-            f"{_display(gates['false_accept_rate'])} |"
+            f"{false_accept_display} |"
         ),
         (
             "| 引用 Gold 命中率 | "
-            f"{_display(answers['citation_gold_hit_rate'])} |"
+            f"{citation_display} |"
         ),
         (
             "| 必需事实覆盖率 | "
@@ -121,9 +187,9 @@ def render_markdown(report: RunReport) -> str:
         ),
         f"- DeepSeek 报告 Token：{efficiency['reported_total_tokens']}",
         "",
-        "## 需要复核",
-        "",
     ]
+    lines.extend(_slice_lines(summary, top_k=top_k))
+    lines.extend(["## 需要复核", ""])
     if not incorrect:
         lines.append("没有发现与预期回答/拒答标签冲突的样本。")
     else:
@@ -330,6 +396,83 @@ def write_report(report: RunReport, output_root: Path) -> Path:
         encoding="utf-8",
     )
     return output_dir
+
+
+def render_stability_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        "# RAG 重复运行稳定性分析",
+        "",
+        f"- 运行次数：{report['run_count']}",
+        f"- 每轮样本：{report['case_count']}",
+        f"- 模式：`{report['mode']}`",
+        (
+            "- 核心质量指标稳定："
+            + ("是" if report["quality_stable"] else "否")
+        ),
+        "",
+        "## 指标波动",
+        "",
+        "| 指标 | 各轮结果 | 最小值 | 最大值 | 极差 |",
+        "|---|---|---:|---:|---:|",
+    ]
+    for name, metric in report["metrics"].items():
+        values = ", ".join(_display(value) for value in metric["values"])
+        lines.append(
+            f"| {name} | {values} | {_display(metric['min'])} | "
+            f"{_display(metric['max'])} | {_display(metric['range'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 逐题一致性",
+            "",
+            "| 维度 | 稳定样本 | 变化样本 | 一致率 |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    for name, item in report["consistency"].items():
+        lines.append(
+            f"| {name} | {item['stable_cases']} | "
+            f"{item['changed_cases']} | {_display(item['rate'])} |"
+        )
+    lines.append("")
+    changed_answers = report["consistency"]["exact_answer"]["case_ids"]
+    if changed_answers:
+        lines.append(
+            "- 答案文字变化样本：`"
+            + "`, `".join(changed_answers)
+            + "`"
+        )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def write_stability_report(
+    report: dict[str, Any],
+    output_root: Path,
+) -> tuple[Path, Path]:
+    timestamp = datetime.fromisoformat(
+        report["generated_at"]
+    ).strftime("%Y%m%d-%H%M%S")
+    output_dir = output_root / f"{timestamp}-stability"
+    output_dir.mkdir(parents=True, exist_ok=False)
+    json_path = output_dir / "stability.json"
+    markdown_path = output_dir / "stability.md"
+    json_path.write_text(
+        json.dumps(
+            report,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        render_stability_markdown(report),
+        encoding="utf-8",
+    )
+    return json_path, markdown_path
 
 
 def render_threshold_markdown(report: ThresholdScanReport) -> str:

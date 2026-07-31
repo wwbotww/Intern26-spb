@@ -101,6 +101,7 @@ def test_write_report_creates_json_jsonl_and_markdown(
     markdown = render_markdown(report)
     assert "错误回答率" in markdown
     assert "reranker_rejected" in markdown
+    assert "分类切片" not in markdown
 
 
 def test_review_queue_includes_wrong_answer_and_human_checklist() -> None:

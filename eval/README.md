@@ -12,6 +12,7 @@
 - 基于 shadow-mode 检索结果离线扫描 reranker threshold；
 - 按错误回答、错误拒答和 Gold 存活约束推荐候选阈值；
 - 对同一数据集的 baseline 与 experiment 报告做指标及逐样本对比；
+- 聚合重复运行，统计质量指标极差、路由/引用/答案文字一致率；
 - 为每次运行自动生成 `review-queue.md` 人工复核队列。
 
 ## 数据集
@@ -31,6 +32,10 @@
     ["事实表达 B"]
   ],
   "filters": {},
+  "difficulty": "medium",
+  "split": "calibration",
+  "source_type": "html",
+  "tags": ["licence", "numeric"],
   "notes": ""
 }
 ```
@@ -41,9 +46,21 @@
 - `answer` 样本必须提供至少一个 `gold_document_ids` 或
   `gold_source_urls`；
 - `required_facts` 中每个子数组是一组同义表达，命中任意一个即算该事实命中；
+- `difficulty` 为 `easy`、`medium` 或 `hard`，默认 `medium`；
+- `split` 为 `calibration` 或 `holdout`，默认 `calibration`；
+- `source_type` 和 `tags` 用于报告切片，不改变在线请求；
 - 文档级 `document_id` 优先于容易随切分策略变化的 chunk ID；
 - 样例结构见 `datasets/template.jsonl`；
 - 私有评估集放入 `datasets/private/`，该目录默认被 Git 忽略。
+
+冻结完整数据集后，可以按 `split` 字段导出校准集、留出集和带 SHA256 的
+manifest。目标文件已存在时命令会拒绝覆盖：
+
+```bash
+uv run --package spb-eval spb-eval split-dataset \
+  --dataset eval/datasets/private/core-v1/full.jsonl \
+  --output-dir eval/datasets/private/core-v1
+```
 
 ## 运行
 
@@ -81,6 +98,29 @@ review-queue.md 自动筛出的检索、门槛、引用和事实覆盖问题
 
 报告可能包含业务问题和模型回答，因此 `eval/reports/` 默认不会进入 Git。
 
+如果人工复核只修订了 Gold 来源、同义事实或切片标签，且问题文本没有变化，
+可直接复用保存的在线响应离线重算，避免再次消耗模型调用：
+
+```bash
+uv run --package spb-eval spb-eval recalculate \
+  --report eval/reports/<run>/run.json \
+  --dataset eval/datasets/private/core-v1/full.jsonl \
+  --label core-v1-reviewed
+```
+
+只要样本 ID 集合不同或问题文本发生变化，命令就会拒绝复用。
+
+重复运行后可生成稳定性报告：
+
+```bash
+uv run --package spb-eval spb-eval stability \
+  --report eval/reports/<run-1>/run.json \
+  --report eval/reports/<run-2>/run.json \
+  --report eval/reports/<run-3>/run.json
+```
+
+新运行还会在 `summary.efficiency` 中记录端到端墙钟耗时和实际请求吞吐。
+
 ## 指标口径
 
 - Recall@K、MRR@K 的分母是所有带 Gold 来源的可回答样本；API 错误按未命中
@@ -90,6 +130,10 @@ review-queue.md 自动筛出的检索、门槛、引用和事实覆盖问题
 - 错误回答率只在成功返回的无答案问答请求中计算。
 - 引用 Gold 命中率只检查已生成答案的样本，错误拒答由门槛指标单独反映。
 - 必需事实覆盖率是简单、可解释的字符串归一化匹配，不代表完整语义正确率。
+- Recall、错误拒答率、错误回答率和引用命中率同时报告 Wilson 95% 置信区间；
+- `summary` 还按 `category`、`difficulty`、`source_type` 和 `split`
+  保存切片指标，
+  `summary.md` 默认展示分类切片。
 
 ## Reranker 阈值扫描
 

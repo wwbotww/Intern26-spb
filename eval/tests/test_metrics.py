@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from spb_eval.metrics import calculate_metrics
+from spb_eval.metrics import calculate_metrics, fact_coverage
 from spb_eval.schemas import (
     CaseResult,
     ChatObservation,
@@ -104,6 +104,10 @@ def test_calculate_metrics_covers_retrieval_gates_and_answers() -> None:
     )
 
     assert summary["retrieval"]["recall_at_5"] == 0.5
+    assert summary["retrieval"]["recall_at_5_ci95"] == {
+        "lower": 0.0945,
+        "upper": 0.9055,
+    }
     assert summary["retrieval"]["mrr_at_5"] == 0.25
     assert summary["gates"]["false_reject_rate"] == 0.5
     assert summary["gates"]["false_accept_rate"] == 0.5
@@ -111,3 +115,21 @@ def test_calculate_metrics_covers_retrieval_gates_and_answers() -> None:
     assert summary["answers"]["required_fact_coverage"] == 0.5
     assert summary["efficiency"]["reported_total_tokens"] == 150
     assert summary["efficiency"]["chat_latency_ms"]["p95"] == 600
+    assert summary["cases"]["outcomes"] == {"answer": 2, "reject": 2}
+    assert set(summary["slices"]["category"]) == {
+        "direct",
+        "in_domain_missing",
+        "out_of_domain",
+    }
+
+
+def test_fact_coverage_ignores_markdown_and_punctuation() -> None:
+    answer = "应当在每年**4月30日**前提交；不得出售、泄露或非法提供。"
+
+    assert fact_coverage(
+        answer,
+        [
+            ["4月30日前"],
+            ["不得出售泄露或非法提供"],
+        ],
+    ) == 1.0

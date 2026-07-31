@@ -11,15 +11,18 @@ from pathlib import Path
 
 from .analysis import (
     AnalysisError,
+    analyze_stability,
     compare_reports,
     load_run_report,
+    recalculate_report,
     scan_thresholds,
 )
 from .client import RagApiClient
-from .dataset import DatasetError, load_dataset
+from .dataset import DatasetError, load_dataset, split_dataset
 from .reporting import (
     write_comparison_report,
     write_report,
+    write_stability_report,
     write_threshold_report,
 )
 from .runner import resolve_git_commit, run_evaluation
@@ -56,6 +59,26 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--candidate-k", type=int, default=40)
     run.add_argument("--concurrency", type=int, default=5)
     run.add_argument("--timeout-seconds", type=float, default=120.0)
+
+    split = subparsers.add_parser(
+        "split-dataset",
+        help="按样本 split 字段导出 calibration/holdout 和 manifest",
+    )
+    split.add_argument("--dataset", type=Path, required=True)
+    split.add_argument("--output-dir", type=Path, required=True)
+
+    recalculate = subparsers.add_parser(
+        "recalculate",
+        help="用更新后的标签对已保存在线结果离线重算",
+    )
+    recalculate.add_argument("--report", type=Path, required=True)
+    recalculate.add_argument("--dataset", type=Path, required=True)
+    recalculate.add_argument("--label", required=True)
+    recalculate.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("eval/reports"),
+    )
 
     threshold = subparsers.add_parser(
         "threshold-scan",
@@ -98,6 +121,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=Path("eval/reports/comparisons"),
+    )
+
+    stability = subparsers.add_parser(
+        "stability",
+        help="聚合同一冻结数据集的多次运行结果",
+    )
+    stability.add_argument(
+        "--report",
+        type=Path,
+        action="append",
+        required=True,
+        help="run.json 路径，至少重复两次",
+    )
+    stability.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("eval/reports/stability"),
     )
     return parser
 
@@ -206,12 +246,39 @@ def _run_compare(args: argparse.Namespace) -> Path:
     return write_comparison_report(comparison, args.output_dir)
 
 
+def _run_recalculate(args: argparse.Namespace) -> Path:
+    report = load_run_report(args.report)
+    cases = load_dataset(args.dataset)
+    recalculated = recalculate_report(
+        report,
+        cases=cases,
+        dataset=str(args.dataset),
+        label=args.label,
+    )
+    return write_report(recalculated, args.output_dir)
+
+
+def _run_stability(args: argparse.Namespace) -> tuple[Path, Path]:
+    reports = [load_run_report(path) for path in args.report]
+    stability = analyze_stability(
+        reports,
+        source_reports=[str(path) for path in args.report],
+    )
+    return write_stability_report(stability, args.output_dir)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "run":
             output = {
                 "report_dir": str(asyncio.run(_run(args))),
+            }
+        elif args.command == "split-dataset":
+            output = split_dataset(args.dataset, args.output_dir)
+        elif args.command == "recalculate":
+            output = {
+                "report_dir": str(_run_recalculate(args)),
             }
         elif args.command == "threshold-scan":
             json_path, markdown_path = _run_threshold_scan(args)
@@ -222,6 +289,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "compare":
             output = {
                 "report_dir": str(_run_compare(args)),
+            }
+        elif args.command == "stability":
+            json_path, markdown_path = _run_stability(args)
+            output = {
+                "json": str(json_path),
+                "markdown": str(markdown_path),
             }
         else:
             raise ValueError(f"未知命令：{args.command}")

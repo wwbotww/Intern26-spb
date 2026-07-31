@@ -8,11 +8,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .metrics import gold_rank, is_gold_source, is_rejected
+from .metrics import calculate_metrics, gold_rank, is_gold_source, is_rejected
 from .schemas import (
     CaseResult,
     CaseTransition,
     ComparisonReport,
+    EvalCase,
     MetricDelta,
     RunReport,
     ThresholdPoint,
@@ -32,6 +33,266 @@ def load_run_report(path: Path) -> RunReport:
         return RunReport.model_validate(payload)
     except (json.JSONDecodeError, ValidationError) as exc:
         raise AnalysisError(f"评估报告格式错误：{path}：{exc}") from exc
+
+
+def recalculate_report(
+    report: RunReport,
+    *,
+    cases: list[EvalCase],
+    dataset: str,
+    label: str,
+) -> RunReport:
+    """Recalculate labels and metrics without calling the service again."""
+    saved_by_id = {result.case.id: result for result in report.results}
+    current_by_id = {case.id: case for case in cases}
+    if len(saved_by_id) != len(report.results):
+        raise AnalysisError("保存报告中存在重复样本 ID")
+    if len(current_by_id) != len(cases):
+        raise AnalysisError("数据集中存在重复样本 ID")
+    if set(saved_by_id) != set(current_by_id):
+        raise AnalysisError(
+            "离线重算要求报告和数据集包含相同样本 ID；"
+            f"report_only={len(set(saved_by_id) - set(current_by_id))}, "
+            f"dataset_only={len(set(current_by_id) - set(saved_by_id))}"
+        )
+
+    rebuilt: list[CaseResult] = []
+    for case_id in sorted(saved_by_id):
+        saved = saved_by_id[case_id]
+        current = current_by_id[case_id]
+        if (
+            saved.case.question != current.question
+            or saved.case.filters != current.filters
+        ):
+            raise AnalysisError(
+                "样本问题文本或请求过滤条件已变化，"
+                f"不能复用在线结果：{case_id}"
+            )
+        rebuilt.append(
+            CaseResult(
+                case=current,
+                retrieval=saved.retrieval,
+                chat=saved.chat,
+            )
+        )
+
+    config = report.config.model_copy(
+        update={"label": label, "dataset": dataset}
+    )
+    summary = calculate_metrics(
+        rebuilt,
+        top_k=config.top_k,
+    )
+    for name in (
+        "wall_elapsed_ms",
+        "throughput_requests_per_second",
+    ):
+        previous = report.summary.get("efficiency", {}).get(name)
+        if previous is not None:
+            summary["efficiency"][name] = previous
+    return RunReport(
+        generated_at=datetime.now(UTC).isoformat(),
+        config=config,
+        service=report.service,
+        summary=summary,
+        results=rebuilt,
+    )
+
+
+def analyze_stability(
+    reports: list[RunReport],
+    *,
+    source_reports: list[str],
+) -> dict[str, Any]:
+    """Aggregate repeated runs of the same frozen sample set."""
+    if len(reports) < 2:
+        raise AnalysisError("稳定性分析至少需要两份报告")
+    if len(reports) != len(source_reports):
+        raise AnalysisError("报告数量与来源路径数量不一致")
+
+    reference = reports[0]
+    reference_by_id = {
+        result.case.id: result for result in reference.results
+    }
+    if len(reference_by_id) != len(reference.results):
+        raise AnalysisError("报告中存在重复样本 ID")
+    ordered_ids = sorted(reference_by_id)
+    indexed_reports = [reference_by_id]
+    for report in reports[1:]:
+        if report.config.mode != reference.config.mode:
+            raise AnalysisError("稳定性报告的 mode 必须一致")
+        if report.config.top_k != reference.config.top_k:
+            raise AnalysisError("稳定性报告的 top_k 必须一致")
+        indexed = {result.case.id: result for result in report.results}
+        if len(indexed) != len(report.results):
+            raise AnalysisError("报告中存在重复样本 ID")
+        if set(indexed) != set(reference_by_id):
+            raise AnalysisError("稳定性分析要求完全相同的样本 ID")
+        for case_id in ordered_ids:
+            left = reference_by_id[case_id].case
+            right = indexed[case_id].case
+            if (
+                left.question != right.question
+                or left.expected_outcome != right.expected_outcome
+                or left.gold_document_ids != right.gold_document_ids
+                or left.gold_source_urls != right.gold_source_urls
+                or left.required_facts != right.required_facts
+            ):
+                raise AnalysisError(f"样本标签不一致：{case_id}")
+        indexed_reports.append(indexed)
+
+    metric_paths = {
+        "api_errors": ("cases", "api_errors"),
+        f"recall_at_{reference.config.top_k}": (
+            "retrieval",
+            f"recall_at_{reference.config.top_k}",
+        ),
+        f"mrr_at_{reference.config.top_k}": (
+            "retrieval",
+            f"mrr_at_{reference.config.top_k}",
+        ),
+        "false_reject_rate": ("gates", "false_reject_rate"),
+        "false_accept_rate": ("gates", "false_accept_rate"),
+        "citation_gold_hit_rate": (
+            "answers",
+            "citation_gold_hit_rate",
+        ),
+        "required_fact_coverage": (
+            "answers",
+            "required_fact_coverage",
+        ),
+        "chat_latency_p50_ms": (
+            "efficiency",
+            "chat_latency_ms",
+            "p50",
+        ),
+        "chat_latency_p95_ms": (
+            "efficiency",
+            "chat_latency_ms",
+            "p95",
+        ),
+        "retrieve_latency_p50_ms": (
+            "efficiency",
+            "retrieve_latency_ms",
+            "p50",
+        ),
+        "retrieve_latency_p95_ms": (
+            "efficiency",
+            "retrieve_latency_ms",
+            "p95",
+        ),
+        "reported_total_tokens": (
+            "efficiency",
+            "reported_total_tokens",
+        ),
+    }
+    metric_series: dict[str, dict[str, Any]] = {}
+    for name, path in metric_paths.items():
+        values = [_nested(report.summary, *path) for report in reports]
+        numeric = [
+            float(value)
+            for value in values
+            if value is not None
+        ]
+        metric_series[name] = {
+            "values": values,
+            "min": round(min(numeric), 4) if numeric else None,
+            "max": round(max(numeric), 4) if numeric else None,
+            "range": (
+                round(max(numeric) - min(numeric), 4)
+                if numeric
+                else None
+            ),
+        }
+
+    changed: dict[str, list[str]] = {
+        "finish_reason": [],
+        "citation_set": [],
+        "exact_answer": [],
+    }
+    for case_id in ordered_ids:
+        observations = [
+            indexed[case_id].chat for indexed in indexed_reports
+        ]
+        finish_states = {
+            (
+                observation.status,
+                observation.finish_reason,
+            )
+            if observation is not None
+            else ("missing", "")
+            for observation in observations
+        }
+        citation_sets = {
+            tuple(
+                sorted(
+                    {
+                        citation.document_id
+                        for citation in observation.citations
+                    }
+                )
+            )
+            if observation is not None
+            else ()
+            for observation in observations
+        }
+        answer_texts = {
+            observation.answer if observation is not None else ""
+            for observation in observations
+        }
+        if len(finish_states) > 1:
+            changed["finish_reason"].append(case_id)
+        if len(citation_sets) > 1:
+            changed["citation_set"].append(case_id)
+        if len(answer_texts) > 1:
+            changed["exact_answer"].append(case_id)
+
+    total = len(ordered_ids)
+    consistency = {
+        key: {
+            "stable_cases": total - len(case_ids),
+            "changed_cases": len(case_ids),
+            "rate": _ratio(total - len(case_ids), total),
+            "case_ids": case_ids,
+        }
+        for key, case_ids in changed.items()
+    }
+    quality_metrics = (
+        f"recall_at_{reference.config.top_k}",
+        f"mrr_at_{reference.config.top_k}",
+        "false_reject_rate",
+        "false_accept_rate",
+        "citation_gold_hit_rate",
+        "required_fact_coverage",
+    )
+    available_quality_metrics = [
+        name
+        for name in quality_metrics
+        if metric_series[name]["range"] is not None
+    ]
+    quality_stable = (
+        bool(available_quality_metrics)
+        and all(
+            metric_series[name]["range"] == 0
+            for name in available_quality_metrics
+        )
+        and all(
+            value == 0
+            for value in metric_series["api_errors"]["values"]
+        )
+    )
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "source_reports": source_reports,
+        "labels": [report.config.label for report in reports],
+        "run_count": len(reports),
+        "case_count": total,
+        "mode": reference.config.mode,
+        "top_k": reference.config.top_k,
+        "quality_stable": quality_stable,
+        "metrics": metric_series,
+        "consistency": consistency,
+    }
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:

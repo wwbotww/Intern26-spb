@@ -15,6 +15,8 @@ NonEmptyText = Annotated[
 ]
 ExpectedOutcome = Literal["answer", "reject"]
 EvalMode = Literal["retrieve", "chat", "all"]
+Difficulty = Literal["easy", "medium", "hard"]
+DatasetSplit = Literal["calibration", "holdout"]
 
 
 class EvalCase(BaseModel):
@@ -26,6 +28,10 @@ class EvalCase(BaseModel):
     gold_source_urls: list[NonEmptyText] = Field(default_factory=list)
     required_facts: list[list[NonEmptyText]] = Field(default_factory=list)
     filters: dict[str, Any] = Field(default_factory=dict)
+    difficulty: Difficulty = "medium"
+    split: DatasetSplit = "calibration"
+    source_type: str = ""
+    tags: list[NonEmptyText] = Field(default_factory=list)
     notes: str = ""
 
     @model_validator(mode="after")
@@ -36,6 +42,7 @@ class EvalCase(BaseModel):
         self.gold_source_urls = list(
             dict.fromkeys(self.gold_source_urls)
         )
+        self.tags = list(dict.fromkeys(self.tags))
         for group in self.required_facts:
             if not group:
                 raise ValueError("required_facts 不能包含空分组")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from collections import Counter
 from typing import Any, Protocol
 
@@ -23,6 +24,35 @@ def _ratio(numerator: int | float, denominator: int) -> float | None:
     return round(float(numerator) / denominator, 4)
 
 
+def _wilson_interval(
+    numerator: int,
+    denominator: int,
+    *,
+    z: float = 1.959963984540054,
+) -> dict[str, float] | None:
+    """Return a 95% Wilson score interval for a binomial proportion."""
+    if denominator == 0:
+        return None
+    proportion = numerator / denominator
+    z_squared = z * z
+    denominator_term = 1 + z_squared / denominator
+    center = (
+        proportion + z_squared / (2 * denominator)
+    ) / denominator_term
+    margin = (
+        z
+        * math.sqrt(
+            proportion * (1 - proportion) / denominator
+            + z_squared / (4 * denominator * denominator)
+        )
+        / denominator_term
+    )
+    return {
+        "lower": round(max(0.0, center - margin), 4),
+        "upper": round(min(1.0, center + margin), 4),
+    }
+
+
 def _percentile(values: list[float], percentile: float) -> float | None:
     if not values:
         return None
@@ -43,10 +73,24 @@ def is_gold_source(source: SourceLike, case: EvalCase) -> bool:
 def fact_coverage(answer: str, facts: list[list[str]]) -> float:
     if not facts:
         return 0.0
-    normalized = "".join(answer.lower().split())
+
+    def normalize(value: str) -> str:
+        return "".join(
+            character
+            for character in unicodedata.normalize(
+                "NFKC",
+                value.lower(),
+            )
+            if not character.isspace()
+            and not unicodedata.category(character).startswith(
+                ("P", "S")
+            )
+        )
+
+    normalized = normalize(answer)
     matched = sum(
         any(
-            "".join(term.lower().split()) in normalized
+            normalize(term) in normalized
             for term in alternatives
         )
         for alternatives in facts
@@ -78,6 +122,7 @@ def calculate_metrics(
     results: list[CaseResult],
     *,
     top_k: int,
+    include_slices: bool = True,
 ) -> dict[str, Any]:
     categories = Counter(item.case.category for item in results)
     api_errors = sum(
@@ -197,16 +242,43 @@ def calculate_metrics(
         for item in successful_chats
     )
 
-    return {
+    summary = {
         "cases": {
             "total": len(results),
             "categories": dict(sorted(categories.items())),
+            "outcomes": dict(
+                sorted(
+                    Counter(
+                        item.case.expected_outcome
+                        for item in results
+                    ).items()
+                )
+            ),
+            "difficulties": dict(
+                sorted(
+                    Counter(
+                        item.case.difficulty for item in results
+                    ).items()
+                )
+            ),
+            "source_types": dict(
+                sorted(
+                    Counter(
+                        item.case.source_type or "unspecified"
+                        for item in results
+                    ).items()
+                )
+            ),
             "api_errors": api_errors,
         },
         "retrieval": {
             "evaluated": len(retrieval_cases),
             "errors": retrieval_errors,
             f"recall_at_{top_k}": _ratio(
+                retrieval_hits,
+                len(retrieval_cases),
+            ),
+            f"recall_at_{top_k}_ci95": _wilson_interval(
                 retrieval_hits,
                 len(retrieval_cases),
             ),
@@ -228,8 +300,16 @@ def calculate_metrics(
                 false_rejects,
                 len(answerable_chats),
             ),
+            "false_reject_rate_ci95": _wilson_interval(
+                false_rejects,
+                len(answerable_chats),
+            ),
             "false_accept_count": false_accepts,
             "false_accept_rate": _ratio(
+                false_accepts,
+                len(reject_chats),
+            ),
+            "false_accept_rate_ci95": _wilson_interval(
                 false_accepts,
                 len(reject_chats),
             ),
@@ -241,6 +321,10 @@ def calculate_metrics(
             "citation_evaluated": len(citation_cases),
             "citation_gold_hits": citation_hits,
             "citation_gold_hit_rate": _ratio(
+                citation_hits,
+                len(citation_cases),
+            ),
+            "citation_gold_hit_rate_ci95": _wilson_interval(
                 citation_hits,
                 len(citation_cases),
             ),
@@ -267,3 +351,31 @@ def calculate_metrics(
             ),
         },
     }
+    if include_slices:
+        dimensions: dict[str, dict[str, list[CaseResult]]] = {
+            "category": {},
+            "difficulty": {},
+            "source_type": {},
+            "split": {},
+        }
+        for result in results:
+            values = {
+                "category": result.case.category,
+                "difficulty": result.case.difficulty,
+                "source_type": result.case.source_type or "unspecified",
+                "split": result.case.split,
+            }
+            for dimension, value in values.items():
+                dimensions[dimension].setdefault(value, []).append(result)
+        summary["slices"] = {
+            dimension: {
+                value: calculate_metrics(
+                    subset,
+                    top_k=top_k,
+                    include_slices=False,
+                )
+                for value, subset in sorted(groups.items())
+            }
+            for dimension, groups in dimensions.items()
+        }
+    return summary

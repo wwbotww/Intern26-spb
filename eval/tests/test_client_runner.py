@@ -100,6 +100,11 @@ def test_runner_uses_http_contract_and_does_not_expose_api_key() -> None:
 
     assert report.summary["retrieval"]["recall_at_5"] == 1.0
     assert report.summary["answers"]["required_fact_coverage"] == 1.0
+    assert report.summary["efficiency"]["wall_elapsed_ms"] >= 0
+    assert (
+        report.summary["efficiency"]["throughput_requests_per_second"]
+        is not None
+    )
     assert report.service["version"] == "0.5.0"
     assert all(
         request.headers.get("x-api-key") == "secret-test-key"
