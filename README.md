@@ -36,6 +36,7 @@ flowchart LR
     R --> B["Reranker"]
     B --> J["DeepSeek Judge"]
     J --> G["带引用回答 / 明确拒答"]
+    W["chat-web"] -->|"POST + SSE"| R
     E["eval"] -->|"HTTP 黑盒评估"| R
 ```
 
@@ -49,6 +50,7 @@ flowchart LR
 apps/
   offline-pipeline/   抓取、解析、OCR、切分、向量化和 Milvus 同步
   rag-api/            在线检索、双重相关性门槛和 DeepSeek 问答
+  chat-web/           Vue 3 流式问答与引用展示界面
 packages/
   contracts/          collection schema、embedding 与元数据共享契约
 eval/                 独立 HTTP 黑盒评估工具
@@ -251,6 +253,38 @@ curl -N -X POST "${SPB_RAG_BASE_URL}/v1/chat" \
 
 服务 API Key 与 DeepSeek API Key 相互独立。不要把任何真实凭证写入命令、
 README、日志或提交记录。
+
+## 问答用户界面
+
+`apps/chat-web` 是独立的 Vue 3 应用，通过同源 `/api` 代理调用 `rag-api`，支持
+流式回答、引用来源、相关性拒答、停止生成和流式错误提示。服务 API Key 只由
+Vite 开发代理或 Nginx 容器代理读取，不进入浏览器构建产物。
+
+本地开发：
+
+```bash
+cp apps/chat-web/.env.example apps/chat-web/.env
+# 将 CHAT_WEB_RAG_API_KEY 设置为 RAG_API_KEYS 中的一项
+
+cd apps/chat-web
+npm install
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:3000`。开发代理默认连接
+`http://127.0.0.1:8080`。
+
+Docker 启动 API 和界面：
+
+```bash
+docker compose --env-file apps/chat-web/.env \
+  -f deploy/docker-compose.yml build rag-api chat-web
+docker compose --env-file apps/chat-web/.env \
+  -f deploy/docker-compose.yml up -d rag-api chat-web
+```
+
+容器模式下浏览器同样访问 `http://127.0.0.1:3000`。当前问答 API 不接收会话
+历史，因此页面保留本次打开后的消息记录，但每个问题在服务端仍是独立单轮问答。
 
 ## 黑盒评估
 

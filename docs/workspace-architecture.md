@@ -12,6 +12,7 @@ flowchart LR
     C --> R["apps/rag-api"]
     O -->|"写入/同步"| M["Milvus spb_policy_chunks"]
     M -->|"只读检索"| R
+    W["apps/chat-web"] -->|"HTTP POST + SSE"| R
     E["eval"] -->|"HTTP 黑盒评估"| R
 ```
 
@@ -44,6 +45,18 @@ flowchart LR
 它可以依赖 `spb-contracts`，但不得导入 `spb_pipeline`。当前包含查询
 embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、
 `/v1/retrieve`，以及 DeepSeek grounded answer、引用和 SSE。
+
+### `apps/chat-web`
+
+职责：
+
+- 提供 Vue 3 单页问答界面；
+- 通过 POST SSE 展示流式答案、引用、拒答和错误状态；
+- 由开发代理或 Nginx 同源代理调用 `rag-api`；
+- 仅保留页面内消息记录，不承担检索、生成或持久化职责。
+
+它不加入 Python `uv` workspace，不导入任何 Python 应用，也不直连 Milvus 或
+DeepSeek。当前 API 没有会话历史契约，因此界面中的连续消息仍按单轮请求处理。
 
 ### `packages/contracts`
 

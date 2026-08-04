@@ -1,4 +1,17 @@
 services:
+  chat-web:
+    build:
+      context: ../apps/chat-web
+    image: intern26-spb-chat-web:0.1.0
+    environment:
+      CHAT_WEB_RAG_API_KEY: ${CHAT_WEB_RAG_API_KEY:-}
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      rag-api:
+        condition: service_healthy
+    restart: unless-stopped
+
   rag-api:
     build:
       context: ..
