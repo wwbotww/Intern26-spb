@@ -1,5 +1,9 @@
 # Linux / Docker 部署
 
+当前 CentOS 7 Demo 服务器的实际部署记录、访问方式和运维命令见
+[Demo 服务器部署简要说明](server-deployment-brief.md)。本文其余内容描述标准
+Docker Compose 部署方式。
+
 ## 运行边界
 
 在线服务镜像只包含：

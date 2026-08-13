@@ -5,6 +5,7 @@ import { ChatApiError, streamChat } from './api'
 import type { ChatEvent, Citation } from './api'
 import ChatComposer from './components/ChatComposer.vue'
 import ChatMessage from './components/ChatMessage.vue'
+import { createId } from './id'
 
 type MessageState =
   | 'preparing'
@@ -28,7 +29,7 @@ interface Message {
 const suggestions = [
   '快递业务经营许可需要符合哪些条件？',
   '邮政行政处罚程序有哪些主要规定？',
-  '快递服务国家标准对投递有哪些要求？',
+  '邮政普遍服务监督管理有哪些主要规定？',
 ]
 
 const messages = ref<Message[]>([])
@@ -37,10 +38,6 @@ const pending = ref(false)
 const messageList = ref<HTMLElement | null>(null)
 let activeController: AbortController | null = null
 let scrollFrame: number | null = null
-
-function newId(): string {
-  return crypto.randomUUID()
-}
 
 function queueScroll(): void {
   if (scrollFrame !== null) return
@@ -62,7 +59,7 @@ async function submit(): Promise<void> {
   const now = Date.now()
   const assistantIndex = messages.value.length + 1
   messages.value.push({
-    id: newId(),
+    id: createId(),
     role: 'user',
     content: question,
     state: 'done',
@@ -70,7 +67,7 @@ async function submit(): Promise<void> {
     createdAt: now,
   })
   messages.value.push({
-    id: newId(),
+    id: createId(),
     role: 'assistant',
     content: '',
     state: 'preparing',
@@ -81,7 +78,7 @@ async function submit(): Promise<void> {
   draft.value = ''
   pending.value = true
   activeController = new AbortController()
-  const requestId = `web-${newId()}`
+  const requestId = `web-${createId()}`
   await nextTick()
   queueScroll()
 
