@@ -7,9 +7,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .client import RagApiClient
-from .metrics import calculate_metrics
+from .client import AssistantApiClient, RagApiClient
+from .metrics import calculate_assistant_metrics, calculate_metrics
 from .schemas import (
+    AssistantCaseResult,
+    AssistantEvalCase,
+    AssistantRunConfig,
+    AssistantRunReport,
     CaseResult,
     EvalCase,
     EvalMode,
@@ -106,6 +110,66 @@ async def run_evaluation(
         else None
     )
     return RunReport(
+        generated_at=datetime.now(UTC).isoformat(),
+        config=config,
+        service=service,
+        summary=summary,
+        results=results,
+    )
+
+
+async def _evaluate_assistant_case(
+    client: AssistantApiClient,
+    case: AssistantEvalCase,
+    *,
+    capacity: asyncio.Semaphore,
+) -> AssistantCaseResult:
+    async with capacity:
+        return AssistantCaseResult(
+            case=case,
+            chat=await client.chat(case),
+        )
+
+
+async def run_assistant_evaluation(
+    *,
+    client: AssistantApiClient,
+    cases: list[AssistantEvalCase],
+    config: AssistantRunConfig,
+) -> AssistantRunReport:
+    service: dict[str, Any]
+    try:
+        service = await client.health()
+    except Exception as exc:
+        service = {
+            "status": "unknown",
+            "error": str(exc)[:500],
+        }
+
+    capacity = asyncio.Semaphore(config.concurrency)
+    started_at = time.perf_counter()
+    results = await asyncio.gather(
+        *(
+            _evaluate_assistant_case(
+                client,
+                case,
+                capacity=capacity,
+            )
+            for case in cases
+        )
+    )
+    wall_elapsed_ms = round(
+        (time.perf_counter() - started_at) * 1000,
+        3,
+    )
+    summary = calculate_assistant_metrics(results)
+    summary["efficiency"]["wall_elapsed_ms"] = wall_elapsed_ms
+    summary["efficiency"]["throughput_requests_per_second"] = (
+        round(len(cases) / (wall_elapsed_ms / 1000), 4)
+        if wall_elapsed_ms > 0
+        else None
+    )
+    return AssistantRunReport(
         generated_at=datetime.now(UTC).isoformat(),
         config=config,
         service=service,

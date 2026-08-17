@@ -15,6 +15,12 @@ from ..schemas import HealthResponse
 router = APIRouter(tags=["health"])
 
 
+@router.get("/v1/auth/check")
+async def auth_check() -> dict[str, str]:
+    """Lightweight protected endpoint for service-to-service auth probes."""
+    return {"status": "ok", "service": "spb-rag-api"}
+
+
 @router.get("/health/live", response_model=HealthResponse)
 async def live() -> HealthResponse:
     return HealthResponse(

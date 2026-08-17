@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from .device_price import DevicePriceRecord, DevicePriceSearchQuery
+from .models import ToolResult
+from .policy import PolicyQueryResult
+
+
+class AssistantTool(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    async def initialize(self) -> None: ...
+
+    async def execute(self, question: str) -> ToolResult: ...
+
+    def readiness(self) -> str: ...
+
+    async def close(self) -> None: ...
+
+
+class DevicePriceRepository(Protocol):
+    async def initialize(self) -> None: ...
+
+    async def search(
+        self,
+        query: DevicePriceSearchQuery,
+    ) -> list[DevicePriceRecord]: ...
+
+    def readiness(self) -> str: ...
+
+    async def close(self) -> None: ...
+
+
+class PolicyKnowledgeSource(Protocol):
+    async def initialize(self) -> None: ...
+
+    async def query(self, question: str) -> PolicyQueryResult: ...
+
+    def readiness(self) -> str: ...
+
+    async def close(self) -> None: ...

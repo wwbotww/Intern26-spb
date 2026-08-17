@@ -1,28 +1,63 @@
-export interface Citation {
-  index: number
-  chunk_id: string
-  document_id: string
+export type QueryMode = 'policy' | 'device_price'
+
+export interface PolicyEvidence {
+  evidence_id: string
+  type: 'policy'
   title: string
   source_url: string
+  excerpt: string
   document_no: string
   published_at: string
   source_org: string
   section_path: string
+  chunk_id: string
+  document_id: string
   score: number
   rerank_score: number | null
-  excerpt: string
 }
+
+export interface DevicePriceEvidence {
+  evidence_id: string
+  type: 'device_price'
+  title: string
+  brand: string
+  model: string
+  specification: string
+  price: string
+  currency: string
+  source: string
+  observed_at: string
+  availability: string
+  source_url: string
+  original_price: string | null
+  original_price_type: string
+  official_product_id: string
+  official_sku_id: string
+  match_score: number
+}
+
+export type Evidence = PolicyEvidence | DevicePriceEvidence
 
 export type ChatEvent =
   | {
-      type: 'metadata'
-      requestId: string
-      model: string
-      citations: Citation[]
+      type: 'status'
+      stage: string
+      mode: QueryMode
+      message: string
     }
+  | { type: 'evidence'; items: Evidence[] }
   | { type: 'delta'; content: string }
   | { type: 'usage'; usage: Record<string, unknown> }
-  | { type: 'done'; requestId: string; finishReason: string }
+  | {
+      type: 'done'
+      requestId: string
+      mode: QueryMode
+      usedTool: string
+      finishReason: string
+      reasonCode: string
+      warnings: string[]
+      missingFields: string[]
+    }
   | {
       type: 'error'
       requestId?: string
@@ -77,16 +112,41 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {}
 }
 
+function asStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)) : []
+}
+
+function asMode(value: unknown): QueryMode {
+  return value === 'device_price' ? 'device_price' : 'policy'
+}
+
+function asEvidence(value: unknown): Evidence | null {
+  const item = asRecord(value)
+  if (item.type === 'policy') return item as unknown as PolicyEvidence
+  if (item.type === 'device_price') {
+    return item as unknown as DevicePriceEvidence
+  }
+  return null
+}
+
 function toChatEvent(raw: RawSseEvent): ChatEvent | null {
   const data = asRecord(raw.data)
 
-  if (raw.event === 'metadata') {
+  if (raw.event === 'status') {
     return {
-      type: 'metadata',
-      requestId: String(data.request_id ?? ''),
-      model: String(data.model ?? ''),
-      citations: Array.isArray(data.citations)
-        ? (data.citations as Citation[])
+      type: 'status',
+      stage: String(data.stage ?? ''),
+      mode: asMode(data.mode),
+      message: String(data.message ?? '正在查询资料'),
+    }
+  }
+  if (raw.event === 'evidence') {
+    return {
+      type: 'evidence',
+      items: Array.isArray(data.items)
+        ? data.items
+            .map((item) => asEvidence(item))
+            .filter((item): item is Evidence => item !== null)
         : [],
     }
   }
@@ -100,7 +160,12 @@ function toChatEvent(raw: RawSseEvent): ChatEvent | null {
     return {
       type: 'done',
       requestId: String(data.request_id ?? ''),
+      mode: asMode(data.mode),
+      usedTool: String(data.used_tool ?? ''),
       finishReason: String(data.finish_reason ?? 'stop'),
+      reasonCode: String(data.reason_code ?? ''),
+      warnings: asStringList(data.warnings),
+      missingFields: asStringList(data.missing_fields),
     }
   }
   if (raw.event === 'error') {
@@ -133,6 +198,7 @@ async function responseError(response: Response): Promise<ChatApiError> {
 }
 
 export async function streamChat(options: {
+  mode: QueryMode
   question: string
   requestId: string
   signal: AbortSignal
@@ -145,7 +211,11 @@ export async function streamChat(options: {
       'Content-Type': 'application/json',
       'X-Request-ID': options.requestId,
     },
-    body: JSON.stringify({ question: options.question, stream: true }),
+    body: JSON.stringify({
+      mode: options.mode,
+      question: options.question,
+      stream: true,
+    }),
     signal: options.signal,
   })
 

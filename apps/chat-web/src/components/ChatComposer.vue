@@ -1,6 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
+import type { QueryMode } from '../api'
+
 const props = defineProps<{
   modelValue: string
+  mode: QueryMode
   pending: boolean
 }>()
 
@@ -9,6 +14,16 @@ const emit = defineEmits<{
   send: []
   stop: []
 }>()
+
+const modeLabel = computed(() =>
+  props.mode === 'policy' ? '政策、材料与流程' : '设备参考价格',
+)
+
+const placeholder = computed(() =>
+  props.mode === 'policy'
+    ? '请输入政策、所需材料或基础办理流程问题，Enter 发送'
+    : '请输入设备品牌、完整型号及容量或内存规格，Enter 发送',
+)
 
 function handleInput(event: Event): void {
   emit('update:modelValue', (event.target as HTMLTextAreaElement).value)
@@ -29,13 +44,16 @@ function handleKeydown(event: KeyboardEvent): void {
         :disabled="pending"
         maxlength="2000"
         rows="3"
-        placeholder="请输入政策法规相关问题，Enter 发送，Shift+Enter 换行"
-        aria-label="请输入问题"
+        :placeholder="placeholder"
+        aria-label="请输入本次查询问题"
         @input="handleInput"
         @keydown="handleKeydown"
       />
       <div class="composer__footer">
-        <span>{{ modelValue.length }} / 2000</span>
+        <div class="composer__meta">
+          <span class="composer__mode">{{ modeLabel }}</span>
+          <span>{{ modelValue.length }} / 2000</span>
+        </div>
         <button
           v-if="pending"
           type="button"
@@ -59,6 +77,8 @@ function handleKeydown(event: KeyboardEvent): void {
         </button>
       </div>
     </div>
-    <p class="composer-note">回答由知识库资料生成，请以政策原文为准。</p>
+    <p class="composer-note">
+      当前为单轮查询；页面记录不会作为上下文发送。回答仅供咨询参考。
+    </p>
   </div>
 </template>

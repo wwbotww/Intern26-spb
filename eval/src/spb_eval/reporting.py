@@ -6,8 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .metrics import fact_coverage, gold_rank, is_gold_source, is_rejected
+from .metrics import (
+    assistant_case_checks,
+    fact_coverage,
+    gold_rank,
+    is_gold_source,
+    is_rejected,
+)
 from .schemas import (
+    AssistantRunReport,
     CaseResult,
     ComparisonReport,
     RunReport,
@@ -393,6 +400,196 @@ def write_report(report: RunReport, output_root: Path) -> Path:
     )
     (output_dir / "review-queue.md").write_text(
         render_review_queue(report),
+        encoding="utf-8",
+    )
+    return output_dir
+
+
+def render_assistant_markdown(report: AssistantRunReport) -> str:
+    summary = report.summary
+    cases = summary["cases"]
+    routing = summary["routing"]
+    outcomes = summary["outcomes"]
+    evidence = summary["evidence"]
+    efficiency = summary["efficiency"]
+    lines = [
+        f"# Claims Assistant Eval：{report.config.label}",
+        "",
+        f"- 生成时间：`{report.generated_at}`",
+        f"- 数据集：`{report.config.dataset}`",
+        f"- 并发：`{report.config.concurrency}`",
+        f"- 服务版本：`{report.service.get('version', 'unknown')}`",
+        "",
+        "## 核心结果",
+        "",
+        "| 指标 | 结果 |",
+        "|---|---:|",
+        f"| 样本通过率 | {_display(cases['pass_rate'])} |",
+        f"| API 错误 | {cases['errors']} |",
+        f"| 固定路由准确率 | {_display(routing['accuracy'])} |",
+        (
+            "| 结束状态准确率 | "
+            f"{_display(outcomes['finish_reason_accuracy'])} |"
+        ),
+        (
+            "| 无依据证据泄漏 | "
+            f"{evidence['unsupported_evidence_leaks']} |"
+        ),
+        (
+            "| 价格候选 Recall | "
+            f"{_display(evidence['price_candidate_recall'])} |"
+        ),
+        (
+            "| Chat P50 / P95 | "
+            f"{_display(efficiency['chat_latency_ms']['p50'])} / "
+            f"{_display(efficiency['chat_latency_ms']['p95'])} ms |"
+        ),
+        (
+            "| 墙钟耗时 | "
+            f"{_display(efficiency.get('wall_elapsed_ms'))} ms |"
+        ),
+        (
+            "| 吞吐 | "
+            f"{_display(efficiency.get('throughput_requests_per_second'))} "
+            "req/s |"
+        ),
+        "",
+        "## 分模式结果",
+        "",
+        "| 模式 | 样本 | 错误 | 通过率 |",
+        "|---|---:|---:|---:|",
+    ]
+    for mode, values in summary["by_mode"].items():
+        lines.append(
+            f"| {mode} | {values['cases']} | {values['errors']} | "
+            f"{_display(values['pass_rate'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 证据质量",
+            "",
+            "| 指标 | 计数 |",
+            "|---|---:|",
+            (
+                "| 回答样本 / 完整证据样本 | "
+                f"{evidence['answer_cases']} / {evidence['complete_cases']} |"
+            ),
+            (
+                "| 政策证据完整 | "
+                f"{evidence['policy_items_complete']} / "
+                f"{evidence['policy_items']} |"
+            ),
+            (
+                "| 价格证据完整 | "
+                f"{evidence['price_items_complete']} / "
+                f"{evidence['price_items']} |"
+            ),
+            "",
+            "## 失败样本",
+            "",
+            "| ID | 模式 | 预期 | 实际结束状态 | 错误 |",
+            "|---|---|---|---|---|",
+        ]
+    )
+    failed = 0
+    for result in report.results:
+        expected = "/".join(result.case.expected_finish_reasons)
+        actual = result.chat.finish_reason or "-"
+        failed_case = not assistant_case_checks(result).get("passed", False)
+        if failed_case:
+            failed += 1
+            lines.append(
+                f"| {result.case.id} | {result.case.mode} | {expected} | "
+                f"{actual} | {result.chat.error or '-'} |"
+            )
+    if failed == 0:
+        lines.append("| - | - | - | - | 无 |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_assistant_review_queue(report: AssistantRunReport) -> str:
+    lines = [
+        f"# Claims Assistant Review Queue：{report.config.label}",
+        "",
+        "仅列出 API 错误、路由错误、结束状态错误或证据约束不满足的样本。",
+        "",
+    ]
+    queued = 0
+    for result in report.results:
+        case = result.case
+        chat = result.chat
+        needs_review = not assistant_case_checks(result).get("passed", False)
+        if not needs_review:
+            continue
+        queued += 1
+        lines.extend(
+            [
+                f"## {case.id}",
+                "",
+                f"- 分类：`{case.category}` / `{case.mode}`",
+                f"- 问题：{case.question}",
+                (
+                    "- 预期结束状态：`"
+                    + " / ".join(case.expected_finish_reasons)
+                    + "`"
+                ),
+                f"- 实际结束状态：`{chat.finish_reason or '-'}`",
+                f"- reason_code：`{chat.reason_code or '-'}`",
+                f"- 证据数量：{len(chat.evidence)}",
+                f"- 错误：{chat.error or '-'}",
+                "- 人工结论：`[ ] 正确  [ ] 需调整标签  [ ] 系统问题`",
+                "- 备注：",
+                "",
+            ]
+        )
+    if queued == 0:
+        lines.append("无待复核样本。")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def write_assistant_report(
+    report: AssistantRunReport,
+    output_root: Path,
+) -> Path:
+    timestamp = datetime.fromisoformat(
+        report.generated_at
+    ).strftime("%Y%m%d-%H%M%S")
+    output_dir = output_root / (
+        f"{timestamp}-{_safe_label(report.config.label)}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=False)
+    (output_dir / "run.json").write_text(
+        json.dumps(
+            report.model_dump(mode="json"),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    with (output_dir / "cases.jsonl").open(
+        "w",
+        encoding="utf-8",
+    ) as handle:
+        for result in report.results:
+            handle.write(
+                json.dumps(
+                    result.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    (output_dir / "summary.md").write_text(
+        render_assistant_markdown(report),
+        encoding="utf-8",
+    )
+    (output_dir / "review-queue.md").write_text(
+        render_assistant_review_queue(report),
         encoding="utf-8",
     )
     return output_dir

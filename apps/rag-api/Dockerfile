@@ -1,6 +1,7 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
+    UV_HTTP_TIMEOUT=120 \
     UV_LINK_MODE=copy \
     UV_PROJECT_ENVIRONMENT=/app/.venv
 WORKDIR /app
@@ -8,6 +9,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY apps/offline-pipeline/pyproject.toml apps/offline-pipeline/pyproject.toml
 COPY apps/rag-api/pyproject.toml apps/rag-api/pyproject.toml
+COPY apps/assistant-api/pyproject.toml apps/assistant-api/pyproject.toml
+COPY eval/pyproject.toml eval/pyproject.toml
 COPY packages/contracts/pyproject.toml packages/contracts/pyproject.toml
 
 RUN uv sync \

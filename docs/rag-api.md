@@ -13,6 +13,7 @@
 |---|---|---|
 | `POST /v1/retrieve` | 返回 Hybrid/RRF + reranker 结果 | 否 |
 | `POST /v1/chat` | 双重相关性门槛后生成带引用回答 | 有候选时先调用 Judge |
+| `GET /v1/auth/check` | 轻量验证服务间 API Key | 否 |
 
 没有候选或 reranker 全部拒绝时，`/v1/chat` 固定返回资料不足，不调用
 DeepSeek。第一道门槛通过后，DeepSeek Judge 只做 JSON 证据充分性分类；Judge

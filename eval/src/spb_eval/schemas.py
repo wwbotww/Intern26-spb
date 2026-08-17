@@ -17,6 +17,12 @@ ExpectedOutcome = Literal["answer", "reject"]
 EvalMode = Literal["retrieve", "chat", "all"]
 Difficulty = Literal["easy", "medium", "hard"]
 DatasetSplit = Literal["calibration", "holdout"]
+AssistantQueryMode = Literal["policy", "device_price"]
+AssistantExpectedOutcome = Literal[
+    "answer",
+    "no_match",
+    "need_more_info",
+]
 
 
 class EvalCase(BaseModel):
@@ -121,6 +127,129 @@ class RunReport(BaseModel):
     service: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any]
     results: list[CaseResult]
+
+
+class AssistantEvalCase(BaseModel):
+    id: NonEmptyText
+    category: NonEmptyText
+    mode: AssistantQueryMode
+    question: NonEmptyText
+    expected_outcome: AssistantExpectedOutcome
+    expected_finish_reasons: list[NonEmptyText] = Field(
+        default_factory=list
+    )
+    expected_reason_codes: list[NonEmptyText] = Field(
+        default_factory=list
+    )
+    expected_missing_fields: list[NonEmptyText] = Field(
+        default_factory=list
+    )
+    expected_product_ids: list[NonEmptyText] = Field(
+        default_factory=list
+    )
+    expected_sku_ids: list[NonEmptyText] = Field(default_factory=list)
+    min_evidence_count: int | None = Field(default=None, ge=0, le=100)
+    tags: list[NonEmptyText] = Field(default_factory=list)
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def validate_expectations(self) -> "AssistantEvalCase":
+        for field_name in (
+            "expected_finish_reasons",
+            "expected_reason_codes",
+            "expected_missing_fields",
+            "expected_product_ids",
+            "expected_sku_ids",
+            "tags",
+        ):
+            setattr(
+                self,
+                field_name,
+                list(dict.fromkeys(getattr(self, field_name))),
+            )
+        default_finish_reasons = {
+            "answer": ["stop"],
+            "no_match": ["no_match"],
+            "need_more_info": ["insufficient_information"],
+        }
+        if not self.expected_finish_reasons:
+            self.expected_finish_reasons = default_finish_reasons[
+                self.expected_outcome
+            ]
+        expected_minimum = 1 if self.expected_outcome == "answer" else 0
+        if self.min_evidence_count is None:
+            self.min_evidence_count = expected_minimum
+        if (
+            self.expected_outcome != "answer"
+            and self.min_evidence_count != 0
+        ):
+            raise ValueError("非回答样本的 min_evidence_count 必须为 0")
+        if (
+            self.mode == "policy"
+            and (self.expected_product_ids or self.expected_sku_ids)
+        ):
+            raise ValueError("政策样本不能设置设备产品或 SKU Gold")
+        return self
+
+
+class AssistantEvidenceItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    evidence_id: str
+    type: AssistantQueryMode
+    title: str = ""
+    source_url: str = ""
+    excerpt: str = ""
+    chunk_id: str = ""
+    document_id: str = ""
+    brand: str = ""
+    model: str = ""
+    specification: str = ""
+    price: str = ""
+    currency: str = ""
+    source: str = ""
+    observed_at: str = ""
+    official_product_id: str = ""
+    official_sku_id: str = ""
+    match_score: float = 0.0
+
+
+class AssistantChatObservation(BaseModel):
+    status: Literal["ok", "error"]
+    client_elapsed_ms: float
+    request_id: str = ""
+    mode: str = ""
+    answer: str = ""
+    evidence: list[AssistantEvidenceItem] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    missing_fields: list[str] = Field(default_factory=list)
+    used_tool: str = ""
+    finish_reason: str = ""
+    reason_code: str = ""
+    usage: dict[str, Any] = Field(default_factory=dict)
+    error: str = ""
+
+
+class AssistantCaseResult(BaseModel):
+    case: AssistantEvalCase
+    chat: AssistantChatObservation
+
+
+class AssistantRunConfig(BaseModel):
+    label: str
+    base_url: str
+    dataset: str
+    concurrency: int
+    timeout_seconds: float
+    git_commit: str = "unknown"
+
+
+class AssistantRunReport(BaseModel):
+    generated_at: str
+    config: AssistantRunConfig
+    service: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any]
+    results: list[AssistantCaseResult]
 
 
 class ThresholdPoint(BaseModel):

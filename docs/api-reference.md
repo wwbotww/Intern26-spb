@@ -91,9 +91,23 @@ Retry-After: 42
 |---|---|---|---|
 | `POST` | `/v1/retrieve` | 混合检索，返回原始知识片段 | 是 |
 | `POST` | `/v1/chat` | 检索增强问答，支持 JSON/SSE | 是 |
+| `GET` | `/v1/auth/check` | 服务间 API Key 轻量校验 | 是 |
 | `GET` | `/health/live` | 进程存活检查 | 否 |
 | `GET` | `/health/ready` | 上游依赖就绪检查 | 否 |
 | `GET` | `/metrics` | Prometheus 指标 | 否，仅限运维网络 |
+
+### 2.5 服务间鉴权检查
+
+`GET /v1/auth/check` 只验证请求是否通过 API Key 中间件，不执行 embedding、
+Milvus 查询或模型调用。内部调用方可在启动 readiness 中使用：
+
+```bash
+curl -sS "${SPB_RAG_BASE_URL}/v1/auth/check" \
+  -H "Authorization: Bearer ${SPB_RAG_API_KEY}"
+```
+
+Key 有效时返回 `{"status":"ok","service":"spb-rag-api"}`；缺失或无效时与
+其他受保护接口一样返回 HTTP 401。
 
 ## 3. 混合检索
 
@@ -421,7 +435,7 @@ curl -sS "${SPB_RAG_BASE_URL}/health/live"
 {
   "status": "ok",
   "service": "spb-rag-api",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "phase": 5,
   "checks": {
     "workspace": "ok",
@@ -445,7 +459,7 @@ curl -sS "${SPB_RAG_BASE_URL}/health/ready"
 {
   "status": "ok",
   "service": "spb-rag-api",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "phase": 5,
   "checks": {
     "retriever": "ready",

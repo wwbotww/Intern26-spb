@@ -1,3 +1,3 @@
-"""Black-box evaluation toolkit for the SPB RAG API."""
+"""Black-box evaluation toolkit for the RAG and claims assistant APIs."""
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

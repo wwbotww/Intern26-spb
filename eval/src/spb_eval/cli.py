@@ -17,22 +17,32 @@ from .analysis import (
     recalculate_report,
     scan_thresholds,
 )
-from .client import RagApiClient
-from .dataset import DatasetError, load_dataset, split_dataset
+from .client import AssistantApiClient, RagApiClient
+from .dataset import (
+    DatasetError,
+    load_assistant_dataset,
+    load_dataset,
+    split_dataset,
+)
 from .reporting import (
+    write_assistant_report,
     write_comparison_report,
     write_report,
     write_stability_report,
     write_threshold_report,
 )
-from .runner import resolve_git_commit, run_evaluation
-from .schemas import RunConfig
+from .runner import (
+    resolve_git_commit,
+    run_assistant_evaluation,
+    run_evaluation,
+)
+from .schemas import AssistantRunConfig, RunConfig
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="spb-eval",
-        description="国家邮政局政策 RAG API 黑盒评估工具",
+        description="政策 RAG 与中国邮政理赔助手黑盒评估工具",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser("run", help="运行 JSONL 评估数据集")
@@ -59,6 +69,31 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--candidate-k", type=int, default=40)
     run.add_argument("--concurrency", type=int, default=5)
     run.add_argument("--timeout-seconds", type=float, default=120.0)
+
+    assistant_run = subparsers.add_parser(
+        "assistant-run",
+        help="运行理赔助手 policy/device_price 黑盒评估数据集",
+    )
+    assistant_run.add_argument("--dataset", type=Path, required=True)
+    assistant_run.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("eval/reports"),
+    )
+    assistant_run.add_argument("--label", default="assistant-eval")
+    assistant_run.add_argument(
+        "--base-url",
+        default=os.getenv(
+            "EVAL_ASSISTANT_BASE_URL",
+            "http://127.0.0.1:8081",
+        ),
+    )
+    assistant_run.add_argument("--concurrency", type=int, default=5)
+    assistant_run.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=120.0,
+    )
 
     split = subparsers.add_parser(
         "split-dataset",
@@ -180,6 +215,33 @@ async def _run(args: argparse.Namespace) -> Path:
     return write_report(report, args.output_dir)
 
 
+async def _run_assistant(args: argparse.Namespace) -> Path:
+    if args.concurrency < 1 or args.concurrency > 20:
+        raise ValueError("--concurrency 必须在 1 到 20 之间")
+    if args.timeout_seconds <= 0:
+        raise ValueError("--timeout-seconds 必须大于 0")
+    cases = load_assistant_dataset(args.dataset)
+    config = AssistantRunConfig(
+        label=args.label,
+        base_url=args.base_url,
+        dataset=str(args.dataset),
+        concurrency=args.concurrency,
+        timeout_seconds=args.timeout_seconds,
+        git_commit=resolve_git_commit(),
+    )
+    async with AssistantApiClient(
+        base_url=args.base_url,
+        api_key=os.getenv("EVAL_ASSISTANT_API_KEY", ""),
+        timeout_seconds=args.timeout_seconds,
+    ) as client:
+        report = await run_assistant_evaluation(
+            client=client,
+            cases=cases,
+            config=config,
+        )
+    return write_assistant_report(report, args.output_dir)
+
+
 def _threshold_values(args: argparse.Namespace) -> list[float]:
     if args.threshold:
         values = args.threshold
@@ -273,6 +335,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             output = {
                 "report_dir": str(asyncio.run(_run(args))),
+            }
+        elif args.command == "assistant-run":
+            output = {
+                "report_dir": str(asyncio.run(_run_assistant(args))),
             }
         elif args.command == "split-dataset":
             output = split_dataset(args.dataset, args.output_dir)

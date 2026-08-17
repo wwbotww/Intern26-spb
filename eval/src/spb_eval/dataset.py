@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .schemas import EvalCase
+from .schemas import AssistantEvalCase, EvalCase
 
 
 class DatasetError(ValueError):
@@ -34,6 +34,38 @@ def load_dataset(path: Path) -> list[EvalCase]:
         except (json.JSONDecodeError, ValidationError) as exc:
             raise DatasetError(
                 f"{path}:{line_number} 样本格式错误：{exc}"
+            ) from exc
+        if case.id in seen_ids:
+            raise DatasetError(
+                f"{path}:{line_number} 样本 ID 重复：{case.id}"
+            )
+        seen_ids.add(case.id)
+        cases.append(case)
+
+    if not cases:
+        raise DatasetError(f"数据集为空：{path}")
+    return cases
+
+
+def load_assistant_dataset(path: Path) -> list[AssistantEvalCase]:
+    if not path.is_file():
+        raise DatasetError(f"数据集不存在：{path}")
+
+    cases: list[AssistantEvalCase] = []
+    seen_ids: set[str] = set()
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+            case = AssistantEvalCase.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            raise DatasetError(
+                f"{path}:{line_number} assistant 样本格式错误：{exc}"
             ) from exc
         if case.id in seen_ids:
             raise DatasetError(

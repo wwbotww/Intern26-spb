@@ -1,6 +1,6 @@
 [project]
 name = "spb-rag-api"
-version = "0.5.0"
+version = "0.5.1"
 description = "国家邮政局政策知识库在线检索与问答 API"
 requires-python = ">=3.11"
 dependencies = [

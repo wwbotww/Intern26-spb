@@ -1,7 +1,8 @@
-# SPB RAG 黑盒评估
+# SPB RAG 与理赔助手黑盒评估
 
-`eval/` 是独立的轻量评估包，只通过 HTTP 调用 `rag-api`。它不导入在线或
-离线应用、不直连 Milvus，也不读取本地爬取数据。
+`eval/` 是独立的轻量评估包，只通过 HTTP 调用 `rag-api` 或
+`assistant-api`。它不导入在线或离线应用、不直连 Milvus/MySQL，也不读取本地
+爬取数据。
 
 当前评估能力包括：
 
@@ -14,6 +15,10 @@
 - 对同一数据集的 baseline 与 experiment 报告做指标及逐样本对比；
 - 聚合重复运行，统计质量指标极差、路由/引用/答案文字一致率；
 - 为每次运行自动生成 `review-queue.md` 人工复核队列。
+- 对理赔助手校验固定模式分发、结束状态、拒答原因、信息缺口、证据类型和字段
+  完整性；
+- 评估设备价格候选 Product/SKU Recall，并识别拒答结果泄露证据的问题；
+- 记录统一助手在指定并发度下的延迟、吞吐、错误和 Token 基线。
 
 ## 数据集
 
@@ -120,6 +125,55 @@ uv run --package spb-eval spb-eval stability \
 ```
 
 新运行还会在 `summary.efficiency` 中记录端到端墙钟耗时和实际请求吞吐。
+
+## 理赔助手评估
+
+理赔助手数据集与政策 RAG 专项集分开。每行只描述一次独立的单轮请求，不包含
+会话历史：
+
+```json
+{
+  "id": "price-001",
+  "category": "price_candidate",
+  "mode": "device_price",
+  "question": "设备品牌、型号和规格",
+  "expected_outcome": "answer",
+  "expected_finish_reasons": ["stop"],
+  "expected_product_ids": ["gold-product-id"],
+  "expected_sku_ids": [],
+  "min_evidence_count": 1,
+  "tags": ["exact-model"]
+}
+```
+
+`expected_outcome` 取 `answer`、`no_match` 或 `need_more_info`。可通过
+`expected_reason_codes` 精确约束拒答原因，通过 `expected_missing_fields` 校验
+补充信息提示；价格样本可以提供 Product/SKU Gold，政策样本不能填写价格 Gold。
+完整字段示例见 `datasets/assistant-template.jsonl`。
+
+运行统一助手评估：
+
+```bash
+export EVAL_ASSISTANT_BASE_URL=http://127.0.0.1:8081
+export EVAL_ASSISTANT_API_KEY=your-assistant-service-key
+
+uv run --package spb-eval spb-eval assistant-run \
+  --dataset eval/datasets/private/assistant-core.jsonl \
+  --label assistant-full-chain \
+  --concurrency 5
+```
+
+该命令固定调用非流式 `/v1/chat`，请求只包含 `mode`、`question` 和
+`stream=false`。报告目录结构与 RAG 专项运行相同，核心结果包括：
+
+- 样本整体通过率和 `policy` / `device_price` 分模式通过率；
+- 模式分发、`finish_reason`、`reason_code`、缺失字段和最少证据数量通过率；
+- 证据类型正确率、政策/价格必要字段完整率和拒答证据泄露率；
+- 价格候选 Product/SKU Recall；
+- API 错误、P50/P95 延迟、墙钟吞吐和生成 Token。
+
+模板问题只用于说明格式，不能作为评估结论。真实问题、数据库标识、回答和报告
+必须放在 Git 忽略的 `datasets/private/` 与 `reports/` 下。
 
 ## 指标口径
 

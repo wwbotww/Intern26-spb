@@ -2,21 +2,85 @@ services:
   chat-web:
     build:
       context: ../apps/chat-web
-    image: intern26-spb-chat-web:0.1.0
+    image: intern26-spb-chat-web:0.2.0
     environment:
-      CHAT_WEB_RAG_API_KEY: ${CHAT_WEB_RAG_API_KEY:-}
+      CHAT_WEB_ASSISTANT_API_KEY: ${CHAT_WEB_ASSISTANT_API_KEY:-}
     ports:
       - "127.0.0.1:3000:80"
+    depends_on:
+      assistant-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  assistant-api:
+    build:
+      context: ..
+      dockerfile: apps/assistant-api/Dockerfile
+    image: intern26-spb-assistant-api:0.3.1
+    environment:
+      ASSISTANT_AUTH_ENABLED: ${ASSISTANT_AUTH_ENABLED:-true}
+      ASSISTANT_API_KEYS: ${ASSISTANT_API_KEYS:-}
+      ASSISTANT_MAX_CONCURRENCY: ${ASSISTANT_MAX_CONCURRENCY:-5}
+      ASSISTANT_RAG_BASE_URL: >-
+        ${ASSISTANT_RAG_BASE_URL:-http://rag-api:8080}
+      ASSISTANT_RAG_API_KEY: ${ASSISTANT_RAG_API_KEY:-}
+      ASSISTANT_RAG_TIMEOUT_SECONDS: >-
+        ${ASSISTANT_RAG_TIMEOUT_SECONDS:-120}
+      ASSISTANT_RAG_HEALTH_TIMEOUT_SECONDS: >-
+        ${ASSISTANT_RAG_HEALTH_TIMEOUT_SECONDS:-5}
+      ASSISTANT_RAG_TOP_K: ${ASSISTANT_RAG_TOP_K:-5}
+      ASSISTANT_RAG_CANDIDATE_K: ${ASSISTANT_RAG_CANDIDATE_K:-40}
+      ASSISTANT_RAG_VERIFY_TLS: ${ASSISTANT_RAG_VERIFY_TLS:-true}
+      ASSISTANT_MYSQL_DSN: ${ASSISTANT_MYSQL_DSN:-}
+      ASSISTANT_MYSQL_POOL_SIZE: ${ASSISTANT_MYSQL_POOL_SIZE:-5}
+      ASSISTANT_MYSQL_CONNECT_TIMEOUT_SECONDS: >-
+        ${ASSISTANT_MYSQL_CONNECT_TIMEOUT_SECONDS:-5}
+      ASSISTANT_MYSQL_QUERY_TIMEOUT_SECONDS: >-
+        ${ASSISTANT_MYSQL_QUERY_TIMEOUT_SECONDS:-10}
+      ASSISTANT_PRICE_CANDIDATE_LIMIT: >-
+        ${ASSISTANT_PRICE_CANDIDATE_LIMIT:-5000}
+      ASSISTANT_PRICE_RESULT_LIMIT: >-
+        ${ASSISTANT_PRICE_RESULT_LIMIT:-50}
+      ASSISTANT_PRICE_MATCH_THRESHOLD: >-
+        ${ASSISTANT_PRICE_MATCH_THRESHOLD:-65}
+    ports:
+      - "127.0.0.1:8081:8081"
     depends_on:
       rag-api:
         condition: service_healthy
     restart: unless-stopped
+    stop_grace_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8081/health/live', timeout=3)
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 512m
 
   rag-api:
     build:
       context: ..
       dockerfile: apps/rag-api/Dockerfile
-    image: intern26-spb-rag-api:0.5.0
+    image: intern26-spb-rag-api:0.5.1
     env_file:
       - ../apps/rag-api/.env
     ports:

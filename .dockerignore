@@ -2,6 +2,7 @@
 .github
 .venv
 .cache
+**/node_modules
 **/__pycache__
 **/*.py[cod]
 **/.pytest_cache
@@ -15,3 +16,5 @@ apps/offline-pipeline/src
 apps/offline-pipeline/tests
 apps/offline-pipeline/scripts
 apps/rag-api/tests
+apps/assistant-api/tests
+tmp

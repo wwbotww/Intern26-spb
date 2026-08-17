@@ -71,6 +71,28 @@ def test_auth_accepts_bearer_and_x_api_key() -> None:
     assert header.status_code == 200
 
 
+def test_service_auth_check_is_protected_without_querying_data() -> None:
+    app = create_app(
+        settings=_settings(
+            auth_enabled=True,
+            api_keys="service-key",
+            rate_limit_enabled=False,
+        ),
+        retriever=FakeRetriever(),
+    )
+
+    with TestClient(app) as client:
+        missing = client.get("/v1/auth/check")
+        valid = client.get(
+            "/v1/auth/check",
+            headers={"Authorization": "Bearer service-key"},
+        )
+
+    assert missing.status_code == 401
+    assert valid.status_code == 200
+    assert valid.json() == {"status": "ok", "service": "spb-rag-api"}
+
+
 def test_auth_fails_closed_when_enabled_without_keys() -> None:
     app = create_app(
         settings=_settings(
