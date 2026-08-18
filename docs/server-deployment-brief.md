@@ -3,7 +3,8 @@
 本文记录中国邮政理赔智能咨询 Demo 的当前服务器部署方式，供开发、测试和后续
 维护使用。该方案以方向验证为目标，不代表正式生产环境基线。
 
-> 状态说明：阶段 5 已于 2026-08-17 完成灰度部署。当前 Web 已切换到统一
+> 状态说明：阶段 5 已于 2026-08-17 完成灰度部署，并于 2026-08-18 完成
+> 设备价格匹配规则补丁升级。当前 Web 已切换到统一
 > `assistant-api`，政策工具调用 `rag-api`，设备价格工具只读访问测试 MySQL。
 > 2026-08-11 的政策问答容器以停止状态保留为回滚点。
 
@@ -11,7 +12,7 @@
 
 | 项目 | 当前配置 |
 |---|---|
-| 部署日期 | 2026-08-17 |
+| 最近部署日期 | 2026-08-18 |
 | 服务器 | `10.3.7.164` |
 | 操作系统 | CentOS 7，x86_64 |
 | 容器运行时 | Docker 1.13.1，无 Docker Compose |
@@ -44,9 +45,10 @@ Assistant/RAG API、Milvus、MySQL 或 DeepSeek，也不会接触服务 API Key�
     chat-web.env      # Web 代理使用的 Assistant 服务 API Key
     chat-web.env.pre-assistant-20260817 # 上一版 Web 配置备份
   images/
+    intern26-spb-assistant-api-0.3.2-amd64.tar
     intern26-assistant-web-amd64.tar
     spb_rag_api-0.5.1-py3-none-any.whl
-    spb_assistant_api-0.3.1-py3-none-any.whl
+    spb_assistant_api-0.3.1-py3-none-any.whl # 上一版服务器补丁构建材料
 ```
 
 `config/` 及其中配置文件仅允许 root 访问，配置文件权限为 `0600`。文档、日志
@@ -57,7 +59,7 @@ Assistant/RAG API、Milvus、MySQL 或 DeepSeek，也不会接触服务 API Key�
 | 名称 | 镜像 | 网络 | 端口 |
 |---|---|---|---|
 | `intern26-spb-chat-web` | `intern26-spb-chat-web:0.2.0-amd64` | `intern26-spb` | `10.3.7.164:3000 -> 80` |
-| `intern26-spb-assistant-api` | `intern26-spb-assistant-api:0.3.1-amd64` | `intern26-spb` | 不映射宿主机端口 |
+| `intern26-spb-assistant-api` | `intern26-spb-assistant-api:0.3.2-amd64` | `intern26-spb` | 不映射宿主机端口 |
 | `intern26-spb-rag-api` | `intern26-spb-rag-api:0.5.1-amd64` | `intern26-spb` | 不映射宿主机端口 |
 
 三个容器使用 `unless-stopped` 重启策略。服务器 Docker 服务目前没有启用开机

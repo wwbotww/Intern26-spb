@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -17,6 +18,9 @@ from ..domain.exceptions import (
 from ..domain.models import DevicePriceEvidence, ToolResult, ToolStatus
 from ..domain.ports import DevicePriceRepository
 from .device_query import (
+    BRAND_ALIASES,
+    MODEL_VARIANT_WORDS,
+    PRODUCT_FAMILY_TOKENS,
     ParsedDeviceQuery,
     extract_capacity_tokens,
     normalize_text,
@@ -32,6 +36,16 @@ DEVICE_PRICE_TOOL_NAME = "device_price"
 class RankedPrice:
     record: DevicePriceRecord
     score: float
+
+
+@dataclass(frozen=True, slots=True)
+class RankedProduct:
+    records: tuple[DevicePriceRecord, ...]
+    score: float
+
+
+IDENTITY_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+IDENTITY_WORD_RE = re.compile(r"[a-z0-9]+")
 
 
 class DevicePriceTool:
@@ -153,23 +167,116 @@ class DevicePriceTool:
         parsed: ParsedDeviceQuery,
         records: list[DevicePriceRecord],
     ) -> list[RankedPrice]:
-        ranked: list[RankedPrice] = []
+        grouped: dict[
+            tuple[str, str],
+            list[DevicePriceRecord],
+        ] = {}
         for record in records:
-            score = self._score(parsed, record)
-            if score >= self._match_threshold:
-                ranked.append(RankedPrice(record=record, score=score))
-        ranked.sort(
+            grouped.setdefault(self._product_key(record), []).append(record)
+
+        products: list[RankedProduct] = []
+        for product_records in grouped.values():
+            representative = product_records[0]
+            if (
+                parsed.brand_code is not None
+                and representative.brand_code.upper() != parsed.brand_code
+            ):
+                continue
+            if not self._matches_required_identity(parsed, representative):
+                continue
+            score = self._score_product(parsed, representative)
+            if score < self._match_threshold:
+                continue
+            ordered_records = tuple(
+                sorted(product_records, key=self._record_order_key)
+            )
+            products.append(
+                RankedProduct(records=ordered_records, score=score)
+            )
+
+        products.sort(
             key=lambda item: (
                 -item.score,
-                self._availability_rank(item.record.availability),
-                -item.record.observed_at.timestamp(),
-                item.record.offer_id,
+                self._record_order_key(item.records[0]),
+                self._product_key(item.records[0]),
             )
         )
-        return ranked
+        if products:
+            best_score = products[0].score
+            products = [
+                product
+                for product in products
+                if abs(product.score - best_score) < 0.001
+            ]
+        return [
+            RankedPrice(record=record, score=product.score)
+            for product in products
+            for record in product.records
+        ]
 
     @staticmethod
-    def _score(
+    def _product_key(record: DevicePriceRecord) -> tuple[str, str]:
+        identifier = record.official_product_id.strip()
+        if not identifier:
+            identifier = "|".join(
+                normalize_text(value)
+                for value in (
+                    record.product_name,
+                    record.series_name,
+                    record.model_number,
+                )
+            )
+        return record.brand_code.upper(), identifier
+
+    @classmethod
+    def _matches_required_identity(
+        cls,
+        parsed: ParsedDeviceQuery,
+        record: DevicePriceRecord,
+    ) -> bool:
+        query = parsed.model_text
+        product_identity = " ".join(
+            value
+            for value in (
+                record.product_name,
+                record.series_name,
+                record.model_number,
+            )
+            if value
+        )
+        query_compact = cls._compact_identity(query)
+        product_compact = cls._compact_identity(product_identity)
+
+        requested_families = {
+            family
+            for family in PRODUCT_FAMILY_TOKENS
+            if family in query_compact
+        }
+        if any(
+            family not in product_compact
+            for family in requested_families
+        ):
+            return False
+
+        query_numbers = set(IDENTITY_NUMBER_RE.findall(query))
+        product_numbers = set(
+            IDENTITY_NUMBER_RE.findall(normalize_text(product_identity))
+        )
+        if not query_numbers.issubset(product_numbers):
+            return False
+
+        query_mixed_tokens = cls._mixed_model_tokens(query)
+        if any(
+            token not in product_compact for token in query_mixed_tokens
+        ):
+            return False
+
+        requested_variants = cls._variant_words(query)
+        product_variants = cls._variant_words(product_identity)
+        return requested_variants.issubset(product_variants)
+
+    @staticmethod
+    def _score_product(
         parsed: ParsedDeviceQuery,
         record: DevicePriceRecord,
     ) -> float:
@@ -177,32 +284,103 @@ class DevicePriceTool:
             record.product_name,
             record.series_name,
             record.model_number,
-            record.official_product_id,
-            record.sku_name,
-            record.official_sku_id,
         )
-        normalized_fields = [normalize_text(value) for value in fields if value]
+        normalized_fields: list[str] = []
+        for value in fields:
+            if not value:
+                continue
+            normalized = normalize_text(value)
+            normalized_fields.append(normalized)
+            without_brand = DevicePriceTool._without_brand_prefix(
+                normalized,
+                record,
+            )
+            if without_brand != normalized:
+                normalized_fields.append(without_brand)
         if not normalized_fields:
             return 0.0
 
-        scores: list[float] = []
-        compact_query = parsed.model_text.replace(" ", "")
-        for value in normalized_fields:
-            scores.append(float(fuzz.WRatio(parsed.model_text, value)))
-            scores.append(float(fuzz.token_set_ratio(parsed.model_text, value)))
-            if compact_query and compact_query in value.replace(" ", ""):
-                scores.append(95.0)
-        score = max(scores, default=0.0)
-
-        haystack = " ".join(normalized_fields)
-        if parsed.terms:
-            coverage = sum(
-                1 for term in parsed.terms if term in haystack
-            ) / len(parsed.terms)
-            score += coverage * 5
+        score = max(
+            float(fuzz.WRatio(parsed.model_text, value))
+            for value in normalized_fields
+        )
+        compact_query = DevicePriceTool._compact_identity(parsed.model_text)
+        compact_fields = [
+            DevicePriceTool._compact_identity(value)
+            for value in normalized_fields
+        ]
+        if compact_query in compact_fields:
+            score = 100.0
+        elif compact_query and any(
+            compact_query in value for value in compact_fields
+        ):
+            score = max(score, 95.0)
         if parsed.brand_code == record.brand_code.upper():
             score += 3
         return min(100.0, score)
+
+    @staticmethod
+    def _compact_identity(value: str) -> str:
+        normalized = normalize_text(value).replace("+", "plus")
+        return "".join(
+            character
+            for character in normalized
+            if character.isalnum()
+            or "\u4e00" <= character <= "\u9fff"
+        )
+
+    @staticmethod
+    def _without_brand_prefix(
+        normalized: str,
+        record: DevicePriceRecord,
+    ) -> str:
+        prefixes = {
+            *BRAND_ALIASES.get(record.brand_code.upper(), ()),
+            normalize_text(record.brand_name),
+            record.brand_code.lower(),
+        }
+        for prefix in sorted(prefixes, key=len, reverse=True):
+            if not prefix or not normalized.startswith(prefix):
+                continue
+            remainder = normalized[len(prefix) :].lstrip(" .+-")
+            if remainder:
+                return remainder
+        return normalized
+
+    @staticmethod
+    def _mixed_model_tokens(value: str) -> frozenset[str]:
+        tokens = IDENTITY_WORD_RE.findall(normalize_text(value))
+        return frozenset(
+            token
+            for token in tokens
+            if any(character.isalpha() for character in token)
+            and any(character.isdigit() for character in token)
+        )
+
+    @staticmethod
+    def _variant_words(value: str) -> frozenset[str]:
+        normalized = normalize_text(value)
+        tokens = IDENTITY_WORD_RE.findall(normalized)
+        variants = {
+            variant
+            for variant in MODEL_VARIANT_WORDS
+            if variant in tokens
+            or any(token.endswith(variant) for token in tokens)
+        }
+        if "+" in normalized:
+            variants.add("plus")
+        return frozenset(variants)
+
+    @classmethod
+    def _record_order_key(
+        cls,
+        record: DevicePriceRecord,
+    ) -> tuple[int, float, int]:
+        return (
+            cls._availability_rank(record.availability),
+            -record.observed_at.timestamp(),
+            record.offer_id,
+        )
 
     @staticmethod
     def _record_capacities(

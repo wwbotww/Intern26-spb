@@ -12,12 +12,36 @@ CAPACITY_RE = re.compile(
 NON_WORD_RE = re.compile(r"[^0-9a-zA-Z\u4e00-\u9fff.+-]+")
 
 BRAND_ALIASES: dict[str, tuple[str, ...]] = {
-    "APPLE": ("macbook", "iphone", "ipad", "imac", "apple", "苹果"),
-    "HUAWEI": ("huawei", "华为", "pura", "mate"),
-    "XIAOMI": ("xiaomi", "redmi", "小米", "红米"),
+    "APPLE": ("apple", "苹果"),
+    "HUAWEI": ("huawei", "华为"),
+    "XIAOMI": ("xiaomi", "小米"),
     "OPPO": ("oppo",),
-    "VIVO": ("vivo", "iqoo"),
+    "VIVO": ("vivo",),
 }
+PRODUCT_FAMILY_BRAND_HINTS: dict[str, tuple[str, ...]] = {
+    "APPLE": ("macbook", "iphone", "ipad", "imac", "mac"),
+    "HUAWEI": ("matebook", "mate", "pura", "nova"),
+    "XIAOMI": ("redmi", "红米"),
+    "OPPO": ("find", "reno"),
+    "VIVO": ("iqoo",),
+}
+PRODUCT_FAMILY_TOKENS = tuple(
+    dict.fromkeys(
+        alias
+        for aliases in PRODUCT_FAMILY_BRAND_HINTS.values()
+        for alias in aliases
+    )
+)
+DEVICE_ALIASES = tuple(
+    dict.fromkeys(
+        alias
+        for mapping in (BRAND_ALIASES, PRODUCT_FAMILY_BRAND_HINTS)
+        for aliases in mapping.values()
+        for alias in aliases
+    )
+)
+MODEL_VARIANT_WORDS = ("pro", "max", "plus", "ultra", "se")
+NUMBER_TOKEN_RE = re.compile(r"\d+(?:\.\d+)?")
 
 QUERY_PHRASES = (
     "设备参考价格",
@@ -72,6 +96,11 @@ GENERIC_MODEL_WORDS = frozenset(
         "耳机",
         "机器",
         "产品",
+        "的",
+        "款",
+        "版",
+        "版本",
+        "+",
     }
 )
 
@@ -107,9 +136,9 @@ def extract_capacity_tokens(*values: str) -> tuple[str, ...]:
     for value in values:
         normalized = unicodedata.normalize("NFKC", value)
         for match in CAPACITY_RE.finditer(normalized):
-            token = normalize_capacity(
-                f"{match.group(1)}{match.group(2)}"
-            )
+            token = _capacity_token(match)
+            if token is None:
+                continue
             if token not in found:
                 found.append(token)
     return tuple(found)
@@ -123,10 +152,10 @@ def parse_device_query(question: str) -> ParsedDeviceQuery:
     model_text = normalized
     if matched_alias:
         model_text = model_text.replace(matched_alias, " ")
-    model_text = CAPACITY_RE.sub(" ", model_text)
+    model_text = CAPACITY_RE.sub(_remove_capacity_match, model_text)
     for phrase in QUERY_PHRASES:
         model_text = model_text.replace(phrase, " ")
-    model_text = re.sub(r"\s+", " ", model_text).strip(" .+-")
+    model_text = re.sub(r"\s+", " ", model_text).strip(" .-")
 
     tokens = [
         token
@@ -143,7 +172,10 @@ def parse_device_query(question: str) -> ParsedDeviceQuery:
         )
         for token in tokens
     )
-    sufficient = bool(model_text) and (
+    has_identity_token = any(
+        token not in MODEL_VARIANT_WORDS for token in tokens
+    )
+    sufficient = bool(terms) and has_identity_token and (
         brand_code is not None
         or has_meaningful_text
         or len(model_text) >= 4
@@ -159,21 +191,63 @@ def parse_device_query(question: str) -> ParsedDeviceQuery:
 
 
 def _detect_brand(value: str) -> tuple[str | None, str | None]:
+    brand_match = _first_alias_match(value, BRAND_ALIASES)
+    if brand_match is not None:
+        code, alias = brand_match
+        return code, alias
+
+    family_match = _first_alias_match(value, PRODUCT_FAMILY_BRAND_HINTS)
+    if family_match is not None:
+        code, _ = family_match
+        return code, None
+    return None, None
+
+
+def _capacity_token(match: re.Match[str]) -> str | None:
+    amount = float(match.group(1))
+    unit = match.group(2).upper()
+    if unit in {"T", "TB"} and amount > 8:
+        return None
+    return normalize_capacity(f"{match.group(1)}{match.group(2)}")
+
+
+def _remove_capacity_match(match: re.Match[str]) -> str:
+    return " " if _capacity_token(match) is not None else match.group(0)
+
+
+def _first_alias_match(
+    value: str,
+    aliases_by_code: dict[str, tuple[str, ...]],
+) -> tuple[str, str] | None:
     matches: list[tuple[int, str, str]] = []
-    for code, aliases in BRAND_ALIASES.items():
+    for code, aliases in aliases_by_code.items():
         for alias in aliases:
             position = value.find(alias)
             if position >= 0:
                 matches.append((position, code, alias))
     if not matches:
-        return None, None
+        return None
     _, code, alias = min(matches, key=lambda item: (item[0], -len(item[2])))
     return code, alias
 
 
 def _unique_terms(model_text: str, tokens: list[str]) -> tuple[str, ...]:
     values: list[str] = []
-    for value in (model_text, *tokens):
+    compact = model_text.replace(" ", "").replace("-", "")
+    inferred_terms = (
+        *(
+            family
+            for family in PRODUCT_FAMILY_TOKENS
+            if family in compact
+        ),
+        *(
+            variant
+            for variant in MODEL_VARIANT_WORDS
+            if variant in compact
+        ),
+        *NUMBER_TOKEN_RE.findall(model_text),
+    )
+    for value in (model_text, *tokens, *inferred_terms):
         normalized = value.strip()
         if len(normalized) < 2 or normalized in values:
             continue

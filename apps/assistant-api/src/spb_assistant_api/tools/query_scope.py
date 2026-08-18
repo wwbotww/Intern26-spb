@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from ..domain.models import ToolResult, ToolStatus
-from .device_query import BRAND_ALIASES, normalize_text
+from .device_query import DEVICE_ALIASES, normalize_text
 
 
 PRICE_MARKERS = ("参考价", "价格", "多少钱", "售价", "价钱")
@@ -43,14 +43,9 @@ def is_cross_category_question(question: str) -> bool:
         connector in question
         for connector in RAW_PUNCTUATION_CONNECTORS
     )
-    aliases = (
-        alias
-        for values in BRAND_ALIASES.values()
-        for alias in values
-    )
     has_device = (
         "设备" in normalized
-        or any(alias in normalized for alias in aliases)
+        or any(alias in normalized for alias in DEVICE_ALIASES)
         or MODEL_NUMBER_RE.search(normalized) is not None
     )
     return has_price and has_policy and has_connector and has_device

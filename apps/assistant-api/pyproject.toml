@@ -1,6 +1,6 @@
 [project]
 name = "spb-assistant-api"
-version = "0.3.1"
+version = "0.3.2"
 description = "中国邮政理赔助手显式模式分发与咨询 API"
 requires-python = ">=3.11"
 dependencies = [

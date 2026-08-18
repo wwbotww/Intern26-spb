@@ -16,7 +16,7 @@ services:
     build:
       context: ..
       dockerfile: apps/assistant-api/Dockerfile
-    image: intern26-spb-assistant-api:0.3.1
+    image: intern26-spb-assistant-api:0.3.2
     environment:
       ASSISTANT_AUTH_ENABLED: ${ASSISTANT_AUTH_ENABLED:-true}
       ASSISTANT_API_KEYS: ${ASSISTANT_API_KEYS:-}

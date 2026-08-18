@@ -107,6 +107,13 @@ def test_search_uses_fixed_sql_and_bound_user_values() -> None:
     assert records[0].current_price == Decimal("7999.00")
     assert "b.code = :brand_code" in connection.sql
     assert "LIKE :term_0" in connection.sql
+    assert "LOWER(COALESCE(p.name, '')) LIKE :term_0" in connection.sql
+    assert "LOWER(COALESCE(p.series_name, '')) LIKE :term_0" in connection.sql
+    assert "LOWER(COALESCE(p.model_number, '')) LIKE :term_0" in connection.sql
+    assert "LOWER(COALESCE(s.name, '')) LIKE" not in connection.sql
+    assert "LOWER(COALESCE(s.capacity, '')) LIKE" not in connection.sql
+    assert "LOWER(COALESCE(s.official_sku_id, '')) LIKE" not in connection.sql
+    assert "LOWER(COALESCE(p.official_product_id, '')) LIKE" not in connection.sql
     assert hostile_term not in connection.sql
     assert connection.parameters == {
         "brand_code": "APPLE",

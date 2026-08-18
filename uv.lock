@@ -1935,7 +1935,7 @@ wheels = [
 
 [[package]]
 name = "spb-assistant-api"
-version = "0.3.1"
+version = "0.3.2"
 source = { editable = "apps/assistant-api" }
 dependencies = [
     { name = "fastapi" },

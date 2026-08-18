@@ -26,13 +26,6 @@ SEARCH_COLUMNS = (
     "p.name",
     "p.series_name",
     "p.model_number",
-    "p.official_product_id",
-    "s.name",
-    "s.official_sku_id",
-    "s.capacity",
-    "s.memory",
-    "s.connectivity",
-    "s.size",
 )
 
 BASE_QUERY = """
