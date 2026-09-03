@@ -210,15 +210,16 @@ Eval 覆盖召回、拒答、引用、事实覆盖、路由、候选 Recall、P5
 - `apps/assistant-api/src/spb_assistant_api/`：显式路由、政策工具、价格匹配和统一协议。
 - `eval/src/spb_eval/`：指标、runner、分析和报告。
 
-## 11. 下一阶段 Agent 化设计素材
+## 11. 下一阶段 LangGraph Agent 化设计素材
 
 > 状态：本节记录已完成设计、但尚未由代码和评测证明的下一阶段方案。实施前不能把
 > 它写成简历中的“已实现能力”。完成对应验收后，再把占位项替换成真实代码、报告和
 > 指标。
 
 下一阶段计划把当前单轮 Dispatcher 演进为受约束、可观测、可恢复的 Stateful Tool
-Agent，并接入邮件轨迹、寄递时限和资费三个只读查询能力。详细实施基线见
-[Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
+Agent，以 LangGraph 作为核心 Workflow Runtime，并接入邮件轨迹、寄递时限和资费
+三个只读查询能力。详细实施基线见
+[LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
 ### 11.1 设计问题与目标
 
@@ -233,7 +234,7 @@ Agent，并接入邮件轨迹、寄递时限和资费三个只读查询能力。
 - 用黑盒评测和 Trace 证明路由与恢复行为，而不只展示最终聊天文本。
 
 目标不是让模型自由规划所有动作，而是把不确定性限制在 Query Understanding，把工具
-执行约束在类型化状态机和白名单中。
+执行约束在 LangGraph 状态图、确定性 Policy、类型化 Command 和白名单中。
 
 ### 11.2 值得在面试中讲清楚的核心决策
 
@@ -250,7 +251,18 @@ Understand -> Clarify / Collect -> Route -> Execute -> Validate -> Respond
 `WAITING_USER`，超预算时明确结束。这个取舍体现的不是“少用 Agent”，而是根据
 业务风险选择合适的自治范围。
 
-#### 决策二：Hybrid Query Understanding
+#### 决策二：LangGraph 是编排运行时，不是业务规则容器
+
+选择 LangGraph Graph API，是因为需求同时包含显式状态、条件分支、循环、跨请求暂停
+和故障恢复。它负责 `StateGraph`、Node/Edge 调度、checkpointer、`interrupt()` /
+`Command(resume=...)` 和运行时事件流；业务意图、槽位校验、Tool Registry、Failure
+Taxonomy 与结果可信度仍由框架无关的 Domain / Policy / Tool Port 承担。
+
+不再同时维护自研 Agent Runner 和全量 ConversationStore。LangGraph Checkpointer 是
+thread-scoped 工作状态的唯一事实源，应用元数据仓储只保存 owner、TTL 和幂等收据。
+这个边界既能使用框架擅长的 durable workflow，又保留可单测、可迁移的业务内核。
+
+#### 决策三：Hybrid Query Understanding
 
 采用以下优先级：
 
@@ -265,14 +277,14 @@ Understand -> Clarify / Collect -> Route -> Execute -> Validate -> Respond
 输出受 Pydantic / JSON Schema 约束的候选意图和槽位。低置信或候选接近时请求澄清，
 不把模型自报 confidence 当成真实校准概率。
 
-#### 决策三：Query Understanding 与 Routing 分离
+#### 决策四：Query Understanding 与 Routing 分离
 
 Query Understanding 可以输出 `IntentCandidate`、槽位、缺失字段和歧义，但不能返回
 任意可执行函数。Deterministic Router 根据服务端 `ToolDescriptor` 把已验证 Intent
 映射到固定工具。这样可以分别评测“理解是否正确”和“系统是否调用正确工具”，也能
 阻止 Prompt Injection 直接越权调用工具。
 
-#### 决策四：类型化 Command 和 Result
+#### 决策五：类型化 Command 和 Result
 
 现有 `execute(question: str)` 适合单轮问题，但不适合轨迹、时限和资费。下一阶段用
 `TrackingCommand`、`DeliveryTimeCommand`、`PostageCommand` 等判别联合承载参数，
@@ -284,19 +296,23 @@ Query Understanding 可以输出 `IntentCandidate`、槽位、缺失字段和歧
 - 外部 Adapter 字段变化不会直接泄漏到 API 和 Web；
 - Eval 可以对参数、路由和结果不变量进行精确断言。
 
-#### 决策五：显式 State、Event 和 Checkpoint
+#### 决策六：显式 State、Reducer、Interrupt 和 Checkpoint
 
 Agent State 只保存当前意图、已确认槽位、缺失字段、Workflow Phase、工具记录、预算
-和错误摘要。状态通过 Event 和纯 Reducer 更新，并在关键转换后 checkpoint。
+和错误摘要。Node 返回 partial update；LangGraph field reducer 处理累积字段，纯
+`WorkflowPolicy` 处理业务转换。Event 只用于审计和 Trace，不额外建设一套平行的
+Event-Sourcing Runtime。
 
-Store 通过 Protocol 隔离：单测使用内存实现，本地 Demo 使用 SQLite，多副本场景再
-接 Redis。`revision` 乐观锁和 `Idempotency-Key` 用来防止同一会话并发覆盖及重复
-工具调用；TTL 和主动 reset 控制数据保留。
+单测使用 `InMemorySaver`，本地 Demo 使用 `AsyncSqliteSaver`；生产后端在 Redis 与
+PostgreSQL checkpointer 间通过 ADR 和压测选择。`conversation_id` 映射到 LangGraph
+`thread_id`，补槽用 interrupt/resume 恢复。同一 thread 串行推进，结合
+`Idempotency-Key`、argument fingerprint 和 Tool 执行收据防止节点重放造成重复调用；
+TTL 和主动 reset 控制数据保留。
 
 不保存模型思维链，也不把状态存储包装成长期用户记忆。Working Memory、RAG
 Knowledge 和 Long-term User Memory 在设计中被明确区分。
 
-#### 决策六：Failure 是状态机的一部分
+#### 决策七：Failure 是状态图的一部分
 
 错误不统一包装成“没有查询到”：
 
@@ -308,16 +324,17 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 | 超时 / 限流 / 暂时不可用 | 对只读调用有限重试或熔断 |
 | 上游契约错误 | 阻止展示，不重试错误数据 |
 | 状态冲突 | 重新加载或要求安全重试 |
+| Checkpointer 故障 / State 版本不兼容 | 阻止推进，保留 thread 并走恢复或迁移流程 |
 | Loop 超预算 | 强制终止并保留 Trace |
 
 只对明确幂等、可恢复的错误重试。轨迹、资费等上游不可用时，模型不得生成近似事实；
 降级必须来自另一个已注册且可验证的数据源。
 
-#### 决策七：不记录 Chain of Thought，用结构化 Trace 解释行为
+#### 决策八：不记录 Chain of Thought，用结构化 Trace 解释行为
 
-每次请求记录 Query Understanding 来源、候选意图、公开 signals、Workflow 转换、
-工具名、尝试次数、校验结果和 finish reason。这样可以定位失败步骤，同时避免记录
-模型内部推理、完整邮件号、凭据或高基数参数。
+每次请求记录 Query Understanding 来源、候选意图、公开 signals、LangGraph Node/Edge、
+interrupt/resume、checkpoint、工具名、尝试次数、校验结果和 finish reason。这样可以
+定位失败步骤，同时避免记录模型内部推理、完整邮件号、凭据或高基数参数。
 
 ### 11.3 计划形成的 Agent 能力证据
 
@@ -325,11 +342,12 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 | --- | --- | --- |
 | Query Understanding | 规则、上下文与 Structured LLM 混合解析 | Intent/Slot 数据集、Macro-F1、错误分析 |
 | Tool / Function Calling | Tool Descriptor、类型化 Command、白名单执行 | Wrong Tool Rate、未授权调用测试 |
-| Stateful Workflow | State、Event、Reducer、Checkpoint、TTL | 多轮测试、重启恢复、状态 Trace |
-| Agent Loop | 有限 Step、调用和重试预算 | Loop Step 分布、超预算率和终止测试 |
-| Memory Design | Working Memory 与知识检索分离 | 状态 schema、数据保留与脱敏说明 |
+| LangGraph Orchestration | StateGraph、Node/Edge、条件路由、interrupt/resume | Graph snapshot、分支覆盖、中断恢复测试 |
+| Stateful Workflow | Checkpointer、thread 隔离、TTL、schema migration | 多轮测试、重启恢复、checkpoint Trace |
+| Agent Loop | 条件边、显式终点、有限 Step/调用/重试预算 | Loop Step 分布、超预算率和终止测试 |
+| Memory Design | Working Memory、Metadata、RAG 与长期记忆分离 | 状态 schema、数据保留与脱敏说明 |
 | Failure Handling | 重试、熔断、契约校验和 Handoff | Failure Injection 和恢复率报告 |
-| Human in the Loop | 歧义、越界和预算耗尽时转人工语义 | Handoff 场景测试 |
+| Human in the Loop | 缺槽/歧义 interrupt-resume，越界场景 Handoff | 中断恢复与 Handoff 场景测试 |
 | LLMOps / Observability | Prompt/Parser 版本、Trace、指标 | 可复现 Trace 和 Dashboard 定义 |
 | Agent Evaluation | 多轮黑盒场景与 baseline/experiment | Completion、Clarification、Recovery 报告 |
 | Grounding | 复用现有 RAG 引用与拒答 | 引用和事实覆盖回归 |
@@ -339,12 +357,12 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 最终面试 Demo 应覆盖正常路径和异常路径：
 
 1. 输入完整邮件号，规则识别后直接查询轨迹；
-2. 询问寄递时限但缺少寄达地，Workflow 暂停并补槽；
+2. 询问寄递时限但缺少寄达地，Graph 触发 interrupt，补槽后从同一 thread 恢复；
 3. 输入“这个要多久”，候选意图不足，Agent 主动澄清；
 4. 补槽过程中切换到资费查询，系统确认重置而不混用旧状态；
-5. 上游第一次超时、第二次成功，Trace 展示有限重试；
+5. 上游第一次超时、第二次成功，Trace 展示 `recover` 分支和有限重试；
 6. 上游返回 HTTP 200 但缺少必要字段，Validator 阻止不可信结果；
-7. 重复提交同一消息，幂等机制避免重复 Tool Call；
+7. checkpoint 恢复或重复提交同一消息，执行收据避免重复 Tool Call；
 8. Prompt Injection 要求调用未注册工具，Router 拒绝执行。
 
 只展示 Happy Path 很难体现 Agent 工程能力；至少一半演示应覆盖歧义、恢复、契约错误
@@ -356,19 +374,29 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 
 - Situation：业务能力固定，但输入自然、字段可能跨轮补充；
 - Task：既体现 Agent 能力，又保证不会调错工具或无限循环；
-- Action：把不确定性放入 Query Understanding，执行由 typed state machine、工具
-  白名单和预算控制；
+- Action：把不确定性放入 Query Understanding，用 LangGraph 显式状态图承载受限循环，
+  执行仍由 typed Policy、工具白名单和预算控制；
 - Result：完成后填写 Wrong Tool Rate、Loop 超预算率、Task Completion Rate 和故障
   恢复测试结果。
 
-#### 故事 B：如何处理 Stateful Workflow
+#### 故事 B：为什么选择 LangGraph，以及如何控制框架边界
+
+- Situation：需求需要条件分支、补槽暂停、跨请求恢复和可观测执行路径；
+- Task：避免重复造工作流运行时，也避免领域逻辑被框架 API 污染；
+- Action：让 LangGraph 只承担 StateGraph、checkpointer、interrupt/resume 和事件流，
+  Domain / Policy / Tool Port 保持无框架依赖，并通过 Node Adapter 接入；
+- Result：完成后填写 Graph 分支覆盖率、中断/重启恢复用例、框架依赖架构测试和升级
+  验证结果。
+
+#### 故事 C：如何处理 Stateful Workflow
 
 - Situation：HTTP 请求天然无状态，但补槽流程跨多轮且可能并发、重试或服务重启；
 - Task：保证流程可恢复且不会重复调用工具；
-- Action：使用 Event + Reducer、checkpoint、revision 乐观锁和 Idempotency-Key；
-- Result：完成后填写重启恢复、重复请求、并发冲突和 TTL 清理的测试证据。
+- Action：使用 thread-scoped checkpointer、interrupt/resume、同会话串行推进、
+  Idempotency-Key 和 Tool 执行收据；把元数据存储与 Graph State 分开；
+- Result：完成后填写重启恢复、节点重放、重复请求、并发冲突和 TTL 清理的测试证据。
 
-#### 故事 C：如何平衡规则和 LLM
+#### 故事 D：如何平衡规则和 LLM
 
 - Situation：纯规则难覆盖自然表达，纯 LLM 又可能误识别硬字段；
 - Task：提高理解覆盖率，同时保持可解释和可回归；
@@ -377,31 +405,32 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 - Result：完成后填写规则命中率、模型 fallback 率、Intent Macro-F1、Slot F1 和
   不必要澄清率。
 
-#### 故事 D：如何让 Agent 安全失败
+#### 故事 E：如何让 Agent 安全失败
 
-- Situation：上游接口可能超时、限流、返回空数据或返回错误 schema；
-- Task：避免把技术异常解释成无结果，更不能让模型填补事实；
-- Action：建立 Failure Taxonomy、有限重试、按工具熔断、结果校验和 Handoff；
-- Result：完成后填写错误恢复率、契约错误拦截数和故障注入用例通过率。
+- Situation：上游接口和 checkpointer 都可能超时、不可用或返回不兼容数据；
+- Task：避免把技术异常解释成无结果，更不能让模型填补事实或在恢复时重复调用工具；
+- Action：建立 Failure Taxonomy、有限重试、按工具熔断、结果校验、执行收据、状态迁移
+  和 Handoff；
+- Result：完成后填写错误恢复率、契约错误拦截数、节点重放和故障注入用例通过率。
 
 ### 11.6 简历 bullet 模板
 
 以下 bullet 只有在对应代码、测试和报告完成后才能使用；方括号内容必须替换为真实
 数字：
 
-- 设计并实现受约束 Stateful Tool Agent，以 Pydantic Structured Output 完成五类
-  Query Understanding，通过确定性 Tool Registry、类型化 Command 和 bounded
-  Agent Loop 控制工具执行，在 `[N]` 条评测集上取得 Intent Macro-F1 `[X]`、Slot
-  F1 `[Y]`，明确意图 Wrong Tool Rate 为 `[Z]`。
-- 构建 Event + Reducer + Checkpoint 的多轮工作流，加入 revision 乐观锁、
-  Idempotency-Key、TTL 和重启恢复；在重复提交、并发更新和中断恢复测试中实现
-  `[结果]`，避免重复只读 Tool Call。
+- 设计并实现基于 LangGraph `StateGraph` 的受约束 Stateful Tool Agent，以 Pydantic
+  Structured Output 完成五类 Query Understanding，通过确定性 Tool Registry、
+  类型化 Command 和 bounded Agent Loop 控制工具执行；在 `[N]` 条评测集上取得
+  Intent Macro-F1 `[X]`、Slot F1 `[Y]`，明确意图 Wrong Tool Rate 为 `[Z]`。
+- 构建 LangGraph Checkpointer + interrupt/resume 多轮工作流，加入 thread 级并发控制、
+  Idempotency-Key、TTL、状态迁移和 Tool 执行收据；在 checkpoint 重放、重复提交、
+  并发更新和服务重启测试中实现 `[结果]`，避免重复只读 Tool Call。
 - 将政策 RAG、设备价格、邮件轨迹、寄递时限和资费封装为类型化只读工具，引入
   schema validation、有限重试、按能力熔断和错误分类，在 `[N]` 个故障注入场景中
   达到恢复率 `[X]`，并保持无业务结果与技术失败语义分离。
-- 建立 Agent 多轮黑盒评测和可观测链路，覆盖 Task Completion、Clarification、
-  Routing、Recovery、Loop Steps、P95 延迟及 Prompt/Parser 版本对比，通过脱敏
-  Trace 定位每个 Workflow Step。
+- 建立 Agent 多轮黑盒评测和 LangGraph 可观测链路，覆盖 Task Completion、
+  Clarification、Routing、Recovery、Loop Steps、P95 延迟及 Prompt/Parser 版本对比，
+  通过脱敏 Trace 定位 Node、条件边、interrupt、checkpoint 和 Tool Call。
 
 ### 11.7 指标回填表
 
@@ -423,8 +452,8 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 
 现在可以准确表述：
 
-- 完成了 Stateful Agent Workflow 的需求分解、schema、状态机、路由、失败处理、
-  评测和阶段实施设计；
+- 完成了 LangGraph Stateful Agent Workflow 的需求分解、技术选型、schema、状态图、
+  路由、持久化边界、失败处理、评测和阶段实施设计；
 - 现有项目已经具备 RAG grounding、typed ports、只读工具、契约校验和黑盒评测
   基础；
 - 已确定从单轮 Dispatcher 演进到受约束 Agent 的兼容路径。
@@ -432,6 +461,7 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 当前不能表述：
 
 - 已实现自动意图识别、服务端记忆或 Agent Loop；
+- 已完成 LangGraph 依赖接入、StateGraph、checkpointer 或 interrupt/resume；
 - 已接入轨迹、时限和资费真实接口；
 - 已达到实施方案中的质量门禁；
 - 已完成 Redis、熔断、Agent Trace 或多轮评测。

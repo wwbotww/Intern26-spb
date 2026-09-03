@@ -423,7 +423,7 @@ uv run pytest packages/contracts/tests
 - [API 调用方使用文档](docs/api-reference.md)
 - [在线检索问答实现与 Grounding](docs/rag-api.md)
 - [Linux / Docker 部署运维](docs/deployment.md)
-- [Stateful Agent Workflow 下一阶段实施方案](docs/agent-workflow-implementation-plan.md)
+- [LangGraph Stateful Agent Workflow 下一阶段实施方案](docs/agent-workflow-implementation-plan.md)
 - [AI 应用 / Agent 求职项目复盘](docs/project-retrospective.md)
 - [Eval 数据格式与指标口径](eval/README.md)
 

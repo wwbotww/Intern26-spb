@@ -28,9 +28,10 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 
 ## 下一阶段规划
 
-- [Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)：`Proposed`
-  状态的 Query Understanding、类型化路由、状态工作流、受限 Agent Loop、故障处理、
-  分阶段交付与验收方案。该文档不代表当前代码已经具备这些能力。
+- [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)：
+  `Proposed` 状态的 Query Understanding、LangGraph 状态图与 checkpoint/interrupt、
+  类型化路由、受限 Agent Loop、故障处理、分阶段交付与验收方案。该文档不代表当前
+  代码已经具备这些能力。
 
 ## 求职与复盘
 
