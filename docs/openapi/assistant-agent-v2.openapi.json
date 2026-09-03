@@ -1,0 +1,447 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "China Post Assistant Agent API",
+    "version": "0.1.0-draft",
+    "description": "Proposed V2 contract. This artifact is not implemented by the current service.",
+    "x-document-status": "proposed"
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    },
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/v2/agent/capabilities": {
+      "get": {
+        "operationId": "listAgentCapabilities",
+        "summary": "List public Agent capabilities",
+        "responses": {
+          "200": {
+            "description": "Capability metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentCapability"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/agent/messages": {
+      "post": {
+        "operationId": "sendAgentMessage",
+        "summary": "Create or continue an Agent workflow",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Request-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentMessageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Workflow completed or paused for input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Versioned SSE projection; internal LangGraph events are not exposed directly."
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/v2/agent/conversations/{conversation_id}": {
+      "delete": {
+        "operationId": "deleteAgentConversation",
+        "summary": "Delete a workflow and its checkpoints",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Conversation deletion accepted"
+          },
+          "404": {
+            "description": "Conversation does not exist or is not visible"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
+      }
+    },
+    "schemas": {
+      "Intent": {
+        "type": "string",
+        "enum": [
+          "policy",
+          "device_price",
+          "tracking",
+          "delivery_time",
+          "postage",
+          "unknown"
+        ]
+      },
+      "AgentPhase": {
+        "type": "string",
+        "enum": [
+          "new",
+          "understanding",
+          "clarifying",
+          "collecting",
+          "ready",
+          "executing",
+          "validating",
+          "recovering",
+          "responding",
+          "waiting_user",
+          "completed",
+          "handoff",
+          "failed"
+        ]
+      },
+      "AgentMessageRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "explicit_intent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Intent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "RequiredInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "label",
+          "type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "number",
+              "region",
+              "choice"
+            ]
+          },
+          "validation_hint": {
+            "type": "string",
+            "default": ""
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        }
+      },
+      "AgentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "status"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "policy",
+              "device_price",
+              "tracking",
+              "delivery_time",
+              "postage"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "partial",
+              "no_match",
+              "failed"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "description": "Provisional discriminated result payload; finalized after external API review.",
+            "additionalProperties": true
+          },
+          "reason_code": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      },
+      "AgentResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "conversation_id",
+          "turn_id",
+          "phase",
+          "reply",
+          "next_action",
+          "required_inputs",
+          "warnings"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/AgentPhase"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Intent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reply": {
+            "type": "string"
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "collect_slots",
+              "clarify_intent",
+              "complete",
+              "handoff",
+              "failed"
+            ]
+          },
+          "required_inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredInput"
+            }
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AgentCapability": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "display_name",
+          "available"
+        ],
+        "properties": {
+          "intent": {
+            "$ref": "#/components/schemas/Intent"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "required_inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredInput"
+            },
+            "default": []
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Conflict": {
+        "description": "Conversation or idempotency conflict",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Invalid request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "Workflow persistence or required capability is unavailable",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  }
+}

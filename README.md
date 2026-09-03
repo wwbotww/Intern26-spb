@@ -283,6 +283,12 @@ README、日志或提交记录。
 `/health/ready` 才返回 200。任一配置缺失或依赖不可用时保持 503。`chat-web`
 已通过同源代理使用该入口，不再直接调用 `rag-api`。
 
+LangGraph Agent 正按独立路径开发。阶段 1 已完成未挂载到 FastAPI 的 Fake Tracking
+垂直切片，覆盖规则理解、补槽恢复、类型化工具路由、结果校验、有限重试与 checkpoint
+重放；`/v1/chat` 仍是无服务端记忆的显式单轮接口。详见
+[阶段 1 实现说明](docs/agent-kernel-phase1.md)、
+[实施方案](docs/agent-workflow-implementation-plan.md)和[架构决策记录](docs/adr/README.md)。
+
 本地启动框架服务：
 
 ```bash
@@ -424,6 +430,9 @@ uv run pytest packages/contracts/tests
 - [在线检索问答实现与 Grounding](docs/rag-api.md)
 - [Linux / Docker 部署运维](docs/deployment.md)
 - [LangGraph Stateful Agent Workflow 下一阶段实施方案](docs/agent-workflow-implementation-plan.md)
+- [Phase 1 Agent Kernel 与 Fake Tracking 实现](docs/agent-kernel-phase1.md)
+- [Agent Workflow 架构决策记录](docs/adr/README.md)
+- [Assistant Agent V2 OpenAPI 草案](docs/openapi/assistant-agent-v2.openapi.json)
 - [AI 应用 / Agent 求职项目复盘](docs/project-retrospective.md)
 - [Eval 数据格式与指标口径](eval/README.md)
 

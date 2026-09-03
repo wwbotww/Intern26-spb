@@ -205,16 +205,18 @@ Eval 覆盖召回、拒答、引用、事实覆盖、路由、候选 Recall、P5
 - [评测说明](../eval/README.md)
 - [部署说明](deployment.md)
 - [Stateful Agent Workflow 下一阶段实施方案](agent-workflow-implementation-plan.md)
+- [Phase 1 Agent Kernel 实现证据](agent-kernel-phase1.md)
 - `apps/offline-pipeline/src/spb_pipeline/`：采集、解析、OCR、切分、向量化和同步。
 - `apps/rag-api/src/spb_rag_api/`：检索、重排、证据判断和回答服务。
 - `apps/assistant-api/src/spb_assistant_api/`：显式路由、政策工具、价格匹配和统一协议。
 - `eval/src/spb_eval/`：指标、runner、分析和报告。
 
-## 11. 下一阶段 LangGraph Agent 化设计素材
+## 11. LangGraph Agent 化设计与阶段证据
 
-> 状态：本节记录已完成设计、但尚未由代码和评测证明的下一阶段方案。实施前不能把
-> 它写成简历中的“已实现能力”。完成对应验收后，再把占位项替换成真实代码、报告和
-> 指标。
+> 状态：总体方案仍处于 Proposed；阶段 0、1 已完成工程验证。当前已有正式
+> `StateGraph` Agent Kernel、Fake Tracking Tool、规则理解、interrupt/resume、类型化
+> 路由、结果校验、有限重试、预算与 checkpoint 重放收据。它证明的是离线垂直切片和
+> 架构边界，不代表生产持久化、真实业务接口或质量指标已经完成。
 
 下一阶段计划把当前单轮 Dispatcher 演进为受约束、可观测、可恢复的 Stateful Tool
 Agent，以 LangGraph 作为核心 Workflow Runtime，并接入邮件轨迹、寄递时限和资费
@@ -352,6 +354,12 @@ interrupt/resume、checkpoint、工具名、尝试次数、校验结果和 finis
 | Agent Evaluation | 多轮黑盒场景与 baseline/experiment | Completion、Clarification、Recovery 报告 |
 | Grounding | 复用现有 RAG 引用与拒答 | 引用和事实覆盖回归 |
 
+阶段 0、1 当前已有的可复核证据：LangGraph 导入被架构测试限制在 Workflow Runtime /
+Checkpointer Adapter 边界；正式状态图覆盖直接完成、缺槽中断、同 thread 恢复、thread
+隔离、无匹配、有限重试、契约失败、超预算和历史 checkpoint 重放；类型化 Registry
+拒绝任意工具名，执行收据使重放不重复访问 Fake Gateway。它们不应替代真实工具、
+持久化后端和端到端质量报告。
+
 ### 11.4 推荐演示路径
 
 最终面试 Demo 应覆盖正常路径和异常路径：
@@ -415,6 +423,15 @@ interrupt/resume、checkpoint、工具名、尝试次数、校验结果和 finis
 
 ### 11.6 简历 bullet 模板
 
+当前可以使用、但必须明确 `Phase-1 / Fake Tool / InMemory` 范围的工程表述：
+
+- 基于 LangGraph `StateGraph` 实现可注入依赖的轨迹查询 Agent Kernel，以显式 Node、
+  条件边和 `interrupt/resume` 编排补槽、执行、校验、恢复与响应；使用业务 Step、逻辑
+  Tool Call、Retry 和 recursion limit 四层预算保证确定终止。
+- 设计类型化 `Command -> Registry -> Tool -> Result Validator` 执行链，并以
+  `(conversation_id, argument_fingerprint)` 执行收据处理 checkpoint 重放；离线测试从
+  `execute_tool` 前历史 checkpoint 建立分支，确认 Fake Gateway 不发生重复调用。
+
 以下 bullet 只有在对应代码、测试和报告完成后才能使用；方括号内容必须替换为真实
 数字：
 
@@ -454,14 +471,23 @@ interrupt/resume、checkpoint、工具名、尝试次数、校验结果和 finis
 
 - 完成了 LangGraph Stateful Agent Workflow 的需求分解、技术选型、schema、状态图、
   路由、持久化边界、失败处理、评测和阶段实施设计；
+- 完成了阶段 0 LangGraph 技术验证：锁定依赖，运行最小 `StateGraph`，验证
+  checkpoint、interrupt/resume、thread 隔离、事件流和图级步数上限，并用架构测试
+  约束框架导入边界；
+- 建立了 Intent、Slot、Query Understanding、Command、Result、Action、Failure 的
+  Pydantic 契约和 Proposed V2 OpenAPI 草案，但尚未对外暴露 V2 路由；
+- 实现了 Phase-1 Fake Tracking Agent Kernel：规则识别、缺槽 HITL、确定性工具路由、
+  结果不变量校验、有限重试、预算终止和 checkpoint replay-safe 执行收据均有离线测试；
+  当前阶段定向测试 36 项、完整 Python 工作区测试 203 项通过；
 - 现有项目已经具备 RAG grounding、typed ports、只读工具、契约校验和黑盒评测
   基础；
 - 已确定从单轮 Dispatcher 演进到受约束 Agent 的兼容路径。
 
 当前不能表述：
 
-- 已实现自动意图识别、服务端记忆或 Agent Loop；
-- 已完成 LangGraph 依赖接入、StateGraph、checkpointer 或 interrupt/resume；
+- 已实现五类意图的 Hybrid Query Understanding、Structured LLM fallback 或完整多轮
+  Slot 合并；
+- 已实现生产级 LangGraph Agent、持久化 checkpointer、跨进程恢复、TTL 或并发控制；
 - 已接入轨迹、时限和资费真实接口；
 - 已达到实施方案中的质量门禁；
 - 已完成 Redis、熔断、Agent Trace 或多轮评测。

@@ -2,10 +2,16 @@
 
 > 文档状态：`Proposed`，用于下一阶段设计评审、任务拆分和验收，不描述当前已上线能力。
 >
-> 代码基线：提交 `1898261`；`assistant-api 0.3.2`、`chat-web 0.2.0`、
+> 起始代码基线：提交 `093e29d`；`assistant-api 0.3.2`、`chat-web 0.2.0`、
 > `eval 0.3.0`。
 >
 > 更新日期：2026-09-03。
+>
+> 实施进度：阶段 0、1 工程验证已完成，等待架构评审。当前包含锁定的
+> `langgraph 1.2.11`、正式 Agent StateGraph、Fake Tracking Tool、规则理解、类型化
+> Registry/Command/Result、interrupt/resume、执行收据重放、预算与 Failure 路径、六篇
+> ADR 和 Proposed V2 OpenAPI；尚未挂载 V2 路由。当前阶段 1 定向测试 36 项、完整
+> Python 工作区测试 203 项通过。
 >
 > 外部接口状态：轨迹、时限和资费接口尚未提供。本文中的字段、错误和时效策略为
 > 领域侧预留，最终以接口契约评审结果为准。
@@ -68,8 +74,9 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 
 选择 LangGraph 的原因是本需求天然包含“显式状态 + 条件分支 + 跨请求暂停恢复 + 有限
 循环”，与它的低层编排定位相符。项目不引入高层预制 ReAct Agent；图中的节点仍是
-本项目可单测的普通函数，领域模型和 Tool Port 保持框架无关。LangGraph 版本在阶段 0
-Spike 通过后写入 `pyproject.toml` 并由 `uv.lock` 固定，本文不提前声明未经验证的版本号。
+本项目可单测的普通函数，领域模型和 Tool Port 保持框架无关。阶段 0 已在
+`pyproject.toml` 声明 `langgraph>=1.0,<2`，并由 `uv.lock` 固定实际验证版本
+`1.2.11`；后续升级必须重新执行 Graph 与 Checkpointer 合同测试。
 
 ## 2. 范围与非目标
 
@@ -490,26 +497,42 @@ class AgentPhase(StrEnum):
     FAILED = "failed"
 
 
+# 与上面枚举值对应的 Literal 联合；checkpoint 只保存字符串值。
+AgentPhaseValue = Literal[
+    "new", "understanding", "clarifying", "collecting", "ready",
+    "executing", "validating", "recovering", "responding",
+    "waiting_user", "completed", "handoff", "failed",
+]
+
+
 class AgentState(TypedDict, total=False):
     schema_version: str
     conversation_id: str
     turn_id: str
     latest_message: str
-    phase: AgentPhase
+    phase: AgentPhaseValue  # JSON-native Literal，不持久化 Enum 对象
     turn_count: int
-    active_intent: Intent | None
-    slots: SlotPayload | None
+    active_intent: str | None
+    slots: dict[str, Any] | None
     missing_slots: list[str]
     ambiguities: list[str]
-    pending_action: NextAction | None
-    tool_calls: Annotated[list[ToolCallRecord], append_tool_calls]
-    audit_events: Annotated[list[AgentEvent], append_events]
-    last_result: AgentResult | None
-    last_error: AgentFailure | None
+    pending_action: dict[str, Any] | None
+    tool_calls: Annotated[list[dict[str, Any]], append_tool_calls]
+    audit_events: Annotated[list[dict[str, Any]], append_events]
+    last_result: dict[str, Any] | None
+    last_error: dict[str, Any] | None
     tool_call_count: int
     retry_count: int
+    step_count: int
+    max_tool_calls: int
+    max_retries: int
+    max_steps: int
     deadline_at: str
-    expires_at: str
+    reply: str
+    required_inputs: list[dict[str, Any]]
+    result: dict[str, Any] | None
+    failure: dict[str, Any] | None
+    finish_reason: str
 ```
 
 另外定义窄化的 `AgentInputState` 与 `AgentOutputState`：外部输入只允许当前消息、显式
@@ -521,7 +544,8 @@ State 直接序列化给浏览器。
 
 每个节点返回 **partial state update**。默认覆盖的字段不声明 Reducer；`tool_calls`、
 `audit_events` 等需要累积的字段使用显式、纯函数 Reducer。初始化默认值集中在
-`new_agent_state()`，避免节点假设缺失 key。
+`ingest` 节点，避免其他节点假设缺失 key。Pydantic 领域模型进入 State 前使用
+`model_dump(mode="json")`，从 State 读取后重新校验。
 
 领域审计事件保留以下类型：
 
@@ -664,7 +688,11 @@ graph = builder.compile(checkpointer=checkpointer)
 | 单轮正常工具调用 | 1 |
 | 同一只读工具最大尝试 | 2 |
 | Query Understanding 模型调用 | 最多 1 |
-| 总请求 deadline | 由接口延迟基线确定，暂不写死 |
+| Phase-1 内部 action deadline | 30 秒；真实接口接入后重新校准 |
+
+Phase 1 中一个业务 `Step` 定义为一次 `decide_next` Policy 决策，不等同于一个
+LangGraph Node；因此重试循环会消耗新的 Step，普通的 ingest/validate/response Node
+由独立 `recursion_limit` 兜底。
 
 预算使用四层防线：
 
@@ -1099,20 +1127,26 @@ Eval 只调用 V2 HTTP，不读取 checkpointer / Metadata Repository，也不�
 ```text
 apps/assistant-api/src/spb_assistant_api/
   domain/
+    agent_errors.py
+    agent_events.py
+    agent_actions.py
+    primitives.py
     intents.py
     slots.py
+    understanding.py
     commands.py
     results.py
     failures.py
-    agent_events.py
-    agent_actions.py
+    tooling.py
     ports.py
   workflow/
+    composition.py
     state.py
     reducers.py
     policy.py
     routing.py
     graph.py
+    node_utils.py
     runtime.py
     nodes/
       ingest.py
@@ -1124,9 +1158,9 @@ apps/assistant-api/src/spb_assistant_api/
       recover.py
       compose_response.py
   services/
+    agent_tools.py
     query_understanding.py
     slot_merger.py
-    tool_executor.py
     result_validator.py
     response_composer.py
   tools/
@@ -1136,6 +1170,8 @@ apps/assistant-api/src/spb_assistant_api/
     delivery_time.py
     postage.py
   adapters/
+    fake_tracking.py
+    in_memory_receipts.py
     postal_client.py
     checkpointer_factory.py
     conversation_metadata.py
@@ -1198,7 +1234,8 @@ eval/src/spb_eval/
 - 本实施方案评审通过；
 - 五篇核心 ADR；
 - 可运行的 LangGraph Spike、依赖锁和选型结论；
-- V2 OpenAPI 草案；
+- [`docs/openapi/assistant-agent-v2.openapi.json`](openapi/assistant-agent-v2.openapi.json)
+  V2 OpenAPI 草案；
 - Domain schema 初稿；
 - 外部接口问题清单。
 
@@ -1214,6 +1251,9 @@ eval/src/spb_eval/
 ### 阶段 1：LangGraph Agent Kernel 与 Fake Tool 垂直切片
 
 目标：不用 LLM、生产持久化或真实外部接口，跑通一个可恢复的轨迹查询 StateGraph。
+
+> 实施状态（2026-09-03）：工程验证已完成。实现、拓扑、状态、边界、测试证据和限制见
+> [Phase 1 Agent Kernel 与 Fake Tracking](agent-kernel-phase1.md)。
 
 工作内容：
 
@@ -1493,15 +1533,16 @@ eval/src/spb_eval/
 | ADR | 核心问题 |
 | --- | --- |
 | ADR-001 Constrained Agent | 为什么不用自由 ReAct 或多 Agent |
-| ADR-002 Hybrid Query Understanding | 为什么规则、状态上下文和 Structured LLM 组合使用 |
-| ADR-003 Typed Tool Routing | 为什么模型不直接选择任意工具和参数 |
-| ADR-004 LangGraph as Workflow Runtime | 为什么选择 Graph API，以及框架负责和不负责什么 |
-| ADR-005 Checkpoint and Memory Boundary | 为什么 thread checkpoint、元数据、RAG 和长期记忆分开 |
-| ADR-006 Failure Taxonomy | 为什么 `no_match`、技术失败和契约失败必须分开 |
+| ADR-002 LangGraph as Workflow Runtime | 为什么选择 Graph API，以及框架负责和不负责什么 |
+| ADR-003 Hybrid Query Understanding | 为什么规则、状态上下文和 Structured LLM 组合使用 |
+| ADR-004 Checkpoint and Memory Boundary | 为什么 thread checkpoint、元数据、RAG 和长期记忆分开 |
+| ADR-005 Failure Taxonomy | 为什么 `no_match`、技术失败和契约失败必须分开 |
+| [ADR-006 Typed Tool Routing](adr/0006-typed-tool-routing.md) | 为什么模型不直接选择任意工具和参数 |
 | ADR-007 V1/V2 Compatibility | 为什么保留单轮接口并新增 Agent 契约 |
 | ADR-008 Evaluation Gates | 如何证明路由、恢复和状态机行为可靠 |
 
-这些 ADR 与最终评测报告共同构成下一阶段最重要的工程和面试证据。
+前六篇已写入 [`docs/adr/`](adr/README.md)；ADR-007～008 随对应阶段落地。ADR 与最终
+评测报告共同构成下一阶段最重要的工程和面试证据。
 
 ## 23. LangGraph 实施参考
 
