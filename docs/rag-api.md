@@ -4,6 +4,9 @@
 字段、示例、SSE 协议和错误处理见
 [`api-reference.md`](api-reference.md)。
 
+> 当前实现版本为 `0.5.1`。本服务是独立、无会话的政策知识工具，不承担其他
+> 业务流程假设。
+
 ## 边界
 
 在线应用位于 `apps/rag-api`，只读访问 Milvus，不导入离线流水线。它包含两个
@@ -119,7 +122,8 @@ RAG_DEEPSEEK_TEMPERATURE=0.1
 ## 健康检查
 
 - `/health/live`：进程存活；
-- `/health/ready`：embedding、Milvus 和 DeepSeek 客户端均已配置并初始化。
+- `/health/ready`：retriever、embedding、Milvus、reranker、DeepSeek、证据
+  Judge、鉴权与监控配置达到可接受状态。
 
 未配置 DeepSeek 时，纯检索接口仍可使用，但整体 readiness 返回 503，问答
 接口返回 `chat_provider_unavailable`。

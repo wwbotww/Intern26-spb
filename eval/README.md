@@ -1,4 +1,4 @@
-# SPB RAG 与理赔助手黑盒评估
+# SPB RAG 与 Assistant 黑盒评估
 
 `eval/` 是独立的轻量评估包，只通过 HTTP 调用 `rag-api` 或
 `assistant-api`。它不导入在线或离线应用、不直连 Milvus/MySQL，也不读取本地
@@ -15,7 +15,7 @@
 - 对同一数据集的 baseline 与 experiment 报告做指标及逐样本对比；
 - 聚合重复运行，统计质量指标极差、路由/引用/答案文字一致率；
 - 为每次运行自动生成 `review-queue.md` 人工复核队列。
-- 对理赔助手校验固定模式分发、结束状态、拒答原因、信息缺口、证据类型和字段
+- 对 Assistant 校验固定模式分发、结束状态、拒答原因、信息缺口、证据类型和字段
   完整性；
 - 评估设备价格候选 Product/SKU Recall，并识别拒答结果泄露证据的问题；
 - 记录统一助手在指定并发度下的延迟、吞吐、错误和 Token 基线。
@@ -126,9 +126,9 @@ uv run --package spb-eval spb-eval stability \
 
 新运行还会在 `summary.efficiency` 中记录端到端墙钟耗时和实际请求吞吐。
 
-## 理赔助手评估
+## Assistant 评估
 
-理赔助手数据集与政策 RAG 专项集分开。每行只描述一次独立的单轮请求，不包含
+Assistant 数据集与政策 RAG 专项集分开。每行只描述一次独立的单轮请求，不包含
 会话历史：
 
 ```json

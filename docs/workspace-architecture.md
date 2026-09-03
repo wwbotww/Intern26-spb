@@ -1,8 +1,11 @@
 # Workspace 架构与模块边界
 
+> 当前实现基线：`offline-pipeline 0.2.0`、`rag-api 0.5.1`、
+> `assistant-api 0.3.2`、`chat-web 0.2.0`、`eval 0.3.0`。本文只描述已实现边界。
+
 ## 目标
 
-仓库同时承载离线数据生产、在线检索问答、理赔咨询入口和黑盒评估工具。各应用必须
+仓库同时承载离线数据生产、在线检索问答、单轮工具编排和黑盒评估工具。各应用必须
 在代码、依赖、进程、权限和发布层面保持隔离；评估工具只能通过 HTTP 使用
 在线 API。
 
@@ -14,8 +17,8 @@ flowchart LR
     M -->|"只读检索"| R
     W["apps/chat-web"] -->|"HTTP POST + SSE"| A
     E["eval"] -->|"RAG 专项 HTTP 评估"| R
-    E -->|"统一助手 HTTP 评估"| A
-    A["apps/assistant-api<br/>统一咨询入口"]
+    E -->|"Assistant HTTP 评估"| A
+    A["apps/assistant-api<br/>单轮工具编排"]
     A -->|"内部 HTTP"| R
     A -->|"只读 SELECT"| P["设备价格 MySQL"]
 ```
@@ -58,7 +61,7 @@ embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、
 - 按固定映射执行且只执行一个只读工具；
 - 提供统一 `ToolResult`、政策/价格 `Evidence`、JSON 和 SSE 契约；
 - 提供独立鉴权、限流、健康检查和指标；
-- 保留未来工具注册扩展点，但当前不允许 LLM 选择工具。
+- 工具由代码静态注册，当前不允许 LLM 选择工具。
 
 设置 `ASSISTANT_MYSQL_DSN` 时注册设备价格只读工具，使用 SQLAlchemy
 Core + PyMySQL 参数化查询和 RapidFuzz 候选排序；连接会话强制只读，仓储接口
@@ -132,7 +135,7 @@ spb-contracts -> 任一应用
 ```
 
 `apps/rag-api/tests/test_architecture.py` 会扫描各 Python 包的 import，阻止
-在线、离线和咨询应用相互导入，也阻止 contracts 反向依赖任一应用。
+在线、离线和 Assistant 应用相互导入，也阻止 contracts 反向依赖任一应用。
 
 ## 运行和发布边界
 
@@ -143,7 +146,7 @@ spb-contracts -> 任一应用
 | 本地数据目录 | 需要 | 禁止依赖 | 禁止依赖 |
 | 模型 | embedding | embedding、Reranker、DeepSeek | 无模型 |
 | Docker 镜像 | 未提供专用镜像 | rag-api | assistant-api |
-| 发布节奏 | 数据任务 | 政策在线服务 | 外部咨询入口 |
+| 发布节奏 | 数据任务 | 政策在线服务 | 单轮工具 API |
 
 ## 共享契约
 

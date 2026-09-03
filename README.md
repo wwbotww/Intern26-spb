@@ -1,13 +1,13 @@
-# 中国邮政理赔智能咨询 Demo
+# 文档 RAG 与只读工具编排 Demo
 
-面向国家邮政局“政策法规标准”栏目的数据治理与检索增强问答项目。仓库包含
-相互隔离的离线数据流水线、在线 RAG API、理赔咨询能力入口、黑盒评估工具和
-共享数据契约，可
-完成公开政策资料的抓取、解析、OCR、切分、向量化、Milvus 同步、混合检索、
-相关性拒答、引用式问答和量化评估。
+本仓库用于验证公开文档数据处理、检索增强问答、结构化只读查询和统一 API
+编排等技术能力。当前示例数据包括国家邮政局“政策法规标准”栏目及一个设备价格
+数据源；它们用于约束和检验各模块，不代表对完整真实业务流程的建模。
 
-当前项目定位为 Demo、测试和技术方向验证，不包含原始业务数据、私有评估集、
-运行报告或任何真实凭证。
+仓库包含相互隔离的离线数据流水线、在线 RAG API、Assistant、Web、黑盒评估
+工具和共享数据契约。当前定位是 Demo、测试与技术方向验证，场景名称、交互方式
+和后续能力都可能调整；文档只陈述现有代码直接支持的行为。仓库不包含原始业务
+数据、私有评估集、运行报告或任何真实凭证。
 
 ## 核心能力
 
@@ -23,7 +23,7 @@
 | 可信问答 | 本地相关性门槛 + DeepSeek 证据充分性门槛 |
 | 可追溯输出 | 回答包含编号引用、文档元数据和原文链接 |
 | 服务接口 | JSON 检索、JSON 问答、SSE 流式问答、健康检查和指标 |
-| 理赔咨询入口 | Web 显式二选一、单轮单工具调用、分类证据和信息缺口展示 |
+| 单轮工具编排 | Web 显式二选一、单轮单工具调用、分类证据和信息缺口展示 |
 | 黑盒评估 | RAG 召回/门槛，以及 Assistant 路由、状态、证据、价格候选和效率 |
 
 ## 架构
@@ -41,7 +41,7 @@ flowchart LR
     W["chat-web"] -->|"POST + SSE"| A
     E["eval"] -->|"RAG 专项评估"| R
     E -->|"统一助手评估"| A
-    A["assistant-api<br/>统一咨询入口"]
+    A["assistant-api<br/>单轮工具编排"]
     A -->|"内部 HTTP"| R
     A -->|"只读 SELECT"| Q["设备价格 MySQL"]
 ```
@@ -56,8 +56,8 @@ flowchart LR
 apps/
   offline-pipeline/   抓取、解析、OCR、切分、向量化和 Milvus 同步
   rag-api/            在线检索、双重相关性门槛和 DeepSeek 问答
-  assistant-api/      显式查询模式、单工具分发和统一咨询响应
-  chat-web/           Vue 3 理赔咨询、模式选择与分类证据展示界面
+  assistant-api/      显式查询模式、单工具分发和统一响应
+  chat-web/           Vue 3 模式选择、查询与分类证据展示界面
 packages/
   contracts/          collection schema、embedding 与元数据共享契约
 eval/                 独立 HTTP 黑盒评估工具
@@ -94,7 +94,7 @@ spb-assistant-api     （不导入其他应用，仅通过 HTTP/数据库边界�
 
 ## 环境要求
 
-- Python 3.11；
+- Python 3.11+（容器当前使用 3.12）；
 - [uv](https://docs.astral.sh/uv/)；
 - Milvus 2.6.x；
 - Docker 与 Docker Compose（容器部署时）；
@@ -205,7 +205,7 @@ data/reports/quality-report.json 数据质量报告
 | `POST` | `/v1/chat` | 双重门槛后的 JSON/SSE 引用式问答 |
 | `GET` | `/v1/auth/check` | 受保护的服务间 Key 轻量校验 |
 | `GET` | `/health/live` | 进程存活检查 |
-| `GET` | `/health/ready` | 模型、Milvus、DeepSeek 和服务配置检查 |
+| `GET` | `/health/ready` | 检索、重排、Milvus、DeepSeek、Judge 和服务配置检查 |
 | `GET` | `/metrics` | Prometheus 指标 |
 
 问答流程：
@@ -263,7 +263,7 @@ curl -N -X POST "${SPB_RAG_BASE_URL}/v1/chat" \
 服务 API Key 与 DeepSeek API Key 相互独立。不要把任何真实凭证写入命令、
 README、日志或提交记录。
 
-## 理赔咨询能力入口
+## Assistant 单轮工具编排
 
 `apps/assistant-api` 已建立独立 FastAPI 服务和固定分发契约：客户端必须显式提交
 `policy` 或 `device_price`，每个请求只执行对应的一个工具。请求 schema 禁止
@@ -306,11 +306,11 @@ uv run --package spb-assistant-api spb-assistant-api
 可选原价、币种、在售状态、来源、观察时间、产品/SKU 标识和请求内匹配分数；
 政策证据包含文档/chunk 标识、原文链接、文号、机构、章节和检索分数。
 `finish_reason` 表示统一流程状态，`reason_code` 保留具体拒答或拆分原因。所有价格
-字段都是参考信息，不代表最终定损或赔付金额。
+字段都是数据源中的参考信息，不代表交易、估值或结算结果。
 
 ## 问答用户界面
 
-`apps/chat-web` 是独立的 Vue 3 理赔咨询应用，通过同源 `/api` 代理调用
+`apps/chat-web` 是独立的 Vue 3 查询界面，通过同源 `/api` 代理调用
 `assistant-api`。首屏要求用户选择“政策查询”或“设备价格”，请求固定携带该模式
 和当前问题，不发送页面历史。界面分别展示政策引用和设备价格候选卡片，并区分
 部分结果、信息不足、无匹配和技术错误。服务 API Key 只由 Vite 开发代理或
@@ -323,7 +323,7 @@ cp apps/chat-web/.env.example apps/chat-web/.env
 # 将 CHAT_WEB_ASSISTANT_API_KEY 设置为 ASSISTANT_API_KEYS 中的一项
 
 cd apps/chat-web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -339,15 +339,15 @@ docker compose --env-file /path/to/untracked/demo.env \
   -f deploy/docker-compose.yml up -d rag-api assistant-api chat-web
 ```
 
-未跟踪的 `demo.env` 需要同时提供 RAG、assistant、MySQL 和 Web 代理配置，其中
-`CHAT_WEB_ASSISTANT_API_KEY` 应是 `ASSISTANT_API_KEYS` 中的一项。容器模式下浏览器
-同样访问 `http://127.0.0.1:3000`。页面可以保留本次打开后的消息供阅读，但每个
-问题在服务端仍是独立单轮问答，切换类别也不会携带上一轮上下文。
+RAG 配置由未跟踪的 `apps/rag-api/.env` 提供；`demo.env` 提供 Assistant、MySQL
+和 Web 代理所需的 Compose 插值，其中 `CHAT_WEB_ASSISTANT_API_KEY` 应是
+`ASSISTANT_API_KEYS` 中的一项。容器模式下浏览器同样访问
+`http://127.0.0.1:3000`。页面可以保留本次打开后的消息供阅读，但每个问题在
+服务端仍是独立单轮问答，切换类别也不会携带上一轮上下文。
 
-阶段 5 已完成 `linux/amd64` 镜像验收和内网 Demo 灰度部署；只发布 Web 端口，
-RAG 与 Assistant 保持项目网络内访问，并保留上一版停止容器作为回滚点。实际
-版本、验证结果和运维命令见
-[`docs/server-deployment-brief.md`](docs/server-deployment-brief.md)。
+当前通用 Compose 拓扑、运行时配置、健康检查和安全边界见
+[`docs/deployment.md`](docs/deployment.md)。仓库文档不保存具体服务器、组织或
+内部网络信息。
 
 ## 黑盒评估
 
@@ -361,7 +361,7 @@ RAG 与 Assistant 保持项目网络内访问，并保留上一版停止容器�
 - shadow-mode Reranker 阈值扫描；
 - baseline/experiment 指标和逐样本对比；
 - 自动生成 `review-queue.md` 人工复核队列；
-- 理赔助手固定分发、状态、证据类型/完整性和拒答证据泄露检查；
+- Assistant 固定分发、状态、证据类型/完整性和拒答证据泄露检查；
 - 设备候选 Product/SKU Recall，以及 5 并发延迟、吞吐和错误基线。
 
 运行完整评估：
@@ -379,7 +379,7 @@ uv run --package spb-eval spb-eval run \
   --label full-chain
 ```
 
-运行统一理赔助手评估：
+运行统一 Assistant 评估：
 
 ```bash
 export EVAL_ASSISTANT_BASE_URL=http://127.0.0.1:8081
@@ -417,12 +417,14 @@ uv run pytest packages/contracts/tests
 
 ## 文档
 
-- [中国邮政理赔智能能力底座与外部咨询窗口 Demo 开发文档](docs/claims-assistant-demo-development.md)
+- [文档导航与状态](docs/README.md)
 - [Workspace 架构与模块边界](docs/workspace-architecture.md)
-- [中国邮政理赔助手 API 使用文档](docs/assistant-api.md)
+- [中国邮政 Assistant API 使用文档](docs/assistant-api.md)
 - [API 调用方使用文档](docs/api-reference.md)
 - [在线检索问答实现与 Grounding](docs/rag-api.md)
 - [Linux / Docker 部署运维](docs/deployment.md)
+- [Stateful Agent Workflow 下一阶段实施方案](docs/agent-workflow-implementation-plan.md)
+- [AI 应用 / Agent 求职项目复盘](docs/project-retrospective.md)
 - [Eval 数据格式与指标口径](eval/README.md)
 
 ## 数据与版本控制边界
@@ -445,8 +447,9 @@ uv run pytest packages/contracts/tests
   P95 延迟测试；
 - `assistant-api` 已接入政策 HTTP 工具和设备价格只读工具；Web 已切换为统一入口，
   并启用政策/设备价格二选一、单轮请求和分类证据展示；
-- 首轮 5 并发服务器烟测无 API/SSE 错误，但混合样本 P95 约 26.7 秒，政策链路
-  仍需拆分检索、Judge 和生成阶段定位延迟；
-- 当前价格查询可能返回较多完整候选，下一轮应标定排序、精确型号约束和展示上限；
+- 当前 Assistant 不做自动意图识别、不保存服务端会话，也不执行多工具循环；
+  仓库暂不定义未确认的后续业务场景；
+- 设备价格匹配已加入品牌、系列、型号和容量等硬约束，但阈值与展示上限仍需用
+  更大的代表性数据集持续校准；
 - 问答结果用于政策信息辅助检索，涉及行政决定或法律结论时仍应核验主管部门
   最新正式文件。

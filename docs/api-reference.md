@@ -7,7 +7,8 @@
 - JSON 非流式响应；
 - Server-Sent Events（SSE）流式响应。
 
-当前 API 主版本为 `v1`。
+当前服务实现版本为 `0.5.1`，API 主版本为 `v1`。服务版本与 API 主版本用途
+不同：前者用于部署识别，后者用于调用契约兼容性。
 
 ## 1. 接入信息
 
@@ -465,15 +466,19 @@ curl -sS "${SPB_RAG_BASE_URL}/health/ready"
     "retriever": "ready",
     "embedding": "ready",
     "milvus": "ready",
+    "reranker": "ready",
+    "reranking": "ready",
     "deepseek": "ready",
+    "relevance_judge": "ready",
     "auth": "ready",
     "metrics": "ready"
   }
 }
 ```
 
-任一必需依赖未就绪时返回 HTTP 503，`status` 为 `not_ready`，`checks` 提供
-原因。健康端点无需鉴权，但调用方不应高频轮询；建议由网关或编排平台探测。
+具体检查项会随 reranker 或 judge 开关变化；禁用的可选项返回 `disabled`。任一
+必需依赖未就绪时返回 HTTP 503，`status` 为 `not_ready`，`checks` 提供原因。
+健康端点无需鉴权，但调用方不应高频轮询；建议由网关或编排平台探测。
 
 ## 6. 错误处理
 
