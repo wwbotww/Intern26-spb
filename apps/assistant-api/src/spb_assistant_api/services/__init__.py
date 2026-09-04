@@ -11,17 +11,27 @@ from .agent_tools import (
     AgentToolRegistry,
     ToolExecutor,
 )
-from .query_understanding import RuleBasedQueryUnderstander
+from .query_understanding import (
+    HybridQueryUnderstander,
+    RuleBasedQueryUnderstander,
+    StructuredLlmQueryUnderstander,
+)
+from .region_resolver import RegionResolver
 from .result_validator import AgentResultValidator
+from .slot_merger import SlotMerger
 
 __all__ = [
     "DEVICE_PRICE_TOOL_NAME",
     "AgentCommandDispatcher",
     "AgentResultValidator",
     "AgentToolRegistry",
+    "HybridQueryUnderstander",
     "POLICY_TOOL_NAME",
     "QueryDispatcher",
     "RuleBasedQueryUnderstander",
+    "RegionResolver",
+    "SlotMerger",
+    "StructuredLlmQueryUnderstander",
     "ToolExecutor",
     "ToolRegistry",
 ]

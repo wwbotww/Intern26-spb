@@ -5,10 +5,11 @@
 
 > 本文只描述当前 `/v1` 已实现契约，不假设后续业务模式。
 
-仓库已在隔离路径完成 LangGraph 阶段 1 Fake Tracking Agent Kernel，验证了条件路由、
-checkpoint、interrupt/resume、类型化工具执行、结果校验、有限重试和重放收据。它未
-注册到 FastAPI，也不改变本文中的 `/v1` 契约。实现证据与后续设计见
-[阶段 1 说明](agent-kernel-phase1.md)和[实施方案](agent-workflow-implementation-plan.md)。
+仓库已在隔离路径完成 LangGraph 阶段 1–2 Agent Kernel：除条件路由、
+interrupt/resume、类型化工具执行和重放收据外，已加入五意图 Hybrid Understanding、
+跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL 和本地重启恢复。它仍未注册到 FastAPI，
+也不改变本文中的 `/v1` 契约。实现证据见[阶段 1 说明](agent-kernel-phase1.md)、
+[阶段 2 说明](agent-kernel-phase2.md)和[实施方案](agent-workflow-implementation-plan.md)。
 
 该服务是只读查询 Demo 的统一入口，不执行审批、交易、流程流转或数据库写入。
 每次请求相互独立，不接收会话历史，也不会自动融合政策和价格结果。

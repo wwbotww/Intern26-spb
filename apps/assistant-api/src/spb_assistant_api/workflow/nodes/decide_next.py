@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from ...domain.agent_actions import (
+    ClarifyIntentAction,
     CollectSlotsAction,
+    ControlAction,
     HandoffAction,
     InvokeToolAction,
 )
@@ -26,10 +28,24 @@ def create_decide_node(policy: WorkflowPolicy):
                 item.model_dump(mode="json")
                 for item in action.required_inputs
             ]
+        elif isinstance(action, ClarifyIntentAction):
+            phase = "waiting_user"
+            reply = action.prompt
+            required_inputs = [
+                {
+                    "name": "intent",
+                    "label": "查询类型",
+                    "type": "choice",
+                    "validation_hint": "请选择一个查询目标",
+                    "choices": [item.value for item in action.candidates],
+                }
+            ]
         elif isinstance(action, InvokeToolAction):
             phase = "ready"
         elif isinstance(action, HandoffAction):
             phase = "handoff"
+        elif isinstance(action, ControlAction):
+            phase = "responding"
 
         events = [
             agent_event(
@@ -40,13 +56,18 @@ def create_decide_node(policy: WorkflowPolicy):
                 step=step_count,
             )
         ]
-        if isinstance(action, CollectSlotsAction):
+        if isinstance(action, (CollectSlotsAction, ClarifyIntentAction)):
             events.append(
                 agent_event(
                     AgentEventType.CLARIFICATION_REQUESTED,
                     node="decide_next",
                     phase=phase,
-                    intent=action.intent.value,
+                    intent=(
+                        action.intent.value
+                        if isinstance(action, CollectSlotsAction)
+                        else None
+                    ),
+                    clarification_type=action.type,
                 )
             )
         update: dict[str, object] = {

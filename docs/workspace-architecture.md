@@ -75,11 +75,13 @@ Core + PyMySQL 参数化查询和 RapidFuzz 候选排序；连接会话强制只
 `assistant-api` 是当前 `chat-web` 的唯一 API 上游。跨应用只使用 HTTP 或数据库
 适配器，不得导入其他应用实现。请求不接受对话历史，服务不保存会话。
 
-代码库已在 `assistant-api` 隔离路径完成阶段 1 LangGraph Agent Kernel 与 Fake Tracking
-垂直切片：Domain 契约和纯 Policy 不依赖框架，Workflow Runtime 负责编排，Service
-负责白名单路由与执行收据，Fake Adapter 提供离线数据和故障注入。该图尚未挂载到
-FastAPI；因此当前运行拓扑、`/v1` 单轮语义和 `memory=disabled` 健康状态保持不变。
-LangGraph import 继续由架构测试限制在 Workflow Runtime 与 checkpointer adapter 边界。
+代码库已在 `assistant-api` 隔离路径完成阶段 1–2 LangGraph Agent 工程切片：Domain 契约
+和纯 Policy 不依赖框架，Application Service 提供 Hybrid Understanding、Region
+Resolver、Slot Merger 和白名单工具执行，Workflow Runtime 负责编排、interrupt/resume、
+会话串行化与生命周期，Adapter 提供 Fake Tool、`AsyncSqliteSaver`、元数据/API 幂等和
+Tool 收据。该图尚未挂载到 FastAPI；因此当前运行拓扑、`/v1` 单轮语义和
+`memory=disabled` 健康状态保持不变。LangGraph import 继续由架构测试限制在 Workflow
+Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单进程恢复能力。
 
 ### `apps/chat-web`
 

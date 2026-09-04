@@ -7,6 +7,7 @@ from pydantic import TypeAdapter
 from ..domain.agent_actions import (
     ClarifyIntentAction,
     CollectSlotsAction,
+    ControlAction,
     HandoffAction,
     InvokeToolAction,
     NextAction,
@@ -51,7 +52,7 @@ def route_next_action(state: AgentState) -> AgentActionRoute:
         return "execute_tool"
     if isinstance(action, ValidateResultAction):
         return "validate_result"
-    if isinstance(action, (RespondAction, HandoffAction)):
+    if isinstance(action, (RespondAction, HandoffAction, ControlAction)):
         return "compose_response"
     raise AssertionError(f"未覆盖的 Agent Action: {type(action).__name__}")
 

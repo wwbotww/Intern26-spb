@@ -106,6 +106,24 @@ def test_agent_domain_does_not_depend_on_outer_layers() -> None:
     assert violations == []
 
 
+def test_application_services_do_not_depend_on_runtime_or_adapters() -> None:
+    forbidden = ("adapters", "api", "workflow")
+    violations: list[str] = []
+    for path in (ASSISTANT_SOURCE / "services").rglob("*.py"):
+        for level, module in _imports(path):
+            absolute_outer = module.startswith(
+                tuple(
+                    f"spb_assistant_api.{name}"
+                    for name in forbidden
+                )
+            )
+            relative_outer = level >= 2 and module.startswith(forbidden)
+            if absolute_outer or relative_outer:
+                violations.append(f"{path.name}: {module}")
+
+    assert violations == []
+
+
 def test_http_api_does_not_compose_the_fake_agent_gateway() -> None:
     paths = [ASSISTANT_SOURCE / "main.py"]
     paths.extend((ASSISTANT_SOURCE / "api").rglob("*.py"))

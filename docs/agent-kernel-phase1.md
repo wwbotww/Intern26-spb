@@ -164,7 +164,8 @@ Result Validator、直接查询、interrupt/resume、no-match、重试成功、�
 业务 Step 预算、Graph 拓扑、thread 隔离、运行时事件流、严格 checkpoint 序列化和历史
 checkpoint 重放。
 
-当前工作树验证结果：阶段 1 两个测试文件共 36 项通过；完整 Python 工作区 203 项通过。
+Phase 1 里程碑提交前的验证结果：该阶段两个测试文件共 36 项通过；当时完整 Python
+工作区 203 项通过。后续阶段的当前总数见对应实现说明。
 这些是工程回归数量，不替代阶段 5 的代表性 Agent 质量指标。
 
 ## 10. 尚未实现
@@ -176,4 +177,5 @@ checkpoint 重放。
 - 政策与设备价格 V2 兼容 Adapter；
 - Agent Web、黑盒 Eval、生产 Trace/Metrics 和质量指标。
 
-以上内容分别属于阶段 2～6，不能用当前 Fake 垂直切片替代。
+以上内容在 Phase 1 里程碑时分别属于阶段 2～6，不能用该 Fake 垂直切片替代；其中阶段
+2 的后续实现与仍未完成范围见[Phase 2 说明](agent-kernel-phase2.md)。

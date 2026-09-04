@@ -81,9 +81,18 @@ class AgentState(TypedDict, total=False):
     phase: AgentPhaseValue
     turn_count: int
     active_intent: str | None
+    candidate_intents: list[str]
+    multi_intent: bool
+    control: str
     slots: dict[str, Any] | None
+    slot_provenance: list[dict[str, Any]]
+    confirm_slot_overwrite: bool
+    intent_choice_confirmed: bool
     missing_slots: list[str]
     ambiguities: list[str]
+    pending_query: str
+    understanding_parser_version: str
+    understanding_prompt_version: str | None
     pending_action: dict[str, Any] | None
     tool_calls: Annotated[list[dict[str, Any]], append_tool_calls]
     audit_events: Annotated[list[dict[str, Any]], append_events]

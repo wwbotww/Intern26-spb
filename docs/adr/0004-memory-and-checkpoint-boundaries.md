@@ -1,6 +1,6 @@
 # ADR-0004：区分 Checkpoint、元数据、RAG 与长期记忆
 
-- 状态：Accepted / Phase-1 replay verified, persistence pending
+- 状态：Accepted / Phase-2 local persistence verified
 - 日期：2026-09-03
 
 ## 背景
@@ -30,11 +30,16 @@ Graph State 只保存 JSON-native、最小必要的数据。Phase-0 `InMemorySav
 - 避免 Graph State 和应用 Store 的双写不一致；
 - 可以独立制定知识更新、会话 TTL、幂等和 PII 策略；
 - 删除会话时必须同时清理 checkpoint、元数据和相关收据；
-- 阶段 2 需要补充持久化 checkpointer、schema migration 和过期清理测试。
+- 阶段 2 已补充本地持久化 checkpointer、schema migration 和过期清理测试。
 
 Phase 1 增加了与 Checkpointer 分离的内存 Tool Execution Repository，并通过历史
 checkpoint 分支重放证明成功工具结果可被复用。该验证不代表跨进程恢复、并发唯一约束
 或 TTL 已实现。
+
+Phase 2 增加 `AsyncSqliteSaver`、SQLite Metadata/Idempotency Repository 和持久化 Tool
+Execution Repository，并用关闭连接、重新编译 Graph 后的 interrupt/resume 测试验证
+本地重启恢复。应用层会话锁、幂等 request hash、TTL Janitor 和 v1 -> v2 state migration
+均有合同测试。SQLite 仍只用于单进程 Demo；跨进程串行化和生产后端属于后续部署阶段。
 
 ## 参考
 

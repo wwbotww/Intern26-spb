@@ -162,6 +162,12 @@ def test_query_understanding_rejects_mismatched_slots() -> None:
             original_query="查价格",
             normalized_query="查价格",
             selected_intent=Intent.DEVICE_PRICE,
+            candidates=[
+                IntentCandidate(
+                    intent=Intent.DEVICE_PRICE,
+                    score=0.90,
+                )
+            ],
             slots=TrackingSlots(mail_no="AB123"),
             source="rules",
             parser_version="rules-v1",

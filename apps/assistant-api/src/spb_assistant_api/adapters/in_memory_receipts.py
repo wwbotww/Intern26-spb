@@ -34,5 +34,13 @@ class InMemoryToolExecutionRepository:
             )
         self._receipts[key] = receipt
 
+    async def delete_conversation(self, conversation_id: str) -> int:
+        keys = [
+            key for key in self._receipts if key[0] == conversation_id
+        ]
+        for key in keys:
+            del self._receipts[key]
+        return len(keys)
+
     def __len__(self) -> int:
         return len(self._receipts)

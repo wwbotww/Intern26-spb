@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from .commands import (
     DeliveryTimeCommand,
@@ -70,3 +70,12 @@ class ToolExecutionReceipt(BaseModel):
     argument_fingerprint: str
     result: AgentResult
     completed_at: datetime
+
+    @model_validator(mode="after")
+    def validate_completed_at(self) -> "ToolExecutionReceipt":
+        if (
+            self.completed_at.tzinfo is None
+            or self.completed_at.utcoffset() is None
+        ):
+            raise ValueError("completed_at 必须包含时区")
+        return self

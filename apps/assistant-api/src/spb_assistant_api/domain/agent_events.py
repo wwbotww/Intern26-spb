@@ -19,6 +19,8 @@ class AgentEventType(StrEnum):
     QUERY_UNDERSTOOD = "query_understood"
     CLARIFICATION_REQUESTED = "clarification_requested"
     CLARIFICATION_RESUMED = "clarification_resumed"
+    INTENT_CONFIRMED = "intent_confirmed"
+    SLOT_CONFLICT_DETECTED = "slot_conflict_detected"
     ACTION_DECIDED = "action_decided"
     TOOL_CALL_STARTED = "tool_call_started"
     TOOL_CALL_REUSED = "tool_call_reused"
@@ -28,6 +30,7 @@ class AgentEventType(StrEnum):
     FAILURE_CLASSIFIED = "failure_classified"
     RECOVERY_SCHEDULED = "recovery_scheduled"
     RESPONSE_PREPARED = "response_prepared"
+    CONVERSATION_RESET = "conversation_reset"
 
 
 class AgentEvent(BaseModel):

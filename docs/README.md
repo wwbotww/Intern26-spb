@@ -29,9 +29,12 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 ## 下一阶段规划
 
 - [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)：
-  总体仍为 `Proposed`；阶段 0、1 工程验证已完成，阶段 2～6 尚未完成。
+  总体仍为 `Proposed`；阶段 0～2 工程验证已完成，阶段 3～6 尚未完成。
 - [Phase 1 Agent Kernel 与 Fake Tracking](agent-kernel-phase1.md)：已实现的状态图、模块
   边界、预算、执行收据、Failure 路径、测试证据和未实现范围。
+- [Phase 2 Hybrid Understanding 与 SQLite 持久化](agent-kernel-phase2.md)：五意图规则、
+  Structured Model schema gate、跨轮合并、`AsyncSqliteSaver`、元数据/幂等、TTL、并发
+  和重启恢复证据。
 - [Agent Workflow ADR](adr/README.md)：已接受的受约束 Agent、LangGraph Runtime、
   Hybrid Understanding、Memory Boundary、Failure Taxonomy 和类型化路由决策。
 - [Assistant Agent V2 OpenAPI 草案](openapi/assistant-agent-v2.openapi.json)：未挂载到当前

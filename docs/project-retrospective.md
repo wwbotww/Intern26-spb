@@ -190,8 +190,8 @@ Eval 覆盖召回、拒答、引用、事实覆盖、路由、候选 Recall、P5
 
 - 这是技术 Demo，不代表已理解或覆盖某个真实业务的完整角色、流程和决策规则。
 - 当前场景标签、示例问题和数据源用于验证模块，后续可能随需求调整。
-- Assistant 只支持显式模式、单轮、单工具调用，没有服务端记忆、自动意图识别、
-  自主规划或 Agent Loop。
+- 当前已挂载的 Assistant `/v1` 只支持显式模式、单轮和单工具调用；隔离的 Agent
+  Runtime 已实现自动意图理解、受限 Loop 和本地持久化，但尚未发布为 V2 API。
 - OCR 和旧 Word 转换依赖 macOS，迁移 Linux 时需要替换适配器。
 - Milvus 增量同步只插入缺失 chunk，旧版本回收仍需独立版本策略。
 - 历史评测集规模有限；当前版本仍需补充困难负例和回归运行。
@@ -206,6 +206,7 @@ Eval 覆盖召回、拒答、引用、事实覆盖、路由、候选 Recall、P5
 - [部署说明](deployment.md)
 - [Stateful Agent Workflow 下一阶段实施方案](agent-workflow-implementation-plan.md)
 - [Phase 1 Agent Kernel 实现证据](agent-kernel-phase1.md)
+- [Phase 2 Hybrid Understanding 与 SQLite 持久化证据](agent-kernel-phase2.md)
 - `apps/offline-pipeline/src/spb_pipeline/`：采集、解析、OCR、切分、向量化和同步。
 - `apps/rag-api/src/spb_rag_api/`：检索、重排、证据判断和回答服务。
 - `apps/assistant-api/src/spb_assistant_api/`：显式路由、政策工具、价格匹配和统一协议。
@@ -213,14 +214,15 @@ Eval 覆盖召回、拒答、引用、事实覆盖、路由、候选 Recall、P5
 
 ## 11. LangGraph Agent 化设计与阶段证据
 
-> 状态：总体方案仍处于 Proposed；阶段 0、1 已完成工程验证。当前已有正式
-> `StateGraph` Agent Kernel、Fake Tracking Tool、规则理解、interrupt/resume、类型化
-> 路由、结果校验、有限重试、预算与 checkpoint 重放收据。它证明的是离线垂直切片和
-> 架构边界，不代表生产持久化、真实业务接口或质量指标已经完成。
+> 状态：总体方案仍处于 Proposed；阶段 0～2 已完成工程验证。当前已有正式
+> `StateGraph` Agent Kernel、五意图 Hybrid Understanding、Region Resolver、Slot
+> Merger、`AsyncSqliteSaver`、interrupt/resume、会话幂等/TTL/串行推进、类型化路由、
+> 结果校验、有限重试与 Tool 重放收据。它证明的是本地单进程工程闭环和架构边界，不
+> 代表生产多副本、真实业务接口、V2 API 或代表性质量指标已经完成。
 
-下一阶段计划把当前单轮 Dispatcher 演进为受约束、可观测、可恢复的 Stateful Tool
-Agent，以 LangGraph 作为核心 Workflow Runtime，并接入邮件轨迹、寄递时限和资费
-三个只读查询能力。详细实施基线见
+该独立路径正在把当前单轮 Dispatcher 演进为受约束、可观测、可恢复的 Stateful Tool
+Agent，以 LangGraph 作为核心 Workflow Runtime；下一阶段等待外部契约后接入邮件轨迹、
+寄递时限和资费三个真实只读查询能力。详细实施基线见
 [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
 ### 11.1 设计问题与目标
@@ -276,8 +278,9 @@ thread-scoped 工作状态的唯一事实源，应用元数据仓储只保存 ow
 ```
 
 邮件号、重量和行政区划等硬字段不依赖模型自由生成；模型只在规则不能可靠判断时
-输出受 Pydantic / JSON Schema 约束的候选意图和槽位。低置信或候选接近时请求澄清，
-不把模型自报 confidence 当成真实校准概率。
+输出受 Pydantic / JSON Schema 约束的候选意图和槽位。Phase 2 已实现五意图规则、
+硬实体、Structured Model Port/schema gate 和版本化 Prompt；尚未配置真实模型
+Provider。低置信或候选接近时请求澄清，不把模型自报 confidence 当成真实校准概率。
 
 #### 决策四：Query Understanding 与 Routing 分离
 
@@ -305,7 +308,7 @@ Agent State 只保存当前意图、已确认槽位、缺失字段、Workflow Ph
 `WorkflowPolicy` 处理业务转换。Event 只用于审计和 Trace，不额外建设一套平行的
 Event-Sourcing Runtime。
 
-单测使用 `InMemorySaver`，本地 Demo 使用 `AsyncSqliteSaver`；生产后端在 Redis 与
+单测使用 `InMemorySaver`，本地 Demo 已使用 `AsyncSqliteSaver`；生产后端在 Redis 与
 PostgreSQL checkpointer 间通过 ADR 和压测选择。`conversation_id` 映射到 LangGraph
 `thread_id`，补槽用 interrupt/resume 恢复。同一 thread 串行推进，结合
 `Idempotency-Key`、argument fingerprint 和 Tool 执行收据防止节点重放造成重复调用；
@@ -338,27 +341,29 @@ Knowledge 和 Long-term User Memory 在设计中被明确区分。
 interrupt/resume、checkpoint、工具名、尝试次数、校验结果和 finish reason。这样可以
 定位失败步骤，同时避免记录模型内部推理、完整邮件号、凭据或高基数参数。
 
-### 11.3 计划形成的 Agent 能力证据
+### 11.3 Agent 能力路线与当前证据
 
-| 岗位能力 | 计划实现 | 完成后应提供的证据 |
+| 岗位能力 | 当前状态 | 下一份关键证据 |
 | --- | --- | --- |
-| Query Understanding | 规则、上下文与 Structured LLM 混合解析 | Intent/Slot 数据集、Macro-F1、错误分析 |
-| Tool / Function Calling | Tool Descriptor、类型化 Command、白名单执行 | Wrong Tool Rate、未授权调用测试 |
-| LangGraph Orchestration | StateGraph、Node/Edge、条件路由、interrupt/resume | Graph snapshot、分支覆盖、中断恢复测试 |
-| Stateful Workflow | Checkpointer、thread 隔离、TTL、schema migration | 多轮测试、重启恢复、checkpoint Trace |
-| Agent Loop | 条件边、显式终点、有限 Step/调用/重试预算 | Loop Step 分布、超预算率和终止测试 |
-| Memory Design | Working Memory、Metadata、RAG 与长期记忆分离 | 状态 schema、数据保留与脱敏说明 |
-| Failure Handling | 重试、熔断、契约校验和 Handoff | Failure Injection 和恢复率报告 |
-| Human in the Loop | 缺槽/歧义 interrupt-resume，越界场景 Handoff | 中断恢复与 Handoff 场景测试 |
-| LLMOps / Observability | Prompt/Parser 版本、Trace、指标 | 可复现 Trace 和 Dashboard 定义 |
-| Agent Evaluation | 多轮黑盒场景与 baseline/experiment | Completion、Clarification、Recovery 报告 |
-| Grounding | 复用现有 RAG 引用与拒答 | 引用和事实覆盖回归 |
+| Query Understanding | Phase 2：五意图规则、硬实体、Hybrid/schema gate、21-turn fixture | 真实模型 baseline、Macro-F1、Slot F1、错误分析 |
+| Tool / Function Calling | Phase 1：Descriptor、类型化 Command、白名单、越权拒绝 | 真实五工具 Wrong Tool Rate |
+| LangGraph Orchestration | Phase 1–2：StateGraph、条件边、interrupt/resume、重启恢复 | V2 黑盒 Graph Trace |
+| Stateful Workflow | Phase 2：SQLite checkpoint、TTL、幂等、迁移、单进程锁 | 多副本 checkpointer 与跨进程冲突测试 |
+| Agent Loop | Phase 1：Step/Tool/Retry/recursion 四层预算 | 代表性 Loop Step 分布与超预算率 |
+| Memory Design | Phase 2：Working State、Metadata、Tool Receipt、RAG 分离 | 数据保留评审和生产清理演练 |
+| Failure Handling | Phase 1–2：分类、有限重试、契约拒绝、Handoff、fail closed | 熔断与真实 Gateway 故障注入报告 |
+| Human in the Loop | Phase 2：缺槽、多意图、切换和冲突确认 | V2 Web 可用性与任务完成率 |
+| LLMOps / Observability | Prompt/Parser 已版本化；完整 Trace 未实现 | baseline/experiment 与 Dashboard |
+| Agent Evaluation | 18 场景/21 turn 公开回归夹具；HTTP Runner 未接入 | V2 多轮黑盒 Completion/Recovery 报告 |
+| Grounding | 现有 V1 RAG 引用与拒答可复用 | V2 Policy Tool 回归 |
 
-阶段 0、1 当前已有的可复核证据：LangGraph 导入被架构测试限制在 Workflow Runtime /
-Checkpointer Adapter 边界；正式状态图覆盖直接完成、缺槽中断、同 thread 恢复、thread
-隔离、无匹配、有限重试、契约失败、超预算和历史 checkpoint 重放；类型化 Registry
-拒绝任意工具名，执行收据使重放不重复访问 Fake Gateway。它们不应替代真实工具、
-持久化后端和端到端质量报告。
+阶段 0～2 当前已有的可复核证据：LangGraph 导入被架构测试限制在 Workflow Runtime /
+Checkpointer Adapter 边界；状态图覆盖直接完成、缺槽/多意图中断、切换与更正确认、取消、
+同 thread 重启恢复、thread 隔离、无匹配、有限重试、契约失败、超预算和 checkpoint
+重放；类型化 Registry 拒绝任意工具名。SQLite 测试在关闭连接、重新编译 Graph 后恢复，
+并验证 API 幂等、同会话并发拒绝、TTL 清理和 Tool 收据不重复调用 Fake Gateway。当前
+新增 37 项阶段测试、完整 Python workspace 240 项通过；这些证据仍不替代真实工具、
+生产持久化后端和代表性端到端质量报告。
 
 ### 11.4 推荐演示路径
 
@@ -423,7 +428,7 @@ Checkpointer Adapter 边界；正式状态图覆盖直接完成、缺槽中断�
 
 ### 11.6 简历 bullet 模板
 
-当前可以使用、但必须明确 `Phase-1 / Fake Tool / InMemory` 范围的工程表述：
+当前可以使用、但必须明确 `Phase-2 / Fake Tracking / local SQLite` 范围的工程表述：
 
 - 基于 LangGraph `StateGraph` 实现可注入依赖的轨迹查询 Agent Kernel，以显式 Node、
   条件边和 `interrupt/resume` 编排补槽、执行、校验、恢复与响应；使用业务 Step、逻辑
@@ -431,17 +436,22 @@ Checkpointer Adapter 边界；正式状态图覆盖直接完成、缺槽中断�
 - 设计类型化 `Command -> Registry -> Tool -> Result Validator` 执行链，并以
   `(conversation_id, argument_fingerprint)` 执行收据处理 checkpoint 重放；离线测试从
   `execute_tool` 前历史 checkpoint 建立分支，确认 Fake Gateway 不发生重复调用。
+- 实现五意图 Hybrid Query Understanding，以确定性邮件号、Decimal 重量和可注入行政区
+  Resolver 处理硬实体，以 Slot Merger 保护跨轮冲突，并用版本化 Structured Model
+  schema gate 阻止任意工具名；18 场景/21 turn 公开回归夹具全部匹配，明确该结果不是
+  生产 Macro-F1。
+- 构建 `AsyncSqliteSaver` + Metadata/API Idempotency/Tool Receipt 分层持久化，在关闭连接
+  并重新编译 Graph 后恢复同一 interrupt；测试同时覆盖重复 resume、同会话并发拒绝、
+  30 分钟可配置 TTL 清理和 v1 -> v2 State migration，完整 Python workspace 240 项通过。
 
-以下 bullet 只有在对应代码、测试和报告完成后才能使用；方括号内容必须替换为真实
-数字：
+以下 bullet 仍只有在真实接口、代表性评测和报告完成后才能使用；方括号内容必须替换为
+真实数字：
 
-- 设计并实现基于 LangGraph `StateGraph` 的受约束 Stateful Tool Agent，以 Pydantic
-  Structured Output 完成五类 Query Understanding，通过确定性 Tool Registry、
-  类型化 Command 和 bounded Agent Loop 控制工具执行；在 `[N]` 条评测集上取得
-  Intent Macro-F1 `[X]`、Slot F1 `[Y]`，明确意图 Wrong Tool Rate 为 `[Z]`。
-- 构建 LangGraph Checkpointer + interrupt/resume 多轮工作流，加入 thread 级并发控制、
-  Idempotency-Key、TTL、状态迁移和 Tool 执行收据；在 checkpoint 重放、重复提交、
-  并发更新和服务重启测试中实现 `[结果]`，避免重复只读 Tool Call。
+- 在代表性 `[N]` 条评测集上对 Hybrid Query Understanding 完成 baseline/experiment，
+  取得 Intent Macro-F1 `[X]`、Slot F1 `[Y]`、fallback 率 `[F]`，并将明确意图 Wrong
+  Tool Rate 控制为 `[Z]`。
+- 将本地 SQLite durable workflow 迁移到生产 checkpointer，在多副本 checkpoint 重放、
+  重复提交、并发更新和服务重启演练中实现 `[结果]`，避免重复只读 Tool Call。
 - 将政策 RAG、设备价格、邮件轨迹、寄递时限和资费封装为类型化只读工具，引入
   schema validation、有限重试、按能力熔断和错误分类，在 `[N]` 个故障注入场景中
   达到恢复率 `[X]`，并保持无业务结果与技术失败语义分离。
@@ -478,16 +488,22 @@ Checkpointer Adapter 边界；正式状态图覆盖直接完成、缺槽中断�
   Pydantic 契约和 Proposed V2 OpenAPI 草案，但尚未对外暴露 V2 路由；
 - 实现了 Phase-1 Fake Tracking Agent Kernel：规则识别、缺槽 HITL、确定性工具路由、
   结果不变量校验、有限重试、预算终止和 checkpoint replay-safe 执行收据均有离线测试；
-  当前阶段定向测试 36 项、完整 Python 工作区测试 203 项通过；
+  该阶段里程碑定向测试 36 项、当时完整 Python 工作区测试 203 项通过；
+- 实现了 Phase-2 五意图规则、Structured Model schema gate、Region Resolver、Slot
+  Merger、多意图/切换/更正/控制，以及 SQLite checkpoint、会话幂等、TTL、串行推进和
+  State 迁移；新增 37 项测试，当前完整 Python workspace 240 项通过；
+- 建立 18 场景/21 turn 公开 Query Understanding 回归夹具并全部匹配，但尚不能把该小
+  样本结果表述为代表性 Intent Macro-F1 或 Slot F1；
 - 现有项目已经具备 RAG grounding、typed ports、只读工具、契约校验和黑盒评测
   基础；
 - 已确定从单轮 Dispatcher 演进到受约束 Agent 的兼容路径。
 
 当前不能表述：
 
-- 已实现五类意图的 Hybrid Query Understanding、Structured LLM fallback 或完整多轮
-  Slot 合并；
-- 已实现生产级 LangGraph Agent、持久化 checkpointer、跨进程恢复、TTL 或并发控制；
+- 已配置并评测真实 Structured LLM Provider；当前只有可注入 Port、版本化 Prompt 和
+  schema gate；
+- 已实现生产级多副本 LangGraph Agent 或跨进程会话锁；当前持久化结论只适用于本地
+  单进程 SQLite；
 - 已接入轨迹、时限和资费真实接口；
 - 已达到实施方案中的质量门禁；
 - 已完成 Redis、熔断、Agent Trace 或多轮评测。

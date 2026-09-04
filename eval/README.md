@@ -151,6 +151,11 @@ Assistant 数据集与政策 RAG 专项集分开。每行只描述一次独立�
 补充信息提示；价格样本可以提供 Product/SKU Gold，政策样本不能填写价格 Gold。
 完整字段示例见 `datasets/assistant-template.jsonl`。
 
+Agent V2 的首版 Query Understanding 公开评测集位于
+`datasets/agent-understanding-v1.jsonl`，覆盖五类意图、未知/多意图、硬实体、控制命令
+和多轮补槽。当前阶段只固化独立 schema 与样本；等 V2 HTTP 接口在阶段 4 挂载后，Eval
+Runner 再通过黑盒接口执行它，不直接导入 Assistant 实现。
+
 运行统一助手评估：
 
 ```bash

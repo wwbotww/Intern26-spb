@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ...domain.agent_actions import HandoffAction
+from ...domain.agent_actions import ControlAction, HandoffAction
 from ...domain.agent_events import AgentEventType
 from ...domain.failures import AgentFailure, FailureCategory
 from ...domain.results import AgentResult
@@ -32,6 +32,45 @@ def compose_agent_response(state: AgentState) -> dict[str, object]:
         }
 
     raw_action = state.get("pending_action")
+    if raw_action is not None and raw_action.get("type") == "control":
+        action = ControlAction.model_validate(raw_action)
+        reply = (
+            "已取消当前查询。"
+            if action.directive.value == "cancel"
+            else "已清空当前查询，可以重新选择能力。"
+        )
+        return {
+            "active_intent": None,
+            "candidate_intents": [],
+            "multi_intent": False,
+            "control": "none",
+            "slots": None,
+            "slot_provenance": [],
+            "missing_slots": [],
+            "ambiguities": [],
+            "pending_query": "",
+            "phase": "completed",
+            "reply": reply,
+            "required_inputs": [],
+            "result": None,
+            "failure": None,
+            "warnings": [],
+            "finish_reason": "stop",
+            "audit_events": [
+                agent_event(
+                    AgentEventType.CONVERSATION_RESET,
+                    node="compose_response",
+                    phase="completed",
+                    directive=action.directive.value,
+                ),
+                agent_event(
+                    AgentEventType.RESPONSE_PREPARED,
+                    node="compose_response",
+                    phase="completed",
+                    finish_reason="stop",
+                ),
+            ],
+        }
     if raw_action is not None and raw_action.get("type") == "handoff":
         action = HandoffAction.model_validate(raw_action)
         return {

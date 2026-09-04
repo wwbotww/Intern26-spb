@@ -8,7 +8,11 @@ from uuid import UUID, uuid4
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from ..domain.agent_actions import AgentMessageInput, TrackingResume
+from ..domain.agent_actions import (
+    AgentMessageInput,
+    AgentResumeInput,
+    TrackingResume,
+)
 from ..domain.intents import Intent
 
 
@@ -184,6 +188,32 @@ class TrackingAgentRuntime:
             config=self.config(thread_id),
         )
         return result
+
+    async def resume(
+        self,
+        *,
+        thread_id: str,
+        message: str | None = None,
+        selected_intent: Intent | None = None,
+        confirm_overwrite: bool = False,
+        turn_id: UUID | None = None,
+    ) -> Mapping[str, Any]:
+        now = self._clock()
+        if now.tzinfo is None:
+            raise ValueError("clock 必须返回包含时区的 datetime")
+        payload = AgentResumeInput(
+            message=message,
+            selected_intent=selected_intent,
+            confirm_overwrite=confirm_overwrite,
+            turn_id=turn_id or uuid4(),
+            deadline_at=(
+                now + timedelta(seconds=self._request_timeout_seconds)
+            ),
+        )
+        return await self._graph.ainvoke(
+            Command(resume=payload.model_dump(mode="json")),
+            config=self.config(thread_id),
+        )
 
     async def stream_events(
         self,

@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from spb_eval.dataset import DatasetError, load_dataset, split_dataset
+from spb_eval.dataset import (
+    DatasetError,
+    load_agent_understanding_dataset,
+    load_dataset,
+    split_dataset,
+)
 
 
 def test_load_dataset_validates_and_deduplicates_labels(
@@ -105,3 +110,33 @@ def test_split_dataset_writes_manifest_and_refuses_overwrite(
     assert manifest["splits"]["calibration"]["cases"] == 1
     with pytest.raises(DatasetError, match="拒绝覆盖"):
         split_dataset(dataset, output)
+
+
+def test_public_agent_understanding_dataset_has_phase2_coverage() -> None:
+    workspace_root = Path(__file__).resolve().parents[2]
+    cases = load_agent_understanding_dataset(
+        workspace_root
+        / "eval"
+        / "datasets"
+        / "agent-understanding-v1.jsonl"
+    )
+
+    intents = {
+        turn.expected_intent for case in cases for turn in case.turns
+    }
+    categories = {case.category for case in cases}
+    splits = {case.split for case in cases}
+
+    assert len(cases) == 18
+    assert intents == {
+        "policy",
+        "device_price",
+        "tracking",
+        "delivery_time",
+        "postage",
+        "unknown",
+    }
+    assert {"multi_intent", "multi_turn_slot_fill", "intent_switch"} <= (
+        categories
+    )
+    assert splits == {"calibration", "holdout"}

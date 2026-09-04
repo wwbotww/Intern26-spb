@@ -2,16 +2,17 @@
 
 > 文档状态：`Proposed`，用于下一阶段设计评审、任务拆分和验收，不描述当前已上线能力。
 >
-> 起始代码基线：提交 `093e29d`；`assistant-api 0.3.2`、`chat-web 0.2.0`、
-> `eval 0.3.0`。
+> 起始设计基线：提交 `093e29d`；Phase 0–1 实现里程碑：提交 `07699e0`；
+> `assistant-api 0.3.2`、`chat-web 0.2.0`、`eval 0.3.0`。
 >
 > 更新日期：2026-09-03。
 >
-> 实施进度：阶段 0、1 工程验证已完成，等待架构评审。当前包含锁定的
-> `langgraph 1.2.11`、正式 Agent StateGraph、Fake Tracking Tool、规则理解、类型化
-> Registry/Command/Result、interrupt/resume、执行收据重放、预算与 Failure 路径、六篇
-> ADR 和 Proposed V2 OpenAPI；尚未挂载 V2 路由。当前阶段 1 定向测试 36 项、完整
-> Python 工作区测试 203 项通过。
+> 实施进度：阶段 0、1、2 工程验证已完成，等待架构评审。当前包含锁定的
+> `langgraph 1.2.11` 与 `langgraph-checkpoint-sqlite 3.1.1`、正式 Agent StateGraph、
+> Fake Tracking Tool、五意图 Hybrid Understanding、跨轮合并与控制、
+> `AsyncSqliteSaver`、会话元数据/API 幂等/Tool 收据、TTL、并发门禁和 State 迁移；尚未
+> 挂载 V2 路由。Phase 2 新增测试 37 项，完整 Python 工作区测试 240 项通过。实现证据见
+> [Phase 2 说明](agent-kernel-phase2.md)。
 >
 > 外部接口状态：轨迹、时限和资费接口尚未提供。本文中的字段、错误和时效策略为
 > 领域侧预留，最终以接口契约评审结果为准。
@@ -1287,6 +1288,11 @@ eval/src/spb_eval/
 ### 阶段 2：Hybrid Query Understanding 与持久化 Checkpointer
 
 目标：覆盖五类意图、跨轮补槽、歧义和服务重启恢复。
+
+> 实施状态（2026-09-03）：本地单进程范围内工程验证已完成。实现与限制见
+> [Phase 2：Hybrid Query Understanding 与 SQLite 持久化](agent-kernel-phase2.md)。
+> 真实模型 Provider、完整行政区数据、生产多副本 checkpointer 和 V2 HTTP 挂载不包含
+> 在本阶段的“完成”范围内。
 
 工作内容：
 

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Protocol
+from collections.abc import Mapping
+from datetime import datetime
+from typing import Any, Protocol
+from uuid import UUID
 
 from .device_price import DevicePriceRecord, DevicePriceSearchQuery
 from .models import ToolResult
@@ -10,6 +13,12 @@ from .results import AgentResult, TrackingData
 from .tooling import CommandModel, ToolDescriptor, ToolExecutionReceipt
 from .intents import Intent
 from .understanding import QueryUnderstandingResult
+from .conversations import (
+    ConversationMetadata,
+    ConversationStatus,
+    IdempotencyClaim,
+    IdempotencyReceipt,
+)
 
 
 class AssistantTool(Protocol):
@@ -59,7 +68,18 @@ class QueryUnderstander(Protocol):
         message: str,
         active_intent: Intent | None = None,
         explicit_intent: Intent | None = None,
+        expected_slots: tuple[str, ...] = (),
     ) -> QueryUnderstandingResult: ...
+
+
+class StructuredQueryUnderstandingModel(Protocol):
+    async def classify(
+        self,
+        *,
+        message: str,
+        prompt: str,
+        prompt_version: str,
+    ) -> Mapping[str, Any]: ...
 
 
 class AgentTool(Protocol):
@@ -78,3 +98,72 @@ class ToolExecutionRepository(Protocol):
     ) -> ToolExecutionReceipt | None: ...
 
     async def save(self, receipt: ToolExecutionReceipt) -> None: ...
+
+    async def delete_conversation(self, conversation_id: str) -> int: ...
+
+
+class ConversationMetadataRepository(Protocol):
+    async def create(self, metadata: ConversationMetadata) -> None: ...
+
+    async def get(
+        self,
+        conversation_id: UUID,
+    ) -> ConversationMetadata | None: ...
+
+    async def authorize(
+        self,
+        conversation_id: UUID,
+        owner_id: str,
+    ) -> bool: ...
+
+    async def claim_idempotency(
+        self,
+        *,
+        conversation_id: UUID,
+        key: str,
+        request_hash: str,
+        now: datetime,
+    ) -> IdempotencyClaim: ...
+
+    async def complete_idempotency(
+        self,
+        *,
+        conversation_id: UUID,
+        key: str,
+        request_hash: str,
+        response: Mapping[str, Any],
+        completed_at: datetime,
+    ) -> IdempotencyReceipt: ...
+
+    async def release_idempotency(
+        self,
+        *,
+        conversation_id: UUID,
+        key: str,
+        request_hash: str,
+    ) -> None: ...
+
+    async def delete_idempotency_receipts(
+        self,
+        conversation_id: UUID,
+    ) -> int: ...
+
+    async def touch_expiry(
+        self,
+        *,
+        conversation_id: UUID,
+        expires_at: datetime,
+        updated_at: datetime,
+    ) -> None: ...
+
+    async def set_status(
+        self,
+        *,
+        conversation_id: UUID,
+        status: ConversationStatus,
+        updated_at: datetime,
+    ) -> None: ...
+
+    async def list_expired(self, *, now: datetime) -> list[UUID]: ...
+
+    async def delete(self, conversation_id: UUID) -> None: ...

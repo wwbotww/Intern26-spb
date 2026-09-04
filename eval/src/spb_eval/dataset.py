@@ -8,7 +8,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .schemas import AssistantEvalCase, EvalCase
+from .schemas import (
+    AgentUnderstandingEvalCase,
+    AssistantEvalCase,
+    EvalCase,
+)
 
 
 class DatasetError(ValueError):
@@ -74,6 +78,38 @@ def load_assistant_dataset(path: Path) -> list[AssistantEvalCase]:
         seen_ids.add(case.id)
         cases.append(case)
 
+    if not cases:
+        raise DatasetError(f"数据集为空：{path}")
+    return cases
+
+
+def load_agent_understanding_dataset(
+    path: Path,
+) -> list[AgentUnderstandingEvalCase]:
+    if not path.is_file():
+        raise DatasetError(f"数据集不存在：{path}")
+
+    cases: list[AgentUnderstandingEvalCase] = []
+    seen_ids: set[str] = set()
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            case = AgentUnderstandingEvalCase.model_validate_json(line)
+        except ValidationError as exc:
+            raise DatasetError(
+                f"{path}:{line_number} agent understanding 样本格式错误：{exc}"
+            ) from exc
+        if case.id in seen_ids:
+            raise DatasetError(
+                f"{path}:{line_number} 样本 ID 重复：{case.id}"
+            )
+        seen_ids.add(case.id)
+        cases.append(case)
     if not cases:
         raise DatasetError(f"数据集为空：{path}")
     return cases

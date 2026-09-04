@@ -23,6 +23,15 @@ AssistantExpectedOutcome = Literal[
     "no_match",
     "need_more_info",
 ]
+AgentIntent = Literal[
+    "policy",
+    "device_price",
+    "tracking",
+    "delivery_time",
+    "postage",
+    "unknown",
+]
+AgentControl = Literal["none", "cancel", "restart"]
 
 
 class EvalCase(BaseModel):
@@ -250,6 +259,44 @@ class AssistantRunReport(BaseModel):
     service: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any]
     results: list[AssistantCaseResult]
+
+
+class AgentUnderstandingTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: NonEmptyText
+    explicit_intent: AgentIntent | None = None
+    expected_intent: AgentIntent
+    expected_missing_slots: list[NonEmptyText] = Field(
+        default_factory=list
+    )
+    expected_slot_values: dict[str, Any] = Field(default_factory=dict)
+    expected_ambiguities: list[NonEmptyText] = Field(default_factory=list)
+    expected_multi_intent: bool = False
+    expected_control: AgentControl = "none"
+
+
+class AgentUnderstandingEvalCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: NonEmptyText
+    category: NonEmptyText
+    turns: list[AgentUnderstandingTurn] = Field(min_length=1)
+    split: DatasetSplit = "calibration"
+    tags: list[NonEmptyText] = Field(default_factory=list)
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def deduplicate_labels(self) -> "AgentUnderstandingEvalCase":
+        self.tags = list(dict.fromkeys(self.tags))
+        for turn in self.turns:
+            turn.expected_missing_slots = list(
+                dict.fromkeys(turn.expected_missing_slots)
+            )
+            turn.expected_ambiguities = list(
+                dict.fromkeys(turn.expected_ambiguities)
+            )
+        return self
 
 
 class ThresholdPoint(BaseModel):

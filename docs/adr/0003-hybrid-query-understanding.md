@@ -1,6 +1,6 @@
 # ADR-0003：采用 Hybrid Query Understanding
 
-- 状态：Accepted / Phase-1 rule slice verified, hybrid pending
+- 状态：Accepted / Phase-2 hybrid pipeline verified
 - 日期：2026-09-03
 
 ## 背景
@@ -35,6 +35,7 @@ Query Understanding 按以下优先级执行：
   澄清率；
 - Prompt、Parser、规则和数据集必须分别版本化。
 
-Phase 1 已实现可离线测试的轨迹规则切片，支持当前 Workflow 上下文、显式意图、13 位
-国内邮件号和国际邮件号样式。它不包含五意图完整规则、Region Resolver、Slot Merger 或
-Structured LLM fallback，因此 Hybrid Pipeline 仍属于阶段 2。
+Phase 2 已实现五意图规则、邮件号/Decimal 重量/行政区实体、Region Resolver、
+Slot Merger、控制命令和 Structured LLM schema gate。规则、显式 UI 和活跃 Workflow
+可决策时不会调用模型；模型非法输出 fail closed。当前只注入模型 Port，没有配置真实
+供应商，因此尚不能用回归夹具代替代表性语料上的模型质量评测。

@@ -4,7 +4,13 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 from .primitives import MailNumber, MessageText
 
@@ -44,6 +50,25 @@ class RegionRef(BaseModel):
     canonical_name: RegionName | None = None
     resolution: RegionResolution = RegionResolution.UNRESOLVED
     candidates: list[RegionCandidate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_resolution_state(self) -> RegionRef:
+        if (
+            self.resolution is RegionResolution.RESOLVED
+            and self.canonical_name is None
+        ):
+            raise ValueError("resolved region requires canonical_name")
+        if (
+            self.resolution is RegionResolution.AMBIGUOUS
+            and len(self.candidates) < 2
+        ):
+            raise ValueError("ambiguous region requires at least two candidates")
+        if (
+            self.resolution is RegionResolution.UNRESOLVED
+            and self.canonical_name is not None
+        ):
+            raise ValueError("unresolved region cannot have canonical_name")
+        return self
 
 
 class WeightValue(BaseModel):
