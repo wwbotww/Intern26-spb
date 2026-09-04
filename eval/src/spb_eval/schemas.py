@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -32,6 +33,55 @@ AgentIntent = Literal[
     "unknown",
 ]
 AgentControl = Literal["none", "cancel", "restart"]
+AgentPublicIntent = Literal[
+    "policy",
+    "device_price",
+    "tracking",
+    "delivery_time",
+    "postage",
+]
+AgentTerminalPhase = Literal[
+    "waiting_user",
+    "completed",
+    "handoff",
+    "failed",
+]
+AgentNextAction = Literal[
+    "collect_slots",
+    "clarify_intent",
+    "complete",
+    "handoff",
+    "failed",
+]
+AgentResultStatus = Literal[
+    "success",
+    "partial",
+    "need_more_info",
+    "no_match",
+    "failed",
+]
+AgentFailureCategory = Literal[
+    "missing_input",
+    "ambiguous_intent",
+    "invalid_input",
+    "no_match",
+    "upstream_timeout",
+    "upstream_rate_limited",
+    "upstream_unavailable",
+    "contract_violation",
+    "state_conflict",
+    "persistence_unavailable",
+    "state_schema_incompatible",
+    "loop_budget_exceeded",
+    "internal_error",
+]
+_AGENT_PUBLIC_INTENTS = {
+    "policy",
+    "device_price",
+    "tracking",
+    "delivery_time",
+    "postage",
+}
 
 
 class EvalCase(BaseModel):
@@ -299,6 +349,221 @@ class AgentUnderstandingEvalCase(BaseModel):
         return self
 
 
+class AgentEvalTurn(BaseModel):
+    """One public V2 message and its black-box expectations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message: NonEmptyText | None = None
+    explicit_intent: AgentPublicIntent | None = None
+    confirm_overwrite: bool = False
+    expected_phase: AgentTerminalPhase
+    expected_intent: AgentIntent | None = None
+    expected_next_action: AgentNextAction
+    expected_required_inputs: list[NonEmptyText] = Field(
+        default_factory=list
+    )
+    expected_result_status: AgentResultStatus | None = None
+    expected_result_values: dict[str, Any] = Field(default_factory=dict)
+    expected_failure_category: AgentFailureCategory | None = None
+    expected_failure_code: NonEmptyText | None = None
+
+    @model_validator(mode="after")
+    def validate_public_expectations(self) -> "AgentEvalTurn":
+        if self.message is None and self.explicit_intent is None:
+            raise ValueError("Agent turn 必须提供 message 或 explicit_intent")
+        self.expected_required_inputs = list(
+            dict.fromkeys(self.expected_required_inputs)
+        )
+        expected_action = {
+            "completed": "complete",
+            "handoff": "handoff",
+            "failed": "failed",
+        }.get(self.expected_phase)
+        if expected_action and self.expected_next_action != expected_action:
+            raise ValueError(
+                "expected_phase 与 expected_next_action 不一致"
+            )
+        if self.expected_phase == "waiting_user":
+            if self.expected_next_action not in {
+                "collect_slots",
+                "clarify_intent",
+            }:
+                raise ValueError("waiting_user 必须对应澄清动作")
+            if not self.expected_required_inputs:
+                raise ValueError("waiting_user 必须声明 required inputs")
+        elif self.expected_required_inputs:
+            raise ValueError("非 waiting_user 不能声明 required inputs")
+        if (
+            self.expected_result_status is not None
+            and self.expected_phase != "completed"
+        ):
+            raise ValueError("只有 completed turn 可以期待 result")
+        if (
+            self.expected_result_values
+            and self.expected_result_status is None
+        ):
+            raise ValueError("result value 断言必须同时声明 result status")
+        if self.expected_failure_category is not None:
+            if self.expected_phase != "failed":
+                raise ValueError("只有 failed turn 可以期待 failure")
+        elif self.expected_failure_code is not None:
+            raise ValueError("failure code 断言必须同时声明 failure category")
+        return self
+
+
+class AgentEvalCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: NonEmptyText
+    category: NonEmptyText
+    turns: list[AgentEvalTurn] = Field(min_length=1, max_length=10)
+    split: DatasetSplit = "calibration"
+    tags: list[NonEmptyText] = Field(default_factory=list)
+    notes: str = ""
+
+    @model_validator(mode="after")
+    def deduplicate_agent_labels(self) -> "AgentEvalCase":
+        self.tags = list(dict.fromkeys(self.tags))
+        return self
+
+
+class AgentRequiredInputObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    label: str
+    type: Literal["string", "number", "region", "choice"]
+    validation_hint: str = ""
+    choices: list[str] = Field(default_factory=list)
+
+
+class AgentResultObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: AgentPublicIntent
+    status: AgentResultStatus
+    data: dict[str, Any] | None = None
+    reason_code: str = ""
+
+
+class AgentFailureObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: AgentFailureCategory
+    code: str
+    retryable: bool
+    retry_after_seconds: float | None = None
+
+
+class AgentPublicResponse(BaseModel):
+    """Strict mirror of the stable non-streaming V2 response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    conversation_id: UUID
+    turn_id: UUID
+    phase: AgentTerminalPhase
+    intent: AgentIntent | None = None
+    reply: str
+    next_action: AgentNextAction
+    required_inputs: list[AgentRequiredInputObservation]
+    result: AgentResultObservation | None = None
+    failure: AgentFailureObservation | None = None
+    warnings: list[str]
+
+    @model_validator(mode="after")
+    def validate_terminal_contract(self) -> "AgentPublicResponse":
+        if self.phase == "waiting_user" and not self.required_inputs:
+            raise ValueError("waiting_user 响应必须包含 required inputs")
+        if self.phase != "waiting_user" and self.required_inputs:
+            raise ValueError("非 waiting_user 响应不能包含 required inputs")
+        if self.phase == "failed" and self.failure is None:
+            raise ValueError("failed 响应必须包含 failure")
+        if self.phase != "failed" and self.failure is not None:
+            raise ValueError("非 failed 响应不能包含 failure")
+        if self.result is not None:
+            if self.phase != "completed":
+                raise ValueError("只有 completed 响应可以包含 result")
+            if self.intent not in _AGENT_PUBLIC_INTENTS:
+                raise ValueError("result 响应必须包含公开 intent")
+            if self.result.type != self.intent:
+                raise ValueError("result.type 必须与 intent 一致")
+        return self
+
+
+class AgentTurnObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok", "error"]
+    client_elapsed_ms: float
+    request_id: str = ""
+    conversation_id: str = ""
+    turn_id: str = ""
+    phase: AgentTerminalPhase | None = None
+    intent: AgentIntent | None = None
+    reply: str = ""
+    next_action: AgentNextAction | None = None
+    required_inputs: list[AgentRequiredInputObservation] = Field(
+        default_factory=list
+    )
+    result: AgentResultObservation | None = None
+    failure: AgentFailureObservation | None = None
+    warnings: list[str] = Field(default_factory=list)
+    http_status: int | None = None
+    error_code: str = ""
+    error_category: str = ""
+    retryable: bool = False
+    error: str = ""
+
+
+class AgentTurnResult(BaseModel):
+    turn_index: int = Field(ge=1)
+    expected: AgentEvalTurn
+    observation: AgentTurnObservation
+
+
+class AgentCaseResult(BaseModel):
+    case: AgentEvalCase
+    turns: list[AgentTurnResult] = Field(default_factory=list)
+
+
+class AgentEvalThresholds(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_case_pass_rate: float = Field(default=1.0, ge=0, le=1)
+    min_intent_accuracy: float = Field(default=0.95, ge=0, le=1)
+    min_required_input_accuracy: float = Field(default=0.95, ge=0, le=1)
+    max_wrong_tool_rate: float = Field(default=0.0, ge=0, le=1)
+    min_task_completion_rate: float = Field(default=0.90, ge=0, le=1)
+    min_recovery_rate: float = Field(default=0.90, ge=0, le=1)
+    max_api_error_rate: float = Field(default=0.0, ge=0, le=1)
+
+
+class AgentRunConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    base_url: str
+    dataset: str
+    dataset_sha256: str = ""
+    concurrency: int
+    timeout_seconds: float
+    thresholds: AgentEvalThresholds = Field(
+        default_factory=AgentEvalThresholds
+    )
+    git_commit: str = "unknown"
+
+
+class AgentRunReport(BaseModel):
+    generated_at: str
+    config: AgentRunConfig
+    service: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any]
+    results: list[AgentCaseResult]
+
+
 class ThresholdPoint(BaseModel):
     threshold: float = Field(ge=0, le=1)
     answerable_count: int
@@ -358,3 +623,26 @@ class ComparisonReport(BaseModel):
     metrics: list[MetricDelta]
     regressions: list[CaseTransition]
     improvements: list[CaseTransition]
+
+
+class AgentTurnTransition(BaseModel):
+    case_id: str
+    category: str
+    turn_index: int = Field(ge=1)
+    change: Literal["turn_regression", "turn_improvement"]
+    baseline: str
+    experiment: str
+
+
+class AgentComparisonReport(BaseModel):
+    generated_at: str
+    baseline_report: str
+    experiment_report: str
+    baseline_label: str
+    experiment_label: str
+    dataset_sha256: str
+    sample_coverage: dict[str, Any]
+    quality_gate: dict[str, bool]
+    metrics: list[MetricDelta]
+    regressions: list[AgentTurnTransition]
+    improvements: list[AgentTurnTransition]

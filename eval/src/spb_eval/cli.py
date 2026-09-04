@@ -12,19 +12,25 @@ from pathlib import Path
 from .analysis import (
     AnalysisError,
     analyze_stability,
+    compare_agent_reports,
     compare_reports,
+    load_agent_run_report,
     load_run_report,
     recalculate_report,
     scan_thresholds,
 )
-from .client import AssistantApiClient, RagApiClient
+from .client import AgentApiClient, AssistantApiClient, RagApiClient
 from .dataset import (
     DatasetError,
+    dataset_sha256,
+    load_agent_dataset,
     load_assistant_dataset,
     load_dataset,
     split_dataset,
 )
 from .reporting import (
+    write_agent_comparison_report,
+    write_agent_report,
     write_assistant_report,
     write_comparison_report,
     write_report,
@@ -33,10 +39,16 @@ from .reporting import (
 )
 from .runner import (
     resolve_git_commit,
+    run_agent_evaluation,
     run_assistant_evaluation,
     run_evaluation,
 )
-from .schemas import AssistantRunConfig, RunConfig
+from .schemas import (
+    AgentEvalThresholds,
+    AgentRunConfig,
+    AssistantRunConfig,
+    RunConfig,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -93,6 +105,67 @@ def build_parser() -> argparse.ArgumentParser:
         "--timeout-seconds",
         type=float,
         default=120.0,
+    )
+
+    agent_run = subparsers.add_parser(
+        "agent-run",
+        help="运行 V2 Agent 多轮黑盒评测数据集",
+    )
+    agent_run.add_argument("--dataset", type=Path, required=True)
+    agent_run.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("eval/reports"),
+    )
+    agent_run.add_argument("--label", default="agent-workflow-eval")
+    agent_run.add_argument(
+        "--base-url",
+        default=os.getenv(
+            "EVAL_AGENT_BASE_URL",
+            "http://127.0.0.1:8081",
+        ),
+    )
+    agent_run.add_argument("--concurrency", type=int, default=4)
+    agent_run.add_argument("--timeout-seconds", type=float, default=30.0)
+    agent_run.add_argument(
+        "--min-case-pass-rate",
+        type=float,
+        default=1.0,
+    )
+    agent_run.add_argument(
+        "--min-intent-accuracy",
+        type=float,
+        default=0.95,
+    )
+    agent_run.add_argument(
+        "--min-required-input-accuracy",
+        type=float,
+        default=0.95,
+    )
+    agent_run.add_argument(
+        "--max-wrong-tool-rate",
+        type=float,
+        default=0.0,
+    )
+    agent_run.add_argument(
+        "--min-task-completion-rate",
+        type=float,
+        default=0.90,
+    )
+    agent_run.add_argument(
+        "--min-recovery-rate",
+        type=float,
+        default=0.90,
+    )
+    agent_run.add_argument(
+        "--max-api-error-rate",
+        type=float,
+        default=0.0,
+    )
+    agent_run.add_argument(
+        "--fail-on-gate",
+        action="store_true",
+        help="质量门禁失败时以退出码 3 结束",
     )
 
     split = subparsers.add_parser(
@@ -156,6 +229,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=Path("eval/reports/comparisons"),
+    )
+
+    agent_compare = subparsers.add_parser(
+        "agent-compare",
+        help="对比同一冻结多轮数据集的 Agent baseline 与 experiment",
+    )
+    agent_compare.add_argument("--baseline", type=Path, required=True)
+    agent_compare.add_argument("--experiment", type=Path, required=True)
+    agent_compare.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("eval/reports/agent-comparisons"),
     )
 
     stability = subparsers.add_parser(
@@ -242,6 +327,50 @@ async def _run_assistant(args: argparse.Namespace) -> Path:
     return write_assistant_report(report, args.output_dir)
 
 
+async def _run_agent(args: argparse.Namespace) -> tuple[Path, bool]:
+    if args.concurrency < 1 or args.concurrency > 20:
+        raise ValueError("--concurrency 必须在 1 到 20 之间")
+    if args.timeout_seconds <= 0:
+        raise ValueError("--timeout-seconds 必须大于 0")
+    thresholds = AgentEvalThresholds(
+        min_case_pass_rate=args.min_case_pass_rate,
+        min_intent_accuracy=args.min_intent_accuracy,
+        min_required_input_accuracy=(
+            args.min_required_input_accuracy
+        ),
+        max_wrong_tool_rate=args.max_wrong_tool_rate,
+        min_task_completion_rate=args.min_task_completion_rate,
+        min_recovery_rate=args.min_recovery_rate,
+        max_api_error_rate=args.max_api_error_rate,
+    )
+    cases = load_agent_dataset(args.dataset)
+    config = AgentRunConfig(
+        label=args.label,
+        base_url=args.base_url,
+        dataset=str(args.dataset),
+        dataset_sha256=dataset_sha256(args.dataset),
+        concurrency=args.concurrency,
+        timeout_seconds=args.timeout_seconds,
+        thresholds=thresholds,
+        git_commit=resolve_git_commit(),
+    )
+    async with AgentApiClient(
+        base_url=args.base_url,
+        api_key=os.getenv(
+            "EVAL_AGENT_API_KEY",
+            os.getenv("EVAL_ASSISTANT_API_KEY", ""),
+        ),
+        timeout_seconds=args.timeout_seconds,
+    ) as client:
+        report = await run_agent_evaluation(
+            client=client,
+            cases=cases,
+            config=config,
+        )
+    output = write_agent_report(report, args.output_dir)
+    return output, bool(report.summary["quality_gate"]["passed"])
+
+
 def _threshold_values(args: argparse.Namespace) -> list[float]:
     if args.threshold:
         values = args.threshold
@@ -308,6 +437,18 @@ def _run_compare(args: argparse.Namespace) -> Path:
     return write_comparison_report(comparison, args.output_dir)
 
 
+def _run_agent_compare(args: argparse.Namespace) -> Path:
+    baseline = load_agent_run_report(args.baseline)
+    experiment = load_agent_run_report(args.experiment)
+    comparison = compare_agent_reports(
+        baseline,
+        experiment,
+        baseline_report=str(args.baseline),
+        experiment_report=str(args.experiment),
+    )
+    return write_agent_comparison_report(comparison, args.output_dir)
+
+
 def _run_recalculate(args: argparse.Namespace) -> Path:
     report = load_run_report(args.report)
     cases = load_dataset(args.dataset)
@@ -331,6 +472,7 @@ def _run_stability(args: argparse.Namespace) -> tuple[Path, Path]:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    gate_failed = False
     try:
         if args.command == "run":
             output = {
@@ -340,6 +482,13 @@ def main(argv: list[str] | None = None) -> int:
             output = {
                 "report_dir": str(asyncio.run(_run_assistant(args))),
             }
+        elif args.command == "agent-run":
+            report_dir, gate_passed = asyncio.run(_run_agent(args))
+            output = {
+                "report_dir": str(report_dir),
+                "quality_gate_passed": gate_passed,
+            }
+            gate_failed = args.fail_on_gate and not gate_passed
         elif args.command == "split-dataset":
             output = split_dataset(args.dataset, args.output_dir)
         elif args.command == "recalculate":
@@ -355,6 +504,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "compare":
             output = {
                 "report_dir": str(_run_compare(args)),
+            }
+        elif args.command == "agent-compare":
+            output = {
+                "report_dir": str(_run_agent_compare(args)),
             }
         elif args.command == "stability":
             json_path, markdown_path = _run_stability(args)
@@ -373,4 +526,4 @@ def main(argv: list[str] | None = None) -> int:
             ensure_ascii=False,
         )
     )
-    return 0
+    return 3 if gate_failed else 0

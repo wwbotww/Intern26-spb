@@ -3,7 +3,7 @@
 - 状态：Implemented / engineering verified
 - 日期：2026-09-03
 - 前置提交：`07699e0`（Phase 0–1）
-- 当前 API 边界：实现尚未挂载到 FastAPI；`/v1` 行为不变，V2 仍是 Proposed
+- 当阶段 API 边界：尚未挂载 FastAPI；后续 Phase 4A 已增加显式装配的 V2 JSON
 
 ## 1. 阶段结果
 
@@ -132,7 +132,7 @@ PostgreSQL/Redis 等后端并重新执行并发合同测试。
 
 ## 5. 测试与评测证据
 
-阶段 2 新增 37 项自动化测试；完整 Python workspace 当前 240 项通过。重点包括：
+阶段 2 新增 37 项自动化测试；该里程碑时完整 Python workspace 240 项通过。重点包括：
 
 | 测试组 | 覆盖 |
 | --- | --- |
@@ -159,9 +159,10 @@ LANGGRAPH_STRICT_MSGPACK=true .venv/bin/pytest -o addopts='' -q
 
 - 未配置真实 Structured LLM Adapter，也没有代表性离线/线上语料质量报告；
 - Demo Region Catalog 不完整，邮件号规则和外部字段仍是 provisional；
-- 轨迹、时限、资费真实 Gateway 属于阶段 3；
+- 轨迹、时限、资费真实 Gateway 属于阶段 3B；
 - 政策和设备价格 V1 Tool 尚未桥接到 Agent Registry；
-- V2 JSON/SSE API、Web 多轮交互和前端 Renderer 属于阶段 4；
+- V2 SSE、Web 多轮交互和前端 Renderer 属于 Phase 4B（后续已在显式装配路径完成，见
+  [Phase 4B 说明](agent-kernel-phase4b.md)）；JSON 已在 Phase 4A 完成；
 - SQLite 不作为多副本生产 checkpointer，尚未完成进程间锁、备份和灾难恢复；
 - SQLite I/O 异常尚未统一映射为 `PERSISTENCE_UNAVAILABLE`，也未完成对应故障注入；
 - 尚未建立 checkpoint 大小/数量指标与单 thread 硬上限，当前依赖短 TTL 整体回收；

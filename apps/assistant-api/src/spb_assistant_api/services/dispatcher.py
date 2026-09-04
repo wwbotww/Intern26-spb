@@ -76,37 +76,49 @@ class QueryDispatcher:
     ) -> ToolResult:
         tool = self._registry.get(mode)
         result = await tool.execute(question)
-        if result.tool != tool.name:
-            raise ToolContractError(
-                f"工具 {tool.name} 返回了不匹配的标识 {result.tool}"
-            )
-        self._validate_evidence(mode, result)
+        validate_tool_result(
+            mode=mode,
+            expected_tool_name=tool.name,
+            result=result,
+        )
         return result
 
-    @staticmethod
-    def _validate_evidence(
-        mode: QueryMode,
-        result: ToolResult,
-    ) -> None:
-        if (
-            result.status in {ToolStatus.SUCCESS, ToolStatus.PARTIAL}
-            and not result.evidence
-        ):
-            raise ToolContractError("成功或部分成功结果必须包含证据")
-        if (
-            result.status
-            in {ToolStatus.NO_MATCH, ToolStatus.NEED_MORE_INFO}
-            and result.evidence
-        ):
-            raise ToolContractError(
-                "无匹配或信息不足结果不应包含事实证据"
-            )
-        expected_type = (
-            EvidenceType.POLICY
-            if mode is QueryMode.POLICY
-            else EvidenceType.DEVICE_PRICE
+
+def validate_tool_result(
+    *,
+    mode: QueryMode,
+    expected_tool_name: str,
+    result: ToolResult,
+) -> None:
+    """Validate the shared V1 result contract before any API projection."""
+
+    if result.tool != expected_tool_name:
+        raise ToolContractError(
+            f"工具 {expected_tool_name} 返回了不匹配的标识 {result.tool}"
         )
-        if any(item.type is not expected_type for item in result.evidence):
-            raise ToolContractError(
-                f"{mode.value} 工具返回了错误类型的证据"
-            )
+    if (
+        result.status in {ToolStatus.SUCCESS, ToolStatus.PARTIAL}
+        and not result.evidence
+    ):
+        raise ToolContractError("成功或部分成功结果必须包含证据")
+    if (
+        result.status in {ToolStatus.SUCCESS, ToolStatus.PARTIAL}
+        and not result.answer.strip()
+    ):
+        raise ToolContractError("成功或部分成功结果必须包含回答")
+    if (
+        result.status in {ToolStatus.NO_MATCH, ToolStatus.NEED_MORE_INFO}
+        and result.evidence
+    ):
+        raise ToolContractError(
+            "无匹配或信息不足结果不应包含事实证据"
+        )
+    expected_type = (
+        EvidenceType.POLICY
+        if mode is QueryMode.POLICY
+        else EvidenceType.DEVICE_PRICE
+    )
+    if any(item.type is not expected_type for item in result.evidence):
+        raise ToolContractError(
+            f"{mode.value} 工具返回了错误类型的证据"
+        )

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from .metrics import (
+    agent_case_checks,
+    agent_turn_checks,
     assistant_case_checks,
     fact_coverage,
     gold_rank,
@@ -14,6 +16,8 @@ from .metrics import (
     is_rejected,
 )
 from .schemas import (
+    AgentComparisonReport,
+    AgentRunReport,
     AssistantRunReport,
     CaseResult,
     ComparisonReport,
@@ -595,6 +599,270 @@ def write_assistant_report(
     return output_dir
 
 
+def render_agent_markdown(report: AgentRunReport) -> str:
+    summary = report.summary
+    quality_gate = summary["quality_gate"]
+    cases = summary["cases"]
+    turns = summary["turns"]
+    understanding = summary["understanding"]
+    routing = summary["routing"]
+    completion = summary["completion"]
+    recovery = summary["recovery"]
+    efficiency = summary["efficiency"]
+    lines = [
+        f"# Agent Workflow Eval：{report.config.label}",
+        "",
+        f"- 生成时间：`{report.generated_at}`",
+        f"- 数据集：`{report.config.dataset}`",
+        f"- 数据集 SHA256：`{report.config.dataset_sha256 or 'unknown'}`",
+        f"- API：`{report.config.base_url}`",
+        f"- 并发场景数：`{report.config.concurrency}`",
+        f"- Git commit：`{report.config.git_commit}`",
+        f"- 服务版本：`{report.service.get('version', 'unknown')}`",
+        (
+            "- 质量门禁："
+            + ("**PASS**" if quality_gate["passed"] else "**FAIL**")
+        ),
+        "",
+        "## 核心指标",
+        "",
+        "| 指标 | 结果 | 样本量 |",
+        "|---|---:|---:|",
+        f"| 场景通过率 | {_display(cases['pass_rate'])} | {cases['total']} |",
+        f"| Turn 通过率 | {_display(turns['pass_rate'])} | {turns['expected']} |",
+        (
+            "| Intent Accuracy | "
+            f"{_display(understanding['intent_accuracy'])} | "
+            f"{understanding['intent_evaluated']} |"
+        ),
+        (
+            "| Required Input Accuracy | "
+            f"{_display(understanding['required_input_accuracy'])} | "
+            f"{understanding['required_input_evaluated']} |"
+        ),
+        (
+            "| Wrong Tool Rate | "
+            f"{_display(routing['wrong_tool_rate'])} | "
+            f"{routing['result_routes_evaluated']} |"
+        ),
+        (
+            "| Task Completion Rate | "
+            f"{_display(completion['task_completion_rate'])} | "
+            f"{completion['evaluated']} |"
+        ),
+        (
+            "| Recovery Rate | "
+            f"{_display(recovery['recovery_rate'])} | "
+            f"{recovery['evaluated']} |"
+        ),
+        f"| API Error Rate | {_display(turns['api_error_rate'])} | {turns['observed']} |",
+        (
+            "| Turn P50 / P95 | "
+            f"{_display(efficiency['turn_latency_ms']['p50'])} / "
+            f"{_display(efficiency['turn_latency_ms']['p95'])} ms | "
+            f"{turns['observed']} |"
+        ),
+        "",
+        "## 质量门禁",
+        "",
+        "| 门禁 | 实际 | 条件 | 评测数 | 结果 |",
+        "|---|---:|---:|---:|---|",
+    ]
+    for name, gate in quality_gate["checks"].items():
+        lines.append(
+            f"| {name} | {_display(gate['actual'])} | "
+            f"{gate['operator']} {_display(gate['threshold'])} | "
+            f"{gate['evaluated']} | "
+            f"{'PASS' if gate['passed'] else 'FAIL'} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 分意图结果",
+            "",
+            "| 意图 | Turn | 通过 | 通过率 |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    for intent, values in summary["by_intent"].items():
+        lines.append(
+            f"| {intent} | {values['turns']} | {values['passed']} | "
+            f"{_display(values['pass_rate'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 数据划分",
+            "",
+            "| Split | 场景 | Turn | 通过率 |",
+            "|---|---:|---:|---:|",
+        ]
+    )
+    for split, values in summary["by_split"].items():
+        lines.append(
+            f"| {split} | {values['cases']} | {values['turns']} | "
+            f"{_display(values['pass_rate'])} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 失败场景",
+            "",
+            "| ID | 分类 | 已执行 / 预期 Turn | 失败检查 |",
+            "|---|---|---:|---|",
+        ]
+    )
+    failed = 0
+    for result in report.results:
+        case_check = agent_case_checks(result)
+        if case_check["passed"]:
+            continue
+        failed += 1
+        failed_checks = sorted(
+            {
+                check
+                for turn in result.turns
+                for check, passed in agent_turn_checks(turn).items()
+                if check != "passed" and not passed
+            }
+        )
+        if not case_check["all_turns_observed"]:
+            failed_checks.append("all_turns_observed")
+        lines.append(
+            f"| {result.case.id} | {result.case.category} | "
+            f"{len(result.turns)} / {len(result.case.turns)} | "
+            f"{', '.join(dict.fromkeys(failed_checks)) or '-'} |"
+        )
+    if failed == 0:
+        lines.append("| - | - | - | 无 |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_agent_review_queue(report: AgentRunReport) -> str:
+    lines = [
+        f"# Agent Workflow Review Queue：{report.config.label}",
+        "",
+        "仅列出 API、理解、补槽、路由、结果或恢复断言未通过的场景。",
+        "",
+    ]
+    queued = 0
+    for result in report.results:
+        if agent_case_checks(result)["passed"]:
+            continue
+        queued += 1
+        lines.extend(
+            [
+                f"## {result.case.id}",
+                "",
+                f"- 分类：`{result.case.category}`",
+                f"- Tags：`{', '.join(result.case.tags) or '-'}`",
+                (
+                    f"- Turn：{len(result.turns)} / "
+                    f"{len(result.case.turns)}"
+                ),
+            ]
+        )
+        for turn in result.turns:
+            observation = turn.observation
+            failed_checks = [
+                name
+                for name, passed in agent_turn_checks(turn).items()
+                if name != "passed" and not passed
+            ]
+            lines.extend(
+                [
+                    f"### Turn {turn.turn_index}",
+                    "",
+                    f"- 输入：{turn.expected.message or '[intent selection]'}",
+                    (
+                        "- 预期："
+                        f"`{turn.expected.expected_phase}` / "
+                        f"`{turn.expected.expected_next_action}` / "
+                        f"`{turn.expected.expected_intent}`"
+                    ),
+                    (
+                        "- 实际："
+                        f"`{observation.phase or '-'}` / "
+                        f"`{observation.next_action or '-'}` / "
+                        f"`{observation.intent}`"
+                    ),
+                    f"- 失败检查：`{', '.join(failed_checks) or '-'}`",
+                    (
+                        f"- API 错误：{observation.error or '-'} "
+                        f"({observation.error_code or '-'})"
+                    ),
+                    f"- 回复：{observation.reply or '-'}",
+                    "",
+                ]
+            )
+        lines.extend(
+            [
+                "- 人工结论：`[ ] 标签问题  [ ] 理解问题  [ ] 路由问题  [ ] 工具问题  [ ] 基础设施问题`",
+                "- 处理建议：",
+                "",
+            ]
+        )
+    if queued == 0:
+        lines.extend(["无待复核场景。", ""])
+    return "\n".join(lines)
+
+
+def write_agent_report(
+    report: AgentRunReport,
+    output_root: Path,
+) -> Path:
+    timestamp = datetime.fromisoformat(
+        report.generated_at
+    ).strftime("%Y%m%d-%H%M%S")
+    output_dir = output_root / (
+        f"{timestamp}-{_safe_label(report.config.label)}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=False)
+    (output_dir / "run.json").write_text(
+        json.dumps(
+            report.model_dump(mode="json"),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    with (output_dir / "cases.jsonl").open(
+        "w",
+        encoding="utf-8",
+    ) as handle:
+        for result in report.results:
+            handle.write(
+                json.dumps(
+                    result.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+    (output_dir / "summary.md").write_text(
+        render_agent_markdown(report),
+        encoding="utf-8",
+    )
+    (output_dir / "review-queue.md").write_text(
+        render_agent_review_queue(report),
+        encoding="utf-8",
+    )
+    (output_dir / "quality-gate.json").write_text(
+        json.dumps(
+            report.summary["quality_gate"],
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return output_dir
+
+
 def render_stability_markdown(report: dict[str, Any]) -> str:
     lines = [
         "# RAG 重复运行稳定性分析",
@@ -859,6 +1127,115 @@ def write_comparison_report(
     )
     (output_dir / "comparison.md").write_text(
         render_comparison_markdown(report),
+        encoding="utf-8",
+    )
+    return output_dir
+
+
+def render_agent_comparison_markdown(
+    report: AgentComparisonReport,
+) -> str:
+    gate = report.quality_gate
+    lines = [
+        (
+            f"# Agent Eval 对比：{report.baseline_label} → "
+            f"{report.experiment_label}"
+        ),
+        "",
+        f"- Baseline：`{report.baseline_report}`",
+        f"- Experiment：`{report.experiment_report}`",
+        f"- 数据集 SHA256：`{report.dataset_sha256}`",
+        f"- 共同场景：{report.sample_coverage['common_cases']}",
+        f"- 预期 Turn：{report.sample_coverage['expected_turns']}",
+        (
+            "- 质量门禁："
+            f"{'PASS' if gate['baseline_passed'] else 'FAIL'} → "
+            f"{'PASS' if gate['experiment_passed'] else 'FAIL'}"
+        ),
+        "",
+        "## 指标差异",
+        "",
+        "| 指标 | Baseline | Experiment | 差值 | 判断 |",
+        "|---|---:|---:|---:|---|",
+    ]
+    for metric in report.metrics:
+        if metric.improved is True:
+            judgment = "改善"
+        elif metric.improved is False:
+            judgment = "退化"
+        elif metric.baseline is None or metric.experiment is None:
+            judgment = "不可比"
+        else:
+            judgment = "持平"
+        lines.append(
+            f"| {metric.metric} | {_display(metric.baseline)} | "
+            f"{_display(metric.experiment)} | "
+            f"{_display(metric.delta)} | {judgment} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            f"## Turn 回归（{len(report.regressions)}）",
+            "",
+        ]
+    )
+    if report.regressions:
+        lines.extend(
+            (
+                f"- `{item.case_id}` [{item.category}] Turn "
+                f"{item.turn_index}：{item.baseline} → {item.experiment}"
+            )
+            for item in report.regressions
+        )
+    else:
+        lines.append("未发现逐 Turn 回归。")
+
+    lines.extend(
+        [
+            "",
+            f"## Turn 改善（{len(report.improvements)}）",
+            "",
+        ]
+    )
+    if report.improvements:
+        lines.extend(
+            (
+                f"- `{item.case_id}` [{item.category}] Turn "
+                f"{item.turn_index}：{item.baseline} → {item.experiment}"
+            )
+            for item in report.improvements
+        )
+    else:
+        lines.append("未发现逐 Turn 改善。")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_agent_comparison_report(
+    report: AgentComparisonReport,
+    output_root: Path,
+) -> Path:
+    timestamp = datetime.fromisoformat(
+        report.generated_at
+    ).strftime("%Y%m%d-%H%M%S")
+    output_dir = output_root / (
+        f"{timestamp}-agent-{_safe_label(report.baseline_label)}-vs-"
+        f"{_safe_label(report.experiment_label)}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=False)
+    (output_dir / "agent-comparison.json").write_text(
+        json.dumps(
+            report.model_dump(mode="json"),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (output_dir / "agent-comparison.md").write_text(
+        render_agent_comparison_markdown(report),
         encoding="utf-8",
     )
     return output_dir

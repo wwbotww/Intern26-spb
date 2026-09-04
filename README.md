@@ -7,7 +7,8 @@
 仓库包含相互隔离的离线数据流水线、在线 RAG API、Assistant、Web、黑盒评估
 工具和共享数据契约。当前定位是 Demo、测试与技术方向验证，场景名称、交互方式
 和后续能力都可能调整；文档只陈述现有代码直接支持的行为。仓库不包含原始业务
-数据、私有评估集、运行报告或任何真实凭证。
+数据、私有评估集、含业务内容的完整运行报告或任何真实凭证；仅保留合成 fixture 的
+精简基线指标。
 
 ## 核心能力
 
@@ -24,7 +25,8 @@
 | 可追溯输出 | 回答包含编号引用、文档元数据和原文链接 |
 | 服务接口 | JSON 检索、JSON 问答、SSE 流式问答、健康检查和指标 |
 | 单轮工具编排 | Web 显式二选一、单轮单工具调用、分类证据和信息缺口展示 |
-| 黑盒评估 | RAG 召回/门槛，以及 Assistant 路由、状态、证据、价格候选和效率 |
+| Stateful Agent（隔离） | LangGraph 多轮补槽、SQLite 恢复、V2 JSON/SSE、三层幂等、Agent Web 与脱敏语义 Trace |
+| 黑盒评估 | RAG/Assistant 指标，以及 Agent 多轮门禁、逐 Turn 回归和同样本实验对比 |
 
 ## 架构
 
@@ -41,6 +43,7 @@ flowchart LR
     W["chat-web"] -->|"POST + SSE"| A
     E["eval"] -->|"RAG 专项评估"| R
     E -->|"统一助手评估"| A
+    E -->|"V2 多轮 Agent 评估"| A
     A["assistant-api<br/>单轮工具编排"]
     A -->|"内部 HTTP"| R
     A -->|"只读 SELECT"| Q["设备价格 MySQL"]
@@ -283,12 +286,29 @@ README、日志或提交记录。
 `/health/ready` 才返回 200。任一配置缺失或依赖不可用时保持 503。`chat-web`
 已通过同源代理使用该入口，不再直接调用 `rag-api`。
 
-LangGraph Agent 正按独立路径开发。阶段 1–2 已完成未挂载到 FastAPI 的工程切片：除
-Fake Tracking、类型化工具路由和 bounded loop 外，已覆盖五意图 Hybrid Understanding、
-跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、并发门禁和本地重启恢复；`/v1/chat`
-仍是无服务端记忆的显式单轮接口。详见
+LangGraph Agent 正按独立路径开发。阶段 1–2、3A、4A～4D、5A 与本地 5B 已完成：
+除 Fake Tracking、类型化工具路由和 bounded loop 外，已覆盖五意图 Hybrid
+Understanding、跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、并发门禁、本地重启恢复，
+以及时限/资费类型化 Tool、共享单次 HTTP 边界、有界退避和能力级熔断。Phase 4A 又实现
+显式依赖注入的 `/v2/agent` JSON/SSE 适配、interrupt 投影、首轮/消息/Tool 三层幂等、
+owner 隔离和会话删除。Phase 4B 又加入 OpenAPI 类型生成、运行时事件校验、五入口
+Stateful Web、刷新恢复、类型化 Renderer 和正式 lifespan factory。Phase 4C 补齐独立
+V2 readiness、低基数 Agent 指标、脱敏 Run Trace 与 lifespan janitor 调度；Phase 4D
+又通过兼容 Adapter 复用 V1 政策/价格 Tool，完成五能力本地 Agent 闭环；Phase 5A
+新增只走 V2 HTTP 的 13 场景/17 Turn 多轮 Eval、六类质量指标、CI 门禁与失败复核队列；
+Phase 5B 又加入脱敏 node/edge/checkpoint/interrupt/retry 语义 Trace、故障注入矩阵和
+严格同数据集的 Agent baseline/experiment 逐 Turn 对比；
+默认 `main.app` 仍不
+挂载 V2，`/v1/chat` 继续是无服务端记忆的显式单轮接口，真实物流接口仍待后续阶段。详见
 [阶段 1 实现说明](docs/agent-kernel-phase1.md)、
 [阶段 2 实现说明](docs/agent-kernel-phase2.md)、
+[阶段 3A 实现说明](docs/agent-kernel-phase3a.md)、
+[阶段 4A 实现说明](docs/agent-kernel-phase4a.md)、
+[阶段 4B 实现说明](docs/agent-kernel-phase4b.md)、
+[阶段 4C 实现说明](docs/agent-kernel-phase4c.md)、
+[阶段 4D 实现说明](docs/agent-kernel-phase4d.md)、
+[阶段 5A 实现说明](docs/agent-kernel-phase5a.md)、
+[阶段 5B 实现说明](docs/agent-kernel-phase5b.md)、
 [实施方案](docs/agent-workflow-implementation-plan.md)和[架构决策记录](docs/adr/README.md)。
 
 本地启动框架服务：
@@ -338,6 +358,21 @@ npm run dev
 浏览器访问 `http://127.0.0.1:3000`。开发代理默认连接
 `http://127.0.0.1:8081`，因此应先启动并配置好 `assistant-api`。
 
+无需外部 API Key 的 V2 Agent 本地演示：
+
+```bash
+uv run --package spb-assistant-api spb-assistant-agent-demo
+
+cd apps/chat-web
+VITE_ASSISTANT_UI_MODE=agent \
+CHAT_WEB_ASSISTANT_API_URL=http://127.0.0.1:8081 \
+npm run dev
+```
+
+该入口装配三个 Fake 物流 Gateway，以及由本地 Source/Repository fixture 驱动的真实
+V1 政策/价格业务 Tool；五类能力均不访问外部网络，不得作为生产服务。真实 Adapter
+开发时再提供对应 Base URL、认证合同和 API Key。
+
 Docker 启动 API 和界面：
 
 ```bash
@@ -371,6 +406,10 @@ RAG 配置由未跟踪的 `apps/rag-api/.env` 提供；`demo.env` 提供 Assista
 - 自动生成 `review-queue.md` 人工复核队列；
 - Assistant 固定分发、状态、证据类型/完整性和拒答证据泄露检查；
 - 设备候选 Product/SKU Recall，以及 5 并发延迟、吞吐和错误基线。
+- Agent V2 多轮 conversation、补槽/多意图恢复、Intent、Required Input、Wrong Tool、
+  Task Completion、Recovery、API Error 与质量门禁。
+- Agent 同数据集 baseline/experiment 指标与逐 Turn 对比，以及不含业务值的 Workflow
+  node/edge/interrupt/resume/checkpoint/retry Trace。
 
 运行完整评估：
 
@@ -397,6 +436,17 @@ uv run --package spb-eval spb-eval assistant-run \
   --dataset eval/datasets/private/assistant-core.jsonl \
   --concurrency 5 \
   --label assistant-full-chain
+```
+
+运行无需外部密钥的五能力 Agent Demo 评测：
+
+```bash
+# 先在另一终端启动 spb-assistant-agent-demo
+uv run --package spb-eval spb-eval agent-run \
+  --dataset eval/datasets/agent-workflow-v1.jsonl \
+  --base-url http://127.0.0.1:8081 \
+  --concurrency 4 \
+  --fail-on-gate
 ```
 
 评估集放入 `eval/datasets/private/`，报告写入 `eval/reports/`。两者均默认被
@@ -434,8 +484,15 @@ uv run pytest packages/contracts/tests
 - [LangGraph Stateful Agent Workflow 下一阶段实施方案](docs/agent-workflow-implementation-plan.md)
 - [Phase 1 Agent Kernel 与 Fake Tracking 实现](docs/agent-kernel-phase1.md)
 - [Phase 2 Hybrid Understanding 与 SQLite 持久化](docs/agent-kernel-phase2.md)
+- [Phase 3A Gateway 与可靠性基础](docs/agent-kernel-phase3a.md)
+- [Phase 4A Stateful Agent V2 JSON API](docs/agent-kernel-phase4a.md)
+- [Phase 4B Versioned SSE 与 Stateful Agent Web](docs/agent-kernel-phase4b.md)
+- [Phase 4C Agent Operations 与隐私安全可观测性](docs/agent-kernel-phase4c.md)
+- [Phase 4D V1 Tool 复用与五能力 Agent 闭环](docs/agent-kernel-phase4d.md)
+- [Phase 5A Agent 多轮黑盒评测与质量门禁](docs/agent-kernel-phase5a.md)
+- [Phase 5B 可靠性故障矩阵、语义 Trace 与 Agent 报告对比](docs/agent-kernel-phase5b.md)
 - [Agent Workflow 架构决策记录](docs/adr/README.md)
-- [Assistant Agent V2 OpenAPI 草案](docs/openapi/assistant-agent-v2.openapi.json)
+- [Assistant Agent V2 OpenAPI（Phase 4D 显式装配实现）](docs/openapi/assistant-agent-v2.openapi.json)
 - [AI 应用 / Agent 求职项目复盘](docs/project-retrospective.md)
 - [Eval 数据格式与指标口径](eval/README.md)
 
@@ -444,7 +501,7 @@ uv run pytest packages/contracts/tests
 - `data/` 下的抓取数据、附件、OCR、向量和质量报告不进入 Git；
 - `eval/datasets/private/` 和 `eval/reports/` 不进入 Git；
 - `.env`、API Key、Milvus Token 和本地模型缓存不进入 Git；
-- 仓库只提供 RAG 与 Assistant 评估集模板，不提供私有样本；
+- 仓库提供 RAG/Assistant 模板和 Agent 合成回归夹具，不提供私有业务样本；
 - 原始标准附件仅用于获授权的内部管理与检索，不应随代码仓库分发；
 - 未明确标注有效性的历史文件统一记为 `unknown`，应用层应提示用户核验最新
   正式文件。
@@ -459,8 +516,10 @@ uv run pytest packages/contracts/tests
   P95 延迟测试；
 - `assistant-api` 已接入政策 HTTP 工具和设备价格只读工具；Web 已切换为统一入口，
   并启用政策/设备价格二选一、单轮请求和分类证据展示；
-- 当前 Assistant 不做自动意图识别、不保存服务端会话，也不执行多工具循环；
-  仓库暂不定义未确认的后续业务场景；
+- 当前已发布的 Assistant `/v1` 不做自动意图识别、不保存服务端会话，也不执行多工具
+  循环；隔离的 Agent 路径已具备自动理解、状态化受限循环、五类本地查询能力和
+  可注入的 V2 JSON/SSE 路由与 Agent Web，但默认服务尚未发布 V2，也没有接入真实
+  物流接口；
 - 设备价格匹配已加入品牌、系列、型号和容量等硬约束，但阈值与展示上限仍需用
   更大的代表性数据集持续校准；
 - 问答结果用于政策信息辅助检索，涉及行政决定或法律结论时仍应核验主管部门

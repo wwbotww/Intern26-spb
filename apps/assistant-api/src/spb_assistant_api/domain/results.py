@@ -45,11 +45,69 @@ class SourceReference(BaseModel):
     queried_at: datetime | None = None
 
 
+class PolicyEvidenceData(BaseModel):
+    """Public, typed projection of one grounded V1 policy citation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["policy"] = "policy"
+    evidence_id: str
+    title: str
+    source_url: str
+    excerpt: str
+    document_no: str = ""
+    published_at: str = ""
+    source_org: str = ""
+    section_path: str = ""
+    chunk_id: str = ""
+    document_id: str = ""
+    score: float = 0.0
+    rerank_score: float | None = None
+
+
 class PolicyData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["policy"] = "policy"
     evidence_ids: list[str] = Field(default_factory=list)
+    evidence: list[PolicyEvidenceData] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def synchronize_evidence_ids(self) -> "PolicyData":
+        projected = [item.evidence_id for item in self.evidence]
+        if len(projected) != len(set(projected)):
+            raise ValueError("政策证据 ID 不能重复")
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("政策 evidence_ids 不能重复")
+        if projected:
+            if self.evidence_ids and self.evidence_ids != projected:
+                raise ValueError("政策 evidence_ids 必须与 evidence 顺序一致")
+            self.evidence_ids = projected
+        return self
+
+
+class DevicePriceEvidenceData(BaseModel):
+    """Public, typed projection of one grounded V1 price record."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    type: Literal["device_price"] = "device_price"
+    evidence_id: str
+    title: str
+    brand: str
+    model: str
+    specification: str
+    price: str
+    currency: str
+    source: str
+    observed_at: str
+    availability: str = ""
+    source_url: str = ""
+    original_price: str | None = None
+    original_price_type: str = ""
+    official_product_id: str = ""
+    official_sku_id: str = ""
+    match_score: float = 0.0
 
 
 class DevicePriceData(BaseModel):
@@ -57,6 +115,22 @@ class DevicePriceData(BaseModel):
 
     type: Literal["device_price"] = "device_price"
     evidence_ids: list[str] = Field(default_factory=list)
+    evidence: list[DevicePriceEvidenceData] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def synchronize_evidence_ids(self) -> "DevicePriceData":
+        projected = [item.evidence_id for item in self.evidence]
+        if len(projected) != len(set(projected)):
+            raise ValueError("设备价格证据 ID 不能重复")
+        if len(self.evidence_ids) != len(set(self.evidence_ids)):
+            raise ValueError("设备价格 evidence_ids 不能重复")
+        if projected:
+            if self.evidence_ids and self.evidence_ids != projected:
+                raise ValueError(
+                    "设备价格 evidence_ids 必须与 evidence 顺序一致"
+                )
+            self.evidence_ids = projected
+        return self
 
 
 class TrackingEvent(BaseModel):
@@ -84,8 +158,11 @@ class DeliveryTimeData(BaseModel):
     type: Literal["delivery_time"] = "delivery_time"
     origin: RegionRef
     destination: RegionRef
-    estimated_duration: Decimal
-    duration_unit: str
+    estimated_duration: Decimal = Field(gt=0)
+    duration_unit: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=32),
+    ]
     service_level: str = ""
     estimate_basis: str = ""
     queried_at: datetime

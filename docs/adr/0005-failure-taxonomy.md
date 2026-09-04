@@ -1,6 +1,6 @@
 # ADR-0005：Failure 是显式状态和稳定契约
 
-- 状态：Accepted / Phase-1 tracking paths verified
+- 状态：Accepted / Phase-4A HTTP mapping verified
 - 日期：2026-09-03
 
 ## 背景
@@ -31,5 +31,12 @@ LangGraph checkpoint 恢复与领域工具重试是两套机制，不能各自�
 - 阶段 5 必须通过故障注入验证 checkpoint 中断、节点重放、限流、超时和契约漂移。
 
 Phase 1 已在 Fake Tracking 路径验证 `no_match`、`upstream_timeout`、
-`contract_violation` 和 `loop_budget_exceeded`，并证明 allowlist 与 retry budget 会共同
-限制重试。限流、熔断、checkpointer 故障和生产故障注入仍待后续阶段。
+`contract_violation` 和 `loop_budget_exceeded`。Phase 3A 又用 MockTransport 验证 timeout、
+transport、429、5xx、非法 JSON、未知状态与超大响应的稳定映射，并实现 Graph 唯一重试
+所有权、有界 jitter、受限 `Retry-After`、按能力熔断和 half-open 恢复。真实 Gateway
+fixture、checkpointer I/O 故障、分布式熔断和测试环境故障注入仍待后续阶段。
+
+Phase 4A 把操作级 Failure 映射为稳定的 404/409/422/502/503，并为整个 Graph Run 增加
+504 外层 timeout；Workflow 内部已经收口的 `no_match` 或失败仍用类型化 200 响应，避免
+把“流程已安全结束”和“本次 HTTP 操作无法推进”混成同一错误。未分类异常继续 fail
+closed，不向客户端泄漏内部 message。

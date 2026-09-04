@@ -5,20 +5,25 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from .device_price import DevicePriceRecord, DevicePriceSearchQuery
-from .models import ToolResult
-from .policy import PolicyQueryResult
-from .commands import TrackingCommand
-from .results import AgentResult, TrackingData
-from .tooling import CommandModel, ToolDescriptor, ToolExecutionReceipt
-from .intents import Intent
-from .understanding import QueryUnderstandingResult
+from .commands import DeliveryTimeCommand, PostageCommand, TrackingCommand
 from .conversations import (
     ConversationMetadata,
     ConversationStatus,
     IdempotencyClaim,
     IdempotencyReceipt,
 )
+from .device_price import DevicePriceRecord, DevicePriceSearchQuery
+from .intents import Intent
+from .models import ToolResult
+from .policy import PolicyQueryResult
+from .results import (
+    AgentResult,
+    DeliveryTimeData,
+    PostageData,
+    TrackingData,
+)
+from .tooling import CommandModel, ToolDescriptor, ToolExecutionReceipt
+from .understanding import QueryUnderstandingResult
 
 
 class AssistantTool(Protocol):
@@ -59,6 +64,17 @@ class PolicyKnowledgeSource(Protocol):
 
 class TrackingGateway(Protocol):
     async def query(self, command: TrackingCommand) -> TrackingData | None: ...
+
+
+class DeliveryTimeGateway(Protocol):
+    async def query(
+        self,
+        command: DeliveryTimeCommand,
+    ) -> DeliveryTimeData | None: ...
+
+
+class PostageGateway(Protocol):
+    async def quote(self, command: PostageCommand) -> PostageData | None: ...
 
 
 class QueryUnderstander(Protocol):
@@ -104,6 +120,14 @@ class ToolExecutionRepository(Protocol):
 
 class ConversationMetadataRepository(Protocol):
     async def create(self, metadata: ConversationMetadata) -> None: ...
+
+    async def create_idempotently(
+        self,
+        *,
+        metadata: ConversationMetadata,
+        key: str,
+        request_hash: str,
+    ) -> ConversationMetadata: ...
 
     async def get(
         self,
@@ -164,6 +188,11 @@ class ConversationMetadataRepository(Protocol):
         updated_at: datetime,
     ) -> None: ...
 
-    async def list_expired(self, *, now: datetime) -> list[UUID]: ...
+    async def list_expired(
+        self,
+        *,
+        now: datetime,
+        limit: int,
+    ) -> list[UUID]: ...
 
     async def delete(self, conversation_id: UUID) -> None: ...

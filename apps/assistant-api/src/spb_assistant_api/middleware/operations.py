@@ -21,7 +21,12 @@ from ..security.rate_limit import SlidingWindowRateLimiter
 logger = logging.getLogger(__name__)
 REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 EXEMPT_PATHS = frozenset(
-    {"/health/live", "/health/ready", "/metrics"}
+    {
+        "/health/live",
+        "/health/ready",
+        "/v2/agent/health/ready",
+        "/metrics",
+    }
 )
 
 

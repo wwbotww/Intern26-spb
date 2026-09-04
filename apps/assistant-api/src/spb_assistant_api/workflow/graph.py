@@ -69,17 +69,17 @@ def build_spike_graph(
 
 
 @dataclass(frozen=True, slots=True)
-class TrackingAgentGraphDependencies:
+class AgentGraphDependencies:
     understander: QueryUnderstander
     policy: WorkflowPolicy
     executor: ToolExecutor
     validator: AgentResultValidator
 
 
-def build_tracking_agent_graph(
+def build_agent_graph(
     *,
     checkpointer: BaseCheckpointSaver[str],
-    dependencies: TrackingAgentGraphDependencies,
+    dependencies: AgentGraphDependencies,
 ) -> CompiledStateGraph:
     builder = StateGraph(
         AgentState,
@@ -138,5 +138,10 @@ def build_tracking_agent_graph(
     builder.add_edge("compose_response", END)
     return builder.compile(
         checkpointer=checkpointer,
-        name="assistant-agent-phase-1-tracking",
+        name="assistant-agent-v2-kernel",
     )
+
+
+# Phase 1 compatibility aliases for persisted callers and older tests.
+TrackingAgentGraphDependencies = AgentGraphDependencies
+build_tracking_agent_graph = build_agent_graph

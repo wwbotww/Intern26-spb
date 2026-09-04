@@ -8,8 +8,20 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .metrics import calculate_metrics, gold_rank, is_gold_source, is_rejected
+from .metrics import (
+    agent_turn_checks,
+    calculate_agent_metrics,
+    calculate_metrics,
+    gold_rank,
+    is_gold_source,
+    is_rejected,
+)
 from .schemas import (
+    AgentCaseResult,
+    AgentComparisonReport,
+    AgentRunReport,
+    AgentTurnResult,
+    AgentTurnTransition,
     CaseResult,
     CaseTransition,
     ComparisonReport,
@@ -33,6 +45,18 @@ def load_run_report(path: Path) -> RunReport:
         return RunReport.model_validate(payload)
     except (json.JSONDecodeError, ValidationError) as exc:
         raise AnalysisError(f"评估报告格式错误：{path}：{exc}") from exc
+
+
+def load_agent_run_report(path: Path) -> AgentRunReport:
+    if not path.is_file():
+        raise AnalysisError(f"Agent 评估报告不存在：{path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return AgentRunReport.model_validate(payload)
+    except (json.JSONDecodeError, ValidationError) as exc:
+        raise AnalysisError(
+            f"Agent 评估报告格式错误：{path}：{exc}"
+        ) from exc
 
 
 def recalculate_report(
@@ -837,4 +861,232 @@ def compare_reports(
             for item in transitions
             if item.change.endswith("_improvement")
         ],
+    )
+
+
+def compare_agent_reports(
+    baseline: AgentRunReport,
+    experiment: AgentRunReport,
+    *,
+    baseline_report: str,
+    experiment_report: str,
+) -> AgentComparisonReport:
+    """Compare two V2 Agent runs over one frozen labeled dataset."""
+
+    baseline_hash = baseline.config.dataset_sha256.strip()
+    experiment_hash = experiment.config.dataset_sha256.strip()
+    if not _is_sha256(baseline_hash) or not _is_sha256(experiment_hash):
+        raise AnalysisError(
+            "Agent 对比要求两份报告都包含合法 dataset_sha256"
+        )
+    if baseline_hash != experiment_hash:
+        raise AnalysisError("Agent 对比报告的 dataset_sha256 必须一致")
+    if baseline.config.thresholds != experiment.config.thresholds:
+        raise AnalysisError("Agent 对比报告的质量门禁阈值必须一致")
+
+    baseline_by_id = _agent_results_by_id(baseline)
+    experiment_by_id = _agent_results_by_id(experiment)
+    baseline_ids = set(baseline_by_id)
+    experiment_ids = set(experiment_by_id)
+    if baseline_ids != experiment_ids:
+        raise AnalysisError(
+            "Agent 对比要求两份报告包含相同样本 ID；"
+            f"baseline_only={len(baseline_ids - experiment_ids)}, "
+            f"experiment_only={len(experiment_ids - baseline_ids)}"
+        )
+
+    for case_id in sorted(baseline_ids):
+        left = baseline_by_id[case_id].case.model_dump(mode="json")
+        right = experiment_by_id[case_id].case.model_dump(mode="json")
+        if left != right:
+            raise AnalysisError(f"Agent 样本标签不一致：{case_id}")
+        _agent_turns_by_index(baseline_by_id[case_id])
+        _agent_turns_by_index(experiment_by_id[case_id])
+
+    baseline_summary = calculate_agent_metrics(
+        baseline.results,
+        thresholds=baseline.config.thresholds,
+    )
+    experiment_summary = calculate_agent_metrics(
+        experiment.results,
+        thresholds=experiment.config.thresholds,
+    )
+
+    specs = [
+        ("case_pass_rate", ("cases", "pass_rate"), "higher"),
+        ("turn_pass_rate", ("turns", "pass_rate"), "higher"),
+        (
+            "intent_accuracy",
+            ("understanding", "intent_accuracy"),
+            "higher",
+        ),
+        (
+            "required_input_accuracy",
+            ("understanding", "required_input_accuracy"),
+            "higher",
+        ),
+        (
+            "unnecessary_clarification_rate",
+            ("understanding", "unnecessary_clarification_rate"),
+            "lower",
+        ),
+        (
+            "wrong_tool_rate",
+            ("routing", "wrong_tool_rate"),
+            "lower",
+        ),
+        (
+            "task_completion_rate",
+            ("completion", "task_completion_rate"),
+            "higher",
+        ),
+        (
+            "recovery_rate",
+            ("recovery", "recovery_rate"),
+            "higher",
+        ),
+        ("api_error_rate", ("turns", "api_error_rate"), "lower"),
+        (
+            "turn_latency_p95_ms",
+            ("efficiency", "turn_latency_ms", "p95"),
+            "lower",
+        ),
+    ]
+    metric_deltas = [
+        _metric_delta(
+            metric=name,
+            baseline=_nested(baseline_summary, *path),
+            experiment=_nested(experiment_summary, *path),
+            direction=direction,
+        )
+        for name, path, direction in specs
+    ]
+
+    transitions: list[AgentTurnTransition] = []
+    expected_turns = 0
+    for case_id in sorted(baseline_ids):
+        left_case = baseline_by_id[case_id]
+        right_case = experiment_by_id[case_id]
+        expected_turns += len(left_case.case.turns)
+        left_turns = _agent_turns_by_index(left_case)
+        right_turns = _agent_turns_by_index(right_case)
+        for turn_index in range(1, len(left_case.case.turns) + 1):
+            left_turn = left_turns.get(turn_index)
+            right_turn = right_turns.get(turn_index)
+            left_passed = _agent_turn_passed(left_turn)
+            right_passed = _agent_turn_passed(right_turn)
+            if left_passed == right_passed:
+                continue
+            transitions.append(
+                AgentTurnTransition(
+                    case_id=case_id,
+                    category=left_case.case.category,
+                    turn_index=turn_index,
+                    change=(
+                        "turn_improvement"
+                        if right_passed
+                        else "turn_regression"
+                    ),
+                    baseline=_agent_turn_state(left_turn),
+                    experiment=_agent_turn_state(right_turn),
+                )
+            )
+
+    baseline_gate = bool(baseline_summary["quality_gate"]["passed"])
+    experiment_gate = bool(experiment_summary["quality_gate"]["passed"])
+    return AgentComparisonReport(
+        generated_at=datetime.now(UTC).isoformat(),
+        baseline_report=baseline_report,
+        experiment_report=experiment_report,
+        baseline_label=baseline.config.label,
+        experiment_label=experiment.config.label,
+        dataset_sha256=baseline_hash,
+        sample_coverage={
+            "baseline_cases": len(baseline_ids),
+            "experiment_cases": len(experiment_ids),
+            "common_cases": len(baseline_ids),
+            "expected_turns": expected_turns,
+            "baseline_observed_turns": sum(
+                len(item.turns) for item in baseline.results
+            ),
+            "experiment_observed_turns": sum(
+                len(item.turns) for item in experiment.results
+            ),
+            "summary_source": "recalculated_from_results",
+        },
+        quality_gate={
+            "baseline_passed": baseline_gate,
+            "experiment_passed": experiment_gate,
+            "regressed": baseline_gate and not experiment_gate,
+            "improved": not baseline_gate and experiment_gate,
+        },
+        metrics=metric_deltas,
+        regressions=[
+            item
+            for item in transitions
+            if item.change == "turn_regression"
+        ],
+        improvements=[
+            item
+            for item in transitions
+            if item.change == "turn_improvement"
+        ],
+    )
+
+
+def _agent_results_by_id(
+    report: AgentRunReport,
+) -> dict[str, AgentCaseResult]:
+    indexed = {item.case.id: item for item in report.results}
+    if len(indexed) != len(report.results):
+        raise AnalysisError("Agent 报告中存在重复样本 ID")
+    return indexed
+
+
+def _agent_turns_by_index(
+    result: AgentCaseResult,
+) -> dict[int, AgentTurnResult]:
+    indexed = {item.turn_index: item for item in result.turns}
+    if len(indexed) != len(result.turns):
+        raise AnalysisError(f"Agent 场景存在重复 Turn：{result.case.id}")
+    for turn_index, turn in indexed.items():
+        if turn_index > len(result.case.turns):
+            raise AnalysisError(
+                f"Agent 场景包含越界 Turn：{result.case.id}:{turn_index}"
+            )
+        if turn.expected != result.case.turns[turn_index - 1]:
+            raise AnalysisError(
+                f"Agent 结果内 Gold 与场景标签不一致："
+                f"{result.case.id}:{turn_index}"
+            )
+    return indexed
+
+
+def _agent_turn_passed(turn: AgentTurnResult | None) -> bool:
+    return turn is not None and agent_turn_checks(turn)["passed"]
+
+
+def _agent_turn_state(turn: AgentTurnResult | None) -> str:
+    if turn is None:
+        return "missing"
+    observation = turn.observation
+    if observation.status == "error":
+        code = observation.error_code or str(
+            observation.http_status or "unknown"
+        )
+        return f"api_error:{code}"
+    checks = agent_turn_checks(turn)
+    if checks["passed"]:
+        return "passed"
+    failed = [
+        name
+        for name, passed in checks.items()
+        if name != "passed" and not passed
+    ]
+    return "failed:" + ",".join(failed)
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(
+        character in "0123456789abcdef" for character in value.lower()
     )

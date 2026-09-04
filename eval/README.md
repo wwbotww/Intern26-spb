@@ -1,4 +1,4 @@
-# SPB RAG 与 Assistant 黑盒评估
+# SPB RAG、Assistant 与 Stateful Agent 黑盒评估
 
 `eval/` 是独立的轻量评估包，只通过 HTTP 调用 `rag-api` 或
 `assistant-api`。它不导入在线或离线应用、不直连 Milvus/MySQL，也不读取本地
@@ -19,6 +19,11 @@
   完整性；
 - 评估设备价格候选 Product/SKU Recall，并识别拒答结果泄露证据的问题；
 - 记录统一助手在指定并发度下的延迟、吞吐、错误和 Token 基线。
+- 通过 `/v2/agent/messages` 顺序推进同一 conversation 的多轮黑盒场景；
+- 计算 Intent Accuracy、Required Input Accuracy、Wrong Tool Rate、Task Completion、
+  Recovery、API Error Rate 和 Turn P50/P95，并生成可供 CI 使用的质量门禁。
+- 严格验证 dataset hash、Gold 标签和门禁阈值后，对比 Agent baseline/experiment 的
+  核心指标和逐 Turn 回归。
 
 ## 数据集
 
@@ -151,10 +156,11 @@ Assistant 数据集与政策 RAG 专项集分开。每行只描述一次独立�
 补充信息提示；价格样本可以提供 Product/SKU Gold，政策样本不能填写价格 Gold。
 完整字段示例见 `datasets/assistant-template.jsonl`。
 
-Agent V2 的首版 Query Understanding 公开评测集位于
-`datasets/agent-understanding-v1.jsonl`，覆盖五类意图、未知/多意图、硬实体、控制命令
-和多轮补槽。当前阶段只固化独立 schema 与样本；等 V2 HTTP 接口在阶段 4 挂载后，Eval
-Runner 再通过黑盒接口执行它，不直接导入 Assistant 实现。
+Agent V2 的 Query Understanding 回归夹具位于
+`datasets/agent-understanding-v1.jsonl`；它面向内部 Understanding schema，不由黑盒
+Runner 直接读取。Phase 5A 新增的公开 Workflow 数据集位于
+`datasets/agent-workflow-v1.jsonl`，只断言 V2 API 能观察到的停止态、意图、下一动作、
+required inputs、结果状态和结果字段。
 
 运行统一助手评估：
 
@@ -179,6 +185,90 @@ uv run --package spb-eval spb-eval assistant-run \
 
 模板问题只用于说明格式，不能作为评估结论。真实问题、数据库标识、回答和报告
 必须放在 Git 忽略的 `datasets/private/` 与 `reports/` 下。
+
+## Agent V2 多轮评估
+
+每个场景拥有一个或多个顺序执行的 `turns`。Runner 在场景之间按 `--concurrency`
+并发，在场景内部复用服务端返回的 `conversation_id`，因此可以真实覆盖 LangGraph
+`interrupt/resume`，而不会把历史消息拼进请求冒充状态恢复。
+
+```json
+{
+  "id": "tracking-fill-001",
+  "category": "multi_turn_slot_fill",
+  "turns": [
+    {
+      "message": "帮我查一下邮件",
+      "expected_phase": "waiting_user",
+      "expected_intent": "tracking",
+      "expected_next_action": "collect_slots",
+      "expected_required_inputs": ["mail_no"]
+    },
+    {
+      "message": "1234567890123",
+      "expected_phase": "completed",
+      "expected_intent": "tracking",
+      "expected_next_action": "complete",
+      "expected_result_status": "success",
+      "expected_result_values": {
+        "mail_no": "1234567890123"
+      }
+    }
+  ]
+}
+```
+
+本地五能力 Demo 不需要 API Key：
+
+```bash
+ASSISTANT_AGENT_DEMO_DB=/tmp/spb-agent-eval.db \
+uv run --package spb-assistant-api spb-assistant-agent-demo
+
+uv run --package spb-eval spb-eval agent-run \
+  --dataset eval/datasets/agent-workflow-v1.jsonl \
+  --label phase5a-local-fixture \
+  --base-url http://127.0.0.1:8081 \
+  --concurrency 4 \
+  --fail-on-gate
+```
+
+评测真实环境时，使用 `EVAL_AGENT_BASE_URL` 和 `EVAL_AGENT_API_KEY`；密钥只进入请求头，
+不写入配置、逐样本结果或报告。`EVAL_AGENT_API_KEY` 未设置时会兼容读取已有的
+`EVAL_ASSISTANT_API_KEY`。
+
+默认质量门禁为：Golden 场景通过率等于 1、Intent 与 Required Input Accuracy 不低于
+0.95、Wrong Tool Rate 等于 0、Task Completion 与 Recovery 不低于 0.90、API Error
+Rate 等于 0。
+`--fail-on-gate` 会在报告写完后用退出码 3 表示门禁失败。每次运行生成：
+
+```text
+run.json          完整配置、服务能力快照、汇总和逐场景结果
+cases.jsonl       逐场景机器可读结果
+summary.md        指标、分意图结果和门禁表
+review-queue.md   自动归因到理解/路由/工具/基础设施的复核队列
+quality-gate.json CI 可直接读取的门禁结果
+```
+
+Phase 5A 的 13 场景 / 17 Turn 本地 fixture 基线只证明评测链路和确定性规则回归，不能
+当作代表性生产准确率。真实接口、Structured Model 和更大 holdout 数据集接入后必须
+生成独立报告，不能沿用该 Demo 数字。
+
+### Agent Baseline / Experiment 对比
+
+两份 `agent-run` 报告必须来自同一冻结数据集，并使用相同质量门禁：
+
+```bash
+uv run --package spb-eval spb-eval agent-compare \
+  --baseline eval/reports/<baseline>/run.json \
+  --experiment eval/reports/<experiment>/run.json
+```
+
+工具要求两份报告都有且共享相同 `dataset_sha256`，并逐场景校验完整 Gold Turn、样本
+ID 和门禁阈值。任一条件不一致都会拒绝对比。输出包含场景/Turn、Intent、Required
+Input、非必要澄清、Wrong Tool、Task Completion、Recovery、API Error 与 Turn P95
+差值，并列出逐 Turn improvement/regression。API error 与缺失 Turn 都按失败处理，不会
+因没有成功响应而从比较中消失；两侧指标从逐 Turn observation 重新计算，不直接信任
+保存的汇总字段。
 
 ## 指标口径
 

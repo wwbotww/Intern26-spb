@@ -4,7 +4,10 @@ import asyncio
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from .. import __version__
 from ..adapters.mysql_price import MySQLPriceRepository
@@ -19,10 +22,13 @@ from ..services.dispatcher import (
     QueryDispatcher,
     ToolRegistry,
 )
+from ..services.agent_operations import AgentJanitorScheduler
 from ..settings import AssistantSettings
 from ..tools.device_price import DevicePriceTool
 from ..tools.policy import PolicyKnowledgeTool
 from ..tools.unavailable import UnavailableTool
+from .agent_contracts import AgentApiDependencies, AgentApiDependencyFactory
+from .routes.agent import router as agent_router
 from .routes.chat import router as chat_router
 from .routes.health import router as health_router
 from .routes.metrics import router as metrics_router
@@ -76,7 +82,11 @@ def create_app(
     *,
     settings: AssistantSettings | None = None,
     tools: Mapping[QueryMode, AssistantTool] | None = None,
+    agent_api: AgentApiDependencies | None = None,
+    agent_api_factory: AgentApiDependencyFactory | None = None,
 ) -> FastAPI:
+    if agent_api is not None and agent_api_factory is not None:
+        raise ValueError("agent_api 与 agent_api_factory 不能同时提供")
     resolved_settings = settings or AssistantSettings()
     service_metrics = ServiceMetrics()
     resolved_tools = (
@@ -88,12 +98,45 @@ def create_app(
     dispatcher = QueryDispatcher(registry)
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        del app
+    async def activate_agent_api(
+        app: FastAPI,
+        dependencies: AgentApiDependencies,
+    ) -> AsyncIterator[None]:
+        scheduler: AgentJanitorScheduler | None = None
+        app.state.agent_api = dependencies
+        if dependencies.janitor is not None:
+            scheduler = AgentJanitorScheduler(
+                janitor=dependencies.janitor,
+                metrics=service_metrics,
+                interval_seconds=dependencies.janitor_interval_seconds,
+                timeout_seconds=dependencies.janitor_timeout_seconds,
+            )
+        app.state.agent_janitor_scheduler = scheduler
         try:
-            await registry.initialize()
+            if scheduler is not None:
+                await scheduler.start()
             yield
         finally:
+            if scheduler is not None:
+                await scheduler.close()
+            app.state.agent_janitor_scheduler = None
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        try:
+            await registry.initialize()
+            if agent_api_factory is not None:
+                async with agent_api_factory() as dependencies:
+                    async with activate_agent_api(app, dependencies):
+                        yield
+            elif agent_api is not None:
+                async with activate_agent_api(app, agent_api):
+                    yield
+            else:
+                yield
+        finally:
+            if agent_api_factory is not None:
+                app.state.agent_api = None
             await registry.close()
 
     app = FastAPI(
@@ -106,6 +149,8 @@ def create_app(
     app.state.metrics = service_metrics
     app.state.registry = registry
     app.state.dispatcher = dispatcher
+    app.state.agent_api = agent_api
+    app.state.agent_janitor_scheduler = None
     app.state.capacity = asyncio.Semaphore(
         resolved_settings.max_concurrency
     )
@@ -127,6 +172,33 @@ def create_app(
     )
     app.include_router(health_router)
     app.include_router(chat_router)
+    if agent_api is not None or agent_api_factory is not None:
+        @app.exception_handler(RequestValidationError)
+        async def agent_request_validation_handler(
+            request: Request,
+            error: RequestValidationError,
+        ):
+            if not request.url.path.startswith("/v2/agent"):
+                return await request_validation_exception_handler(
+                    request,
+                    error,
+                )
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": {
+                        "code": "invalid_agent_request",
+                        "message": "Agent 请求未通过 schema 校验",
+                        "request_id": str(
+                            getattr(request.state, "request_id", "")
+                        ),
+                        "category": "invalid_input",
+                        "retryable": False,
+                    }
+                },
+            )
+
+        app.include_router(agent_router)
     if resolved_settings.metrics_enabled:
         app.include_router(metrics_router)
     return app

@@ -1,6 +1,6 @@
 # Docker Compose 部署与运行
 
-> 适用基线：`chat-web 0.2.0`、`assistant-api 0.3.2`、`rag-api 0.5.1`。
+> 适用基线：`chat-web 0.2.0`、`assistant-api 0.3.3`、`rag-api 0.5.1`。
 >
 > 本文只描述仓库当前的通用部署方式，不记录具体客户、主机、内网地址或密钥。
 
@@ -21,7 +21,7 @@ Optional Prometheus -> rag-api / assistant-api metrics
 | 服务 | 镜像标签 | 主机绑定 | 说明 |
 | --- | --- | --- | --- |
 | `chat-web` | `intern26-spb-chat-web:0.2.0` | `127.0.0.1:3000` | Nginx 托管静态页面并反向代理 `/api/` |
-| `assistant-api` | `intern26-spb-assistant-api:0.3.2` | `127.0.0.1:8081` | 单轮工具编排入口 |
+| `assistant-api` | `intern26-spb-assistant-api:0.3.3` | `127.0.0.1:8081` | 单轮工具编排入口 |
 | `rag-api` | `intern26-spb-rag-api:0.5.1` | `127.0.0.1:8080` | 政策检索与回答 |
 | `prometheus` | `prom/prometheus:v3.5.0` | `127.0.0.1:9091` | 可选 `monitoring` profile |
 

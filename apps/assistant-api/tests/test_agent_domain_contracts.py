@@ -11,7 +11,11 @@ from spb_assistant_api.domain.agent_actions import (
     InvokeToolAction,
     NextAction,
 )
-from spb_assistant_api.domain.commands import TrackingCommand
+from spb_assistant_api.domain.commands import (
+    DeliveryTimeCommand,
+    PostageCommand,
+    TrackingCommand,
+)
 from spb_assistant_api.domain.failures import FailureCategory
 from spb_assistant_api.domain.intents import Intent
 from spb_assistant_api.domain.results import (
@@ -71,6 +75,20 @@ def test_mail_number_schema_does_not_freeze_demo_length() -> None:
     command = TrackingCommand(mail_no="AB123456789CN")
 
     assert command.mail_no == "AB123456789CN"
+
+
+def test_executable_shipping_commands_require_resolved_inputs() -> None:
+    resolved = _resolved_region("北京市", "110000")
+    unresolved = RegionRef(raw_text="上海")
+
+    with pytest.raises(ValidationError, match="resolved regions"):
+        DeliveryTimeCommand(origin=resolved, destination=unresolved)
+    with pytest.raises(ValidationError, match="concrete weight"):
+        PostageCommand(
+            origin=resolved,
+            destination=_resolved_region("上海市", "310000"),
+            weight=WeightValue(),
+        )
 
 
 def test_next_action_rejects_unknown_fields_and_preserves_command() -> None:

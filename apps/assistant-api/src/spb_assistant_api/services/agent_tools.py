@@ -51,7 +51,7 @@ class AgentToolRegistry:
                 )
             if not descriptor.read_only:
                 raise ValueError(
-                    f"阶段 1 只允许只读工具: {descriptor.tool_name}"
+                    f"Agent 只允许只读工具: {descriptor.tool_name}"
                 )
             by_intent[descriptor.intent] = tool
             names.add(descriptor.tool_name)

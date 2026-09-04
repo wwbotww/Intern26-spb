@@ -21,11 +21,24 @@ from ..domain.agent_actions import (
     RespondAction,
 )
 from ..domain.agent_events import ToolCallRecord
-from ..domain.commands import TrackingCommand
+from ..domain.commands import (
+    DeliveryTimeCommand,
+    DevicePriceCommand,
+    PolicyCommand,
+    PostageCommand,
+    TrackingCommand,
+)
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.intents import Intent
 from ..domain.results import AgentResult
-from ..domain.slots import SlotPayload, TrackingSlots
+from ..domain.slots import (
+    DeliveryTimeSlots,
+    DevicePriceSlots,
+    PolicySlots,
+    PostageSlots,
+    SlotPayload,
+    TrackingSlots,
+)
 from ..domain.tooling import CommandModel, ToolDescriptor
 from ..domain.understanding import ControlDirective
 
@@ -245,11 +258,42 @@ class WorkflowPolicy:
         if raw_slots is None:
             raise ValueError("执行工具前必须存在槽位")
         slots = _SLOTS_ADAPTER.validate_python(raw_slots)
+        if intent is Intent.POLICY and isinstance(slots, PolicySlots):
+            return PolicyCommand(question=slots.question)
+        if (
+            intent is Intent.DEVICE_PRICE
+            and isinstance(slots, DevicePriceSlots)
+        ):
+            return DevicePriceCommand(question=slots.question)
         if intent is Intent.TRACKING and isinstance(slots, TrackingSlots):
             if slots.mail_no is None:
                 raise ValueError("轨迹命令缺少 mail_no")
             return TrackingCommand(mail_no=slots.mail_no)
-        raise ValueError(f"阶段 1 尚未实现意图命令: {intent.value}")
+        if (
+            intent is Intent.DELIVERY_TIME
+            and isinstance(slots, DeliveryTimeSlots)
+        ):
+            if slots.origin is None or slots.destination is None:
+                raise ValueError("时限命令缺少起止地区")
+            return DeliveryTimeCommand(
+                origin=slots.origin,
+                destination=slots.destination,
+            )
+        if intent is Intent.POSTAGE and isinstance(slots, PostageSlots):
+            if (
+                slots.origin is None
+                or slots.destination is None
+                or slots.weight is None
+                or slots.weight.value is None
+            ):
+                raise ValueError("资费命令缺少起止地区或重量")
+            return PostageCommand(
+                origin=slots.origin,
+                destination=slots.destination,
+                weight=slots.weight,
+                product_code=slots.product_code,
+            )
+        raise ValueError(f"尚未实现意图命令: {intent.value}")
 
     @staticmethod
     def _required_input(

@@ -1,6 +1,6 @@
 # ADR-0004：区分 Checkpoint、元数据、RAG 与长期记忆
 
-- 状态：Accepted / Phase-2 local persistence verified
+- 状态：Accepted / Phase-4A local API lifecycle verified
 - 日期：2026-09-03
 
 ## 背景
@@ -13,7 +13,7 @@
 | 数据 | 事实源 | 生命周期 |
 | --- | --- | --- |
 | 当前意图、槽位、预算、工具结果摘要 | LangGraph Checkpointer | 单 thread、短期 |
-| owner、TTL、API 幂等收据 | Metadata / Idempotency Repository | 会话生命周期 |
+| owner、TTL、创建与消息幂等收据 | Metadata / Idempotency Repository | 会话生命周期 |
 | Tool 副作用执行收据 | Tool Execution Repository | 按幂等和审计策略 |
 | 政策文档与向量 | 现有 RAG / Milvus | 独立知识生命周期 |
 | 用户偏好与长期事实 | 暂不建设 | 未获授权不得保存 |
@@ -40,6 +40,11 @@ Phase 2 增加 `AsyncSqliteSaver`、SQLite Metadata/Idempotency Repository 和�
 Execution Repository，并用关闭连接、重新编译 Graph 后的 interrupt/resume 测试验证
 本地重启恢复。应用层会话锁、幂等 request hash、TTL Janitor 和 v1 -> v2 state migration
 均有合同测试。SQLite 仍只用于单进程 Demo；跨进程串行化和生产后端属于后续部署阶段。
+
+Phase 4A 增加会话创建收据，把 `(owner_id, Idempotency-Key, request_hash)` 与服务端随机
+`conversation_id` 原子绑定，补上首次请求还没有 conversation ID 时的重放缺口；V2
+删除同时清理 checkpoint、消息/Tool 收据并保留 deleted tombstone 和创建绑定，避免旧
+创建请求复活已删除 Workflow。生产保留期和异步清理队列仍需隐私评审。
 
 ## 参考
 

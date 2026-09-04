@@ -2213,7 +2213,7 @@ wheels = [
 
 [[package]]
 name = "spb-assistant-api"
-version = "0.3.2"
+version = "0.3.3"
 source = { editable = "apps/assistant-api" }
 dependencies = [
     { name = "fastapi" },
@@ -2249,7 +2249,7 @@ source = { editable = "packages/contracts" }
 
 [[package]]
 name = "spb-eval"
-version = "0.3.0"
+version = "0.5.0"
 source = { editable = "eval" }
 dependencies = [
     { name = "httpx" },

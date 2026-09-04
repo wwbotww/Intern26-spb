@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "generate:agent-types": "node scripts/generate-agent-api-types.mjs",
+    "check:agent-types": "node scripts/generate-agent-api-types.mjs --check"
   },
   "dependencies": {
     "dompurify": "^3.2.0",

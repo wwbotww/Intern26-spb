@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS agent_idempotency_receipts (
         REFERENCES agent_conversations(conversation_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS agent_conversation_creation_receipts (
+    owner_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (owner_id, idempotency_key),
+    FOREIGN KEY (conversation_id)
+        REFERENCES agent_conversations(conversation_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS agent_tool_execution_receipts (
     conversation_id TEXT NOT NULL,
     argument_fingerprint TEXT NOT NULL,
@@ -107,6 +118,97 @@ class SqliteConversationMetadataRepository:
                     ),
                 )
                 await self._connection.commit()
+            except BaseException:
+                await self._connection.rollback()
+                raise
+
+    async def create_idempotently(
+        self,
+        *,
+        metadata: ConversationMetadata,
+        key: str,
+        request_hash: str,
+    ) -> ConversationMetadata:
+        normalized_key = _validate_key(key)
+        _validate_hash(request_hash)
+        async with self._lock:
+            await self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await self._connection.execute(
+                    """
+                    SELECT request_hash, conversation_id
+                    FROM agent_conversation_creation_receipts
+                    WHERE owner_id = ? AND idempotency_key = ?
+                    """,
+                    (metadata.owner_id, normalized_key),
+                )
+                row = await cursor.fetchone()
+                if row is not None:
+                    if str(row["request_hash"]) != request_hash:
+                        raise _conflict(
+                            "idempotency_request_hash_conflict",
+                            "相同幂等键不能用于不同的会话创建请求",
+                        )
+                    existing = await self._fetch_metadata(
+                        UUID(str(row["conversation_id"]))
+                    )
+                    if existing is None:
+                        raise AgentOperationError(
+                            AgentFailure(
+                                category=(
+                                    FailureCategory.PERSISTENCE_UNAVAILABLE
+                                ),
+                                code="conversation_creation_receipt_orphaned",
+                                message="会话创建收据缺少对应元数据",
+                                retryable=True,
+                            )
+                        )
+                    await self._connection.commit()
+                    return existing
+
+                collision = await self._fetch_metadata(
+                    metadata.conversation_id
+                )
+                if collision is not None:
+                    raise _conflict(
+                        "conversation_metadata_conflict",
+                        "会话标识已绑定到不同元数据",
+                    )
+                await self._connection.execute(
+                    """
+                    INSERT INTO agent_conversations (
+                        conversation_id, owner_id, status,
+                        state_schema_version, created_at, updated_at,
+                        expires_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(metadata.conversation_id),
+                        metadata.owner_id,
+                        metadata.status.value,
+                        metadata.state_schema_version,
+                        _iso(metadata.created_at),
+                        _iso(metadata.updated_at),
+                        _iso(metadata.expires_at),
+                    ),
+                )
+                await self._connection.execute(
+                    """
+                    INSERT INTO agent_conversation_creation_receipts (
+                        owner_id, idempotency_key, request_hash,
+                        conversation_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        metadata.owner_id,
+                        normalized_key,
+                        request_hash,
+                        str(metadata.conversation_id),
+                        _iso(metadata.created_at),
+                    ),
+                )
+                await self._connection.commit()
+                return metadata
             except BaseException:
                 await self._connection.rollback()
                 raise
@@ -354,19 +456,28 @@ class SqliteConversationMetadataRepository:
                     "会话不存在",
                 )
 
-    async def list_expired(self, *, now: datetime) -> list[UUID]:
+    async def list_expired(
+        self,
+        *,
+        now: datetime,
+        limit: int,
+    ) -> list[UUID]:
         _require_aware(now, "now")
+        if limit < 1:
+            raise ValueError("expired conversation limit 必须大于 0")
         async with self._lock:
             cursor = await self._connection.execute(
                 """
                 SELECT conversation_id FROM agent_conversations
                 WHERE status IN (?, ?) AND expires_at <= ?
                 ORDER BY expires_at, conversation_id
+                LIMIT ?
                 """,
                 (
                     ConversationStatus.ACTIVE.value,
                     ConversationStatus.EXPIRED.value,
                     _iso(now),
+                    limit,
                 ),
             )
             rows = await cursor.fetchall()
@@ -511,10 +622,60 @@ class SqliteToolExecutionRepository:
             return max(cursor.rowcount, 0)
 
 
+class SqliteAgentReadinessProbe:
+    """Read-only schema probe for metadata and LangGraph checkpoints."""
+
+    _PERSISTENCE_TABLES = frozenset(
+        {
+            "agent_conversations",
+            "agent_idempotency_receipts",
+            "agent_conversation_creation_receipts",
+            "agent_tool_execution_receipts",
+        }
+    )
+    _CHECKPOINT_TABLES = frozenset({"checkpoints", "writes"})
+
+    def __init__(
+        self,
+        connection: aiosqlite.Connection,
+        lock: asyncio.Lock,
+    ) -> None:
+        self._connection = connection
+        self._lock = lock
+
+    async def check(self) -> Mapping[str, str]:
+        required = self._PERSISTENCE_TABLES | self._CHECKPOINT_TABLES
+        placeholders = ", ".join("?" for _ in required)
+        try:
+            async with self._lock:
+                cursor = await self._connection.execute(
+                    f"""
+                    SELECT name FROM sqlite_master
+                    WHERE type = 'table' AND name IN ({placeholders})
+                    """,
+                    tuple(sorted(required)),
+                )
+                rows = await cursor.fetchall()
+        except aiosqlite.Error:
+            return {"persistence": "not_ready", "checkpoint": "not_ready"}
+        present = {str(row["name"]) for row in rows}
+        return {
+            "persistence": (
+                "ready"
+                if self._PERSISTENCE_TABLES <= present
+                else "not_ready"
+            ),
+            "checkpoint": (
+                "ready" if self._CHECKPOINT_TABLES <= present else "not_ready"
+            ),
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class SqliteAgentRepositories:
     metadata: SqliteConversationMetadataRepository
     tool_receipts: SqliteToolExecutionRepository
+    readiness: SqliteAgentReadinessProbe
 
 
 @asynccontextmanager
@@ -532,6 +693,7 @@ async def create_sqlite_agent_repositories(
         yield SqliteAgentRepositories(
             metadata=SqliteConversationMetadataRepository(connection, lock),
             tool_receipts=SqliteToolExecutionRepository(connection, lock),
+            readiness=SqliteAgentReadinessProbe(connection, lock),
         )
 
 

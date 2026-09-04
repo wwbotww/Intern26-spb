@@ -2,9 +2,9 @@
   "openapi": "3.1.0",
   "info": {
     "title": "China Post Assistant Agent API",
-    "version": "0.1.0-draft",
-    "description": "Proposed V2 contract. This artifact is not implemented by the current service.",
-    "x-document-status": "proposed"
+    "version": "0.3.0-phase4d",
+    "description": "Phase 4D V2 JSON/SSE contract with operational readiness and compatibility-adapted V1 policy/device tools. Routes remain behind explicit Agent dependency injection while real logistics adapters and production composition are completed.",
+    "x-document-status": "partially-implemented"
   },
   "security": [
     {
@@ -29,6 +29,35 @@
                   "items": {
                     "$ref": "#/components/schemas/AgentCapability"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/agent/health/ready": {
+      "get": {
+        "operationId": "getAgentReadiness",
+        "summary": "Check the V2 Agent runtime and persistence boundary",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The Agent can serve at least one capability; janitor degradation remains visible in checks.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentHealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The Agent API, persistence, checkpoint backend, or every capability is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentHealthResponse"
                 }
               }
             }
@@ -74,7 +103,7 @@
         },
         "responses": {
           "200": {
-            "description": "Workflow completed or paused for input",
+            "description": "Workflow completed, paused, or streamed as stable public events",
             "content": {
               "application/json": {
                 "schema": {
@@ -83,11 +112,22 @@
               },
               "text/event-stream": {
                 "schema": {
-                  "type": "string",
-                  "description": "Versioned SSE projection; internal LangGraph events are not exposed directly."
-                }
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/AgentStreamStatusEvent" },
+                    { "$ref": "#/components/schemas/AgentStreamStateEvent" },
+                    { "$ref": "#/components/schemas/AgentStreamInputRequiredEvent" },
+                    { "$ref": "#/components/schemas/AgentStreamResultEvent" },
+                    { "$ref": "#/components/schemas/AgentStreamDeltaEvent" },
+                    { "$ref": "#/components/schemas/AgentStreamDoneEvent" },
+                    { "$ref": "#/components/schemas/AgentStreamErrorEvent" }
+                  ]
+                },
+                "x-sse-event-order": "status, state, input_required|result, delta?, done; error is terminal"
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
@@ -95,8 +135,28 @@
           "422": {
             "$ref": "#/components/responses/ValidationError"
           },
+          "502": {
+            "description": "Runtime output failed the public API contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "$ref": "#/components/responses/ServiceUnavailable"
+          },
+          "504": {
+            "description": "Workflow exceeded the API run timeout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -121,7 +181,7 @@
             "description": "Conversation deletion accepted"
           },
           "404": {
-            "description": "Conversation does not exist or is not visible"
+            "$ref": "#/components/responses/NotFound"
           },
           "409": {
             "$ref": "#/components/responses/Conflict"
@@ -154,6 +214,16 @@
           "unknown"
         ]
       },
+      "PublicIntent": {
+        "type": "string",
+        "enum": [
+          "policy",
+          "device_price",
+          "tracking",
+          "delivery_time",
+          "postage"
+        ]
+      },
       "AgentPhase": {
         "type": "string",
         "enum": [
@@ -175,8 +245,17 @@
       "AgentMessageRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "message"
+        "anyOf": [
+          {
+            "required": [
+              "message"
+            ]
+          },
+          {
+            "required": [
+              "explicit_intent"
+            ]
+          }
         ],
         "properties": {
           "conversation_id": {
@@ -192,9 +271,18 @@
             "default": null
           },
           "message": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2000
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Required when creating a conversation; may be null when selecting an intent for an interrupted conversation."
           },
           "explicit_intent": {
             "anyOf": [
@@ -205,11 +293,18 @@
                 "type": "null"
               }
             ],
-            "default": null
+            "default": null,
+            "description": "unknown is not accepted as an explicit user choice."
+          },
+          "confirm_overwrite": {
+            "type": "boolean",
+            "default": false,
+            "description": "Explicitly confirms replacement of a conflicting slot value."
           },
           "stream": {
             "type": "boolean",
-            "default": false
+            "default": false,
+            "description": "When true, returns the versioned text/event-stream projection documented on the 200 response."
           }
         }
       },
@@ -259,28 +354,30 @@
         ],
         "properties": {
           "type": {
-            "type": "string",
-            "enum": [
-              "policy",
-              "device_price",
-              "tracking",
-              "delivery_time",
-              "postage"
-            ]
+            "$ref": "#/components/schemas/PublicIntent"
           },
           "status": {
             "type": "string",
             "enum": [
               "success",
               "partial",
+              "need_more_info",
               "no_match",
               "failed"
             ]
           },
           "data": {
-            "type": "object",
-            "description": "Provisional discriminated result payload; finalized after external API review.",
-            "additionalProperties": true
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Provisional discriminated result payload; finalized after external API review."
           },
           "reason_code": {
             "type": "string",
@@ -356,6 +453,17 @@
             ],
             "default": null
           },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentFailure"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "warnings": {
             "type": "array",
             "items": {
@@ -370,17 +478,29 @@
         "required": [
           "intent",
           "display_name",
-          "available"
+          "available",
+          "required_inputs"
         ],
         "properties": {
           "intent": {
-            "$ref": "#/components/schemas/Intent"
+            "$ref": "#/components/schemas/PublicIntent"
           },
           "display_name": {
             "type": "string"
           },
           "available": {
             "type": "boolean"
+          },
+          "capability_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
           },
           "required_inputs": {
             "type": "array",
@@ -391,12 +511,367 @@
           }
         }
       },
-      "ErrorResponse": {
+      "AgentHealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "service",
+          "version",
+          "phase",
+          "checks"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "not_ready"
+            ]
+          },
+          "service": {
+            "type": "string",
+            "const": "spb-assistant-agent-v2"
+          },
+          "version": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "integer",
+            "const": 4
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "not_ready",
+                "degraded",
+                "starting",
+                "disabled"
+              ]
+            },
+            "description": "Fixed coarse statuses for agent_api, persistence, checkpoint, janitor, and capability.<intent>."
+          }
+        }
+      },
+      "AgentStreamStatusEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "request_id",
+          "stage",
+          "message"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string",
+            "const": "accepted"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentStreamStateEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "request_id",
+          "conversation_id",
+          "turn_id",
+          "phase",
+          "next_action"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/AgentPhase"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Intent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_action": {
+            "type": "string",
+            "enum": [
+              "collect_slots",
+              "clarify_intent",
+              "complete",
+              "handoff",
+              "failed"
+            ]
+          }
+        }
+      },
+      "AgentStreamInputRequiredEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "request_id",
+          "conversation_id",
+          "turn_id",
+          "required_inputs"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "required_inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredInput"
+            }
+          }
+        }
+      },
+      "AgentStreamResultEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "request_id",
+          "conversation_id",
+          "turn_id",
+          "warnings"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentFailure"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AgentStreamDeltaEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "request_id",
+          "conversation_id",
+          "turn_id",
+          "content"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "turn_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentStreamDoneEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "response"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1"
+          },
+          "response": {
+            "$ref": "#/components/schemas/AgentResponse"
+          }
+        }
+      },
+      "AgentStreamErrorEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "request_id",
+          "code",
+          "message",
+          "http_status",
+          "retryable"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "1"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "http_status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "retryable": {
+            "type": "boolean",
+            "default": false
+          },
+          "retry_after_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "AgentFailure": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "code",
+          "retryable"
+        ],
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "retry_after_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "ErrorDetail": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "code",
-          "message"
+          "message",
+          "request_id",
+          "retryable"
         ],
         "properties": {
           "code": {
@@ -407,11 +882,51 @@
           },
           "request_id": {
             "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "retry_after_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/ErrorDetail"
           }
         }
       }
     },
     "responses": {
+      "NotFound": {
+        "description": "Conversation does not exist or is not visible to the caller",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
       "Conflict": {
         "description": "Conversation or idempotency conflict",
         "content": {

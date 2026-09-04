@@ -6,7 +6,14 @@ from collections import Counter
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol
 
-from .schemas import AssistantCaseResult, CaseResult, EvalCase
+from .schemas import (
+    AgentCaseResult,
+    AgentEvalThresholds,
+    AgentTurnResult,
+    AssistantCaseResult,
+    CaseResult,
+    EvalCase,
+)
 
 
 REJECTION_REASONS = frozenset(
@@ -628,4 +635,428 @@ def calculate_assistant_metrics(
             "reported_total_tokens": total_tokens,
         },
         "by_mode": by_mode,
+    }
+
+
+_MISSING = object()
+_PUBLIC_INTENTS = {
+    "policy",
+    "device_price",
+    "tracking",
+    "delivery_time",
+    "postage",
+}
+
+
+def _path_value(value: Any, path: str) -> Any:
+    current = value
+    for part in path.split("."):
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+            continue
+        if isinstance(current, list) and part.isdigit():
+            index = int(part)
+            if index < len(current):
+                current = current[index]
+                continue
+        return _MISSING
+    return current
+
+
+def agent_turn_checks(result: AgentTurnResult) -> dict[str, bool]:
+    expected = result.expected
+    observation = result.observation
+    if observation.status != "ok":
+        return {
+            "api": False,
+            "phase": False,
+            "intent": False,
+            "next_action": False,
+            "required_inputs": False,
+            "result_status": False,
+            "result_values": False,
+            "failure": False,
+            "routing": False,
+            "passed": False,
+        }
+
+    required_names = [item.name for item in observation.required_inputs]
+    result_status = (
+        observation.result.status
+        if observation.result is not None
+        else None
+    )
+    if expected.expected_result_status is None:
+        result_status_correct = observation.result is None
+    else:
+        result_status_correct = (
+            result_status == expected.expected_result_status
+        )
+
+    result_data = (
+        observation.result.data
+        if observation.result is not None
+        and observation.result.data is not None
+        else {}
+    )
+    result_values_correct = all(
+        _path_value(result_data, path) == expected_value
+        for path, expected_value in expected.expected_result_values.items()
+    )
+
+    if expected.expected_failure_category is None:
+        failure_correct = observation.failure is None
+    else:
+        failure_correct = bool(
+            observation.failure is not None
+            and observation.failure.category
+            == expected.expected_failure_category
+            and (
+                expected.expected_failure_code is None
+                or observation.failure.code
+                == expected.expected_failure_code
+            )
+        )
+
+    routing_correct = observation.intent == expected.expected_intent
+    if observation.result is not None:
+        routing_correct = bool(
+            routing_correct
+            and expected.expected_intent in _PUBLIC_INTENTS
+            and observation.result.type == expected.expected_intent
+        )
+
+    checks = {
+        "api": True,
+        "phase": observation.phase == expected.expected_phase,
+        "intent": observation.intent == expected.expected_intent,
+        "next_action": (
+            observation.next_action == expected.expected_next_action
+        ),
+        "required_inputs": (
+            required_names == expected.expected_required_inputs
+        ),
+        "result_status": result_status_correct,
+        "result_values": result_values_correct,
+        "failure": failure_correct,
+        "routing": routing_correct,
+    }
+    checks["passed"] = all(checks.values())
+    return checks
+
+
+def agent_case_checks(result: AgentCaseResult) -> dict[str, bool]:
+    complete = len(result.turns) == len(result.case.turns)
+    turns_passed = complete and all(
+        agent_turn_checks(turn)["passed"] for turn in result.turns
+    )
+    return {
+        "all_turns_observed": complete,
+        "passed": turns_passed,
+    }
+
+
+def _gate(
+    *,
+    actual: float | None,
+    threshold: float,
+    operator: str,
+    evaluated: int,
+) -> dict[str, Any]:
+    if operator == ">=":
+        passed = actual is not None and actual >= threshold
+    elif operator == "<=":
+        passed = actual is not None and actual <= threshold
+    else:
+        raise ValueError(f"不支持的门禁比较符：{operator}")
+    return {
+        "actual": actual,
+        "threshold": threshold,
+        "operator": operator,
+        "evaluated": evaluated,
+        "passed": passed,
+    }
+
+
+def calculate_agent_metrics(
+    results: list[AgentCaseResult],
+    *,
+    thresholds: AgentEvalThresholds,
+) -> dict[str, Any]:
+    turn_results = [turn for case in results for turn in case.turns]
+    expected_turns = sum(len(case.case.turns) for case in results)
+    successful_turns = [
+        turn for turn in turn_results if turn.observation.status == "ok"
+    ]
+    checks = {
+        (case.case.id, turn.turn_index): agent_turn_checks(turn)
+        for case in results
+        for turn in case.turns
+    }
+    case_checks = {
+        case.case.id: agent_case_checks(case) for case in results
+    }
+
+    intent_correct = sum(
+        checks[(case.case.id, turn.turn_index)]["intent"]
+        for case in results
+        for turn in case.turns
+        if turn.observation.status == "ok"
+    )
+    required_turns = [
+        (case, turn)
+        for case in results
+        for turn in case.turns
+        if turn.expected.expected_phase == "waiting_user"
+        and turn.observation.status == "ok"
+    ]
+    required_correct = sum(
+        checks[(case.case.id, turn.turn_index)]["required_inputs"]
+        for case, turn in required_turns
+    )
+    routed_results = [
+        (case, turn)
+        for case in results
+        for turn in case.turns
+        if turn.observation.status == "ok"
+        and turn.observation.result is not None
+        and turn.expected.expected_intent in _PUBLIC_INTENTS
+    ]
+    wrong_tool_count = sum(
+        not checks[(case.case.id, turn.turn_index)]["routing"]
+        for case, turn in routed_results
+    )
+    task_cases = [
+        case
+        for case in results
+        if case.case.turns[-1].expected_phase == "completed"
+        and case.case.turns[-1].expected_result_status
+        in {"success", "partial", "no_match"}
+    ]
+    task_completed = sum(
+        case_checks[case.case.id]["passed"] for case in task_cases
+    )
+    recovery_cases = [case for case in results if len(case.case.turns) > 1]
+    recovery_succeeded = sum(
+        case_checks[case.case.id]["passed"] for case in recovery_cases
+    )
+    api_errors = sum(
+        turn.observation.status == "error" for turn in turn_results
+    )
+    unnecessary_clarifications = sum(
+        turn.observation.status == "ok"
+        and turn.observation.phase == "waiting_user"
+        and turn.expected.expected_phase != "waiting_user"
+        for turn in turn_results
+    )
+    phase_correct = sum(
+        checks[(case.case.id, turn.turn_index)]["phase"]
+        for case in results
+        for turn in case.turns
+        if turn.observation.status == "ok"
+    )
+    action_correct = sum(
+        checks[(case.case.id, turn.turn_index)]["next_action"]
+        for case in results
+        for turn in case.turns
+        if turn.observation.status == "ok"
+    )
+    result_status_turns = [
+        (case, turn)
+        for case in results
+        for turn in case.turns
+        if turn.expected.expected_result_status is not None
+        and turn.observation.status == "ok"
+    ]
+    result_status_correct = sum(
+        checks[(case.case.id, turn.turn_index)]["result_status"]
+        for case, turn in result_status_turns
+    )
+    latencies = [turn.observation.client_elapsed_ms for turn in turn_results]
+
+    intent_accuracy = _ratio(intent_correct, len(successful_turns))
+    required_accuracy = _ratio(required_correct, len(required_turns))
+    wrong_tool_rate = _ratio(wrong_tool_count, len(routed_results))
+    task_completion_rate = _ratio(task_completed, len(task_cases))
+    recovery_rate = _ratio(recovery_succeeded, len(recovery_cases))
+    api_error_rate = _ratio(api_errors, len(turn_results))
+    passed_cases = sum(item["passed"] for item in case_checks.values())
+    case_pass_rate = _ratio(passed_cases, len(results))
+    gates = {
+        "case_pass_rate": _gate(
+            actual=case_pass_rate,
+            threshold=thresholds.min_case_pass_rate,
+            operator=">=",
+            evaluated=len(results),
+        ),
+        "intent_accuracy": _gate(
+            actual=intent_accuracy,
+            threshold=thresholds.min_intent_accuracy,
+            operator=">=",
+            evaluated=len(successful_turns),
+        ),
+        "required_input_accuracy": _gate(
+            actual=required_accuracy,
+            threshold=thresholds.min_required_input_accuracy,
+            operator=">=",
+            evaluated=len(required_turns),
+        ),
+        "wrong_tool_rate": _gate(
+            actual=wrong_tool_rate,
+            threshold=thresholds.max_wrong_tool_rate,
+            operator="<=",
+            evaluated=len(routed_results),
+        ),
+        "task_completion_rate": _gate(
+            actual=task_completion_rate,
+            threshold=thresholds.min_task_completion_rate,
+            operator=">=",
+            evaluated=len(task_cases),
+        ),
+        "recovery_rate": _gate(
+            actual=recovery_rate,
+            threshold=thresholds.min_recovery_rate,
+            operator=">=",
+            evaluated=len(recovery_cases),
+        ),
+        "api_error_rate": _gate(
+            actual=api_error_rate,
+            threshold=thresholds.max_api_error_rate,
+            operator="<=",
+            evaluated=len(turn_results),
+        ),
+    }
+
+    by_intent: dict[str, dict[str, Any]] = {}
+    for intent in (
+        "policy",
+        "device_price",
+        "tracking",
+        "delivery_time",
+        "postage",
+        "unknown",
+        "none",
+    ):
+        selected = [
+            (case, turn)
+            for case in results
+            for turn in case.turns
+            if (turn.expected.expected_intent or "none") == intent
+        ]
+        if not selected:
+            continue
+        passed = sum(
+            checks[(case.case.id, turn.turn_index)]["passed"]
+            for case, turn in selected
+        )
+        by_intent[intent] = {
+            "turns": len(selected),
+            "passed": passed,
+            "pass_rate": _ratio(passed, len(selected)),
+        }
+
+    by_category: dict[str, dict[str, Any]] = {}
+    for category in sorted({case.case.category for case in results}):
+        selected = [
+            case for case in results if case.case.category == category
+        ]
+        passed = sum(
+            case_checks[case.case.id]["passed"] for case in selected
+        )
+        by_category[category] = {
+            "cases": len(selected),
+            "passed": passed,
+            "pass_rate": _ratio(passed, len(selected)),
+        }
+
+    by_split: dict[str, dict[str, Any]] = {}
+    for split in sorted({case.case.split for case in results}):
+        selected = [case for case in results if case.case.split == split]
+        passed = sum(
+            case_checks[case.case.id]["passed"] for case in selected
+        )
+        by_split[split] = {
+            "cases": len(selected),
+            "turns": sum(len(case.case.turns) for case in selected),
+            "passed": passed,
+            "pass_rate": _ratio(passed, len(selected)),
+        }
+
+    return {
+        "quality_gate": {
+            "passed": all(item["passed"] for item in gates.values()),
+            "checks": gates,
+        },
+        "cases": {
+            "total": len(results),
+            "passed": passed_cases,
+            "pass_rate": case_pass_rate,
+            "incomplete": sum(
+                not item["all_turns_observed"]
+                for item in case_checks.values()
+            ),
+        },
+        "turns": {
+            "expected": expected_turns,
+            "observed": len(turn_results),
+            "successful": len(successful_turns),
+            "api_errors": api_errors,
+            "api_error_rate": api_error_rate,
+            "passed": sum(
+                value["passed"] for value in checks.values()
+            ),
+            "pass_rate": _ratio(
+                sum(value["passed"] for value in checks.values()),
+                expected_turns,
+            ),
+        },
+        "understanding": {
+            "intent_evaluated": len(successful_turns),
+            "intent_correct": intent_correct,
+            "intent_accuracy": intent_accuracy,
+            "required_input_evaluated": len(required_turns),
+            "required_input_correct": required_correct,
+            "required_input_accuracy": required_accuracy,
+            "unnecessary_clarifications": unnecessary_clarifications,
+            "unnecessary_clarification_rate": _ratio(
+                unnecessary_clarifications,
+                len(successful_turns),
+            ),
+        },
+        "routing": {
+            "result_routes_evaluated": len(routed_results),
+            "wrong_tool_count": wrong_tool_count,
+            "wrong_tool_rate": wrong_tool_rate,
+        },
+        "outcomes": {
+            "phase_accuracy": _ratio(
+                phase_correct, len(successful_turns)
+            ),
+            "next_action_accuracy": _ratio(
+                action_correct, len(successful_turns)
+            ),
+            "result_status_evaluated": len(result_status_turns),
+            "result_status_accuracy": _ratio(
+                result_status_correct, len(result_status_turns)
+            ),
+        },
+        "completion": {
+            "evaluated": len(task_cases),
+            "completed": task_completed,
+            "task_completion_rate": task_completion_rate,
+        },
+        "recovery": {
+            "evaluated": len(recovery_cases),
+            "successful": recovery_succeeded,
+            "recovery_rate": recovery_rate,
+        },
+        "efficiency": {
+            "turn_latency_ms": {
+                "p50": _percentile(latencies, 0.5),
+                "p95": _percentile(latencies, 0.95),
+            }
+        },
+        "by_intent": by_intent,
+        "by_category": by_category,
+        "by_split": by_split,
     }

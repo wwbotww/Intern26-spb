@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from types import MappingProxyType
 from typing import Any
 from uuid import UUID, uuid4
 
+from langgraph.errors import GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
@@ -13,7 +15,14 @@ from ..domain.agent_actions import (
     AgentResumeInput,
     TrackingResume,
 )
+from ..domain.agent_errors import AgentOperationError
+from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.intents import Intent
+from ..domain.tooling import ToolDescriptor
+from .tracing import (
+    WorkflowTraceSink,
+    build_agent_workflow_trace,
+)
 
 
 class AgentWorkflowRuntime:
@@ -85,7 +94,7 @@ class AgentWorkflowRuntime:
             yield event
 
 
-class TrackingAgentRuntime:
+class StatefulAgentRuntime:
     def __init__(
         self,
         graph: CompiledStateGraph,
@@ -95,7 +104,9 @@ class TrackingAgentRuntime:
         max_tool_calls: int = 1,
         max_retries: int = 1,
         request_timeout_seconds: float = 30,
+        capability_descriptors: Mapping[Intent, ToolDescriptor] | None = None,
         clock: Callable[[], datetime] | None = None,
+        workflow_trace_sink: WorkflowTraceSink | None = None,
     ) -> None:
         for name, value in {
             "recursion_limit": recursion_limit,
@@ -113,11 +124,19 @@ class TrackingAgentRuntime:
         self._max_tool_calls = max_tool_calls
         self._max_retries = max_retries
         self._request_timeout_seconds = request_timeout_seconds
+        self._capability_descriptors = MappingProxyType(
+            dict(capability_descriptors or {})
+        )
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._workflow_trace_sink = workflow_trace_sink
 
     @property
     def graph(self) -> CompiledStateGraph:
         return self._graph
+
+    @property
+    def capability_descriptors(self) -> Mapping[Intent, ToolDescriptor]:
+        return self._capability_descriptors
 
     def config(self, thread_id: str) -> dict[str, Any]:
         normalized = thread_id.strip()
@@ -145,7 +164,7 @@ class TrackingAgentRuntime:
         now = self._clock()
         if now.tzinfo is None:
             raise ValueError("clock 必须返回包含时区的 datetime")
-        result = await self._graph.ainvoke(
+        result = await self._invoke(
             {
                 "conversation_id": normalized_thread_id,
                 "turn_id": str(turn_id or uuid4()),
@@ -183,7 +202,7 @@ class TrackingAgentRuntime:
                 now + timedelta(seconds=self._request_timeout_seconds)
             ),
         )
-        result = await self._graph.ainvoke(
+        result = await self._invoke(
             Command(resume=payload.model_dump(mode="json")),
             config=self.config(thread_id),
         )
@@ -210,10 +229,125 @@ class TrackingAgentRuntime:
                 now + timedelta(seconds=self._request_timeout_seconds)
             ),
         )
-        return await self._graph.ainvoke(
+        return await self._invoke(
             Command(resume=payload.model_dump(mode="json")),
             config=self.config(thread_id),
         )
+
+    async def _invoke(
+        self,
+        payload: object,
+        *,
+        config: dict[str, Any],
+    ) -> Mapping[str, Any]:
+        before_state: Mapping[str, Any] | None = None
+        checkpoint_before = False
+        if self._workflow_trace_sink is not None:
+            before_state, checkpoint_before, _ = (
+                await self._read_trace_checkpoint(config)
+            )
+        resumed = isinstance(payload, Command)
+        try:
+            result = await self._graph.ainvoke(payload, config=config)
+        except GraphRecursionError as error:
+            await self._record_workflow_trace(
+                config=config,
+                before_state=before_state,
+                checkpoint_before=checkpoint_before,
+                resumed=resumed,
+                outcome_override="error",
+                failure_category=(
+                    FailureCategory.LOOP_BUDGET_EXCEEDED.value
+                ),
+                failure_code="graph_recursion_limit_exceeded",
+            )
+            raise AgentOperationError(
+                AgentFailure(
+                    category=FailureCategory.LOOP_BUDGET_EXCEEDED,
+                    code="graph_recursion_limit_exceeded",
+                    message="Workflow 超过允许的图执行步数",
+                )
+            ) from error
+        except AgentOperationError as error:
+            await self._record_workflow_trace(
+                config=config,
+                before_state=before_state,
+                checkpoint_before=checkpoint_before,
+                resumed=resumed,
+                outcome_override="error",
+                failure_category=error.failure.category.value,
+                failure_code=error.failure.code,
+            )
+            raise
+        except Exception:
+            await self._record_workflow_trace(
+                config=config,
+                before_state=before_state,
+                checkpoint_before=checkpoint_before,
+                resumed=resumed,
+                outcome_override="error",
+                failure_category=FailureCategory.INTERNAL_ERROR.value,
+                failure_code="workflow_unhandled_error",
+            )
+            raise
+        await self._record_workflow_trace(
+            config=config,
+            before_state=before_state,
+            checkpoint_before=checkpoint_before,
+            resumed=resumed,
+            fallback_output=result,
+        )
+        return result
+
+    async def _record_workflow_trace(
+        self,
+        *,
+        config: dict[str, Any],
+        before_state: Mapping[str, Any] | None,
+        checkpoint_before: bool,
+        resumed: bool,
+        fallback_output: Mapping[str, Any] | None = None,
+        outcome_override: str | None = None,
+        failure_category: str | None = None,
+        failure_code: str | None = None,
+    ) -> None:
+        sink = self._workflow_trace_sink
+        if sink is None:
+            return
+        try:
+            after_state, checkpoint_after, after_next = (
+                await self._read_trace_checkpoint(config)
+            )
+            trace = build_agent_workflow_trace(
+                before_state=before_state,
+                after_state=after_state,
+                after_next=after_next,
+                resumed=resumed,
+                checkpoint_before=checkpoint_before,
+                checkpoint_after=checkpoint_after,
+                fallback_output=fallback_output,
+                outcome_override=outcome_override,
+                failure_category=failure_category,
+                failure_code=failure_code,
+            )
+            sink(trace)
+        except Exception:
+            # Telemetry must never change the workflow outcome. The sink is
+            # intentionally synchronous and receives no prompts or state.
+            return
+
+    async def _read_trace_checkpoint(
+        self,
+        config: dict[str, Any],
+    ) -> tuple[Mapping[str, Any] | None, bool, tuple[str, ...]]:
+        try:
+            snapshot = await self._graph.aget_state(config)
+        except Exception:
+            return None, False, ()
+        values = snapshot.values
+        if not isinstance(values, Mapping):
+            return None, False, tuple(snapshot.next)
+        return dict(values), bool(values), tuple(snapshot.next)
 
     async def stream_events(
         self,
@@ -250,3 +384,8 @@ class TrackingAgentRuntime:
         )
         async for event in events:
             yield event
+
+
+# Phase 1 compatibility alias. New composition code uses the capability-neutral
+# name because the same runtime now hosts multiple query tools.
+TrackingAgentRuntime = StatefulAgentRuntime

@@ -3,16 +3,34 @@
 > 文档状态：`Proposed`，用于下一阶段设计评审、任务拆分和验收，不描述当前已上线能力。
 >
 > 起始设计基线：提交 `093e29d`；Phase 0–1 实现里程碑：提交 `07699e0`；
-> `assistant-api 0.3.2`、`chat-web 0.2.0`、`eval 0.3.0`。
+> `assistant-api 0.3.3`、`chat-web 0.2.0`、`eval 0.5.0`。
 >
-> 更新日期：2026-09-03。
+> 更新日期：2026-09-04。
 >
-> 实施进度：阶段 0、1、2 工程验证已完成，等待架构评审。当前包含锁定的
+> 实施进度：阶段 0、1、2、3A、4A～4D、5A 与本地 5B 已完成。当前包含锁定的
 > `langgraph 1.2.11` 与 `langgraph-checkpoint-sqlite 3.1.1`、正式 Agent StateGraph、
 > Fake Tracking Tool、五意图 Hybrid Understanding、跨轮合并与控制、
-> `AsyncSqliteSaver`、会话元数据/API 幂等/Tool 收据、TTL、并发门禁和 State 迁移；尚未
-> 挂载 V2 路由。Phase 2 新增测试 37 项，完整 Python 工作区测试 240 项通过。实现证据见
-> [Phase 2 说明](agent-kernel-phase2.md)。
+> `AsyncSqliteSaver`、会话元数据/API 幂等/Tool 收据、TTL、并发门禁和 State 迁移；
+> Phase 3A 又加入时限/资费类型化 Tool、共享单次 HTTP 边界、有界退避和能力级熔断；
+> Phase 4A 已实现显式依赖注入的 V2 JSON API、interrupt 投影、三层幂等、owner 隔离、
+> 外层 timeout 和会话删除；Phase 4B 已加入版本化 SSE、OpenAPI 前端类型生成、运行时
+> 校验、Stateful Web、结构化补槽/澄清、刷新恢复、领域 Renderer 与 lifespan factory；
+> Phase 4C 又加入独立 V2 readiness、低基数指标、脱敏 Run Trace 和 janitor 调度；
+> Phase 4D 通过 compatibility Adapter 复用 V1 政策/价格 Tool、共享结果合同并完成
+> 五能力本地闭环；Phase 5A 已增加只经 V2 HTTP 的多轮 Agent Eval、版本化 13 场景 /
+> 17 Turn fixture、Intent/补槽/路由/完成/恢复/API 错误指标和 CI 门禁；Phase 5B 已增加
+> checkpoint 增量语义 Trace、本地故障矩阵与严格同样本的 Agent 实验对比。默认生产
+> `main.app` 尚未挂载 V2，逐 Node 耗时 span 和真实接口 holdout 仍待完成。当前完整
+> Python 工作区 `308 passed`、Web `17 passed`，类型检查、production build 和
+> `uv lock --check` 通过。实现证据见
+> [Phase 2 说明](agent-kernel-phase2.md)、
+> [Phase 3A 说明](agent-kernel-phase3a.md)、
+> [Phase 4A 说明](agent-kernel-phase4a.md)、
+> [Phase 4B 说明](agent-kernel-phase4b.md)、
+> [Phase 4C 说明](agent-kernel-phase4c.md)、
+> [Phase 4D 说明](agent-kernel-phase4d.md)、
+> [Phase 5A 说明](agent-kernel-phase5a.md)与
+> [Phase 5B 说明](agent-kernel-phase5b.md)。
 >
 > 外部接口状态：轨迹、时限和资费接口尚未提供。本文中的字段、错误和时效策略为
 > 领域侧预留，最终以接口契约评审结果为准。
@@ -56,8 +74,9 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 | 0 | 冻结领域契约并完成 LangGraph 技术验证 | ADR、最小 Spike、V2 草案通过评审 | 无外部接口依赖 |
 | 1 | 建立 LangGraph Agent Kernel 和 Fake 轨迹垂直切片 | 图编译、补槽中断/恢复、单工具执行和预算测试通过 | 阶段 0 |
 | 2 | Hybrid Understanding 与持久化 Checkpointer | 五类意图、多轮、进程重启恢复和隐私门禁通过 | 阶段 1、模型配置可选 |
-| 3 | 接入三类真实查询接口 | Adapter 合同、失败注入和测试环境烟测通过 | 外部接口与测试凭据 |
-| 4 | 发布 V2 API 和 Agent Web | 五类 Renderer、JSON/SSE、取消与恢复通过 | 阶段 1～3 |
+| 3A | 建立接口无关的 Gateway、HTTP 与可靠性基础 | 三意图 Fake/Mock 合同和故障路径通过 | 阶段 2；已完成 |
+| 3B | 接入三类真实查询接口 | Adapter 合同、失败注入和测试环境烟测通过 | 外部接口与测试凭据 |
+| 4 | 发布 V2 API 和 Agent Web | 五类 Renderer、JSON/SSE、取消与恢复通过 | 阶段 1～3B |
 | 5 | 建立 Agent Eval、Trace 和质量门禁 | 基线报告、错误分析和可定位 Trace 完成 | 阶段 2～4 |
 | 6 | 部署硬化并固化求职材料 | 回滚演练、全量验证、真实指标回填完成 | 阶段 5 |
 
@@ -125,7 +144,7 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 | `ToolRegistry` 固定映射模式到工具 | 白名单路由和单工具约束 | 缺少 Tool Descriptor、输入/输出 schema 和失败策略 |
 | `ToolResult` 提供公共状态与 Evidence | 公共响应、警告、缺失字段 | 轨迹时间线、时限和报价不适合强行建模为 Evidence |
 | Web 保存页面内消息 | SSE、取消请求、现有证据展示 | 服务端无 workflow state，组件缺少类型化 renderer |
-| Eval 黑盒调用单轮 API | HTTP 客户端、报告与基础指标 | 缺少多轮脚本、状态转换、错误恢复和 Agent Trace 指标 |
+| Eval 0.4 已调用 V2 多轮 API | HTTP 客户端、门禁、报告与 review queue | 缺少系统化故障集、Agent 报告对比和细粒度 Trace |
 | Assistant 已有鉴权、限流和指标 | 可直接保护 V2 路由 | 需要会话级并发、幂等、TTL 和隐私策略 |
 
 因此，下一阶段不是简单地给 `QueryMode` 添加三个值，而是在现有 Dispatcher 前增加
@@ -591,6 +610,10 @@ LangGraph Checkpointer 是单会话工作状态的唯一事实源：图编译时
 
 ```python
 class ConversationMetadataRepository(Protocol):
+    async def create_idempotently(
+        self, principal: Principal, key: str, request_hash: str
+    ) -> ConversationMetadata: ...
+
     async def authorize(self, conversation_id: UUID, principal: Principal) -> bool: ...
 
     async def claim_idempotency(
@@ -627,6 +650,8 @@ Tool 调用的执行收据由独立 `ToolExecutionRepository` 管理，避免把
 ### 8.4 幂等与并发
 
 - V2 写入型消息接口要求 `Idempotency-Key`；
+- 新会话先以 `(owner_id, idempotency_key)` 和 request hash 原子绑定服务端随机
+  `conversation_id`，使 `conversation_id=null` 的首次调用也能跨重启安全重放；
 - `(conversation_id, idempotency_key)` 对应唯一处理结果；
 - 相同 key 但不同 request hash 返回冲突，不复用旧结果；
 - 同一会话只允许一个活跃 Graph Run，避免两个请求同时从同一 checkpoint 分叉；
@@ -712,33 +737,35 @@ LangGraph Node；因此重试循环会消耗新的 Step，普通的 ingest/valid
 
 ```python
 class TrackingGateway(Protocol):
-    async def query(self, command: TrackingCommand) -> TrackingResult: ...
+    async def query(self, command: TrackingCommand) -> TrackingData | None: ...
 
 
 class DeliveryTimeGateway(Protocol):
     async def query(
         self,
         command: DeliveryTimeCommand,
-    ) -> DeliveryTimeResult: ...
+    ) -> DeliveryTimeData | None: ...
 
 
 class PostageGateway(Protocol):
-    async def quote(self, command: PostageCommand) -> PostageResult: ...
+    async def quote(self, command: PostageCommand) -> PostageData | None: ...
 ```
 
 三个 Gateway 分别表达领域边界。若它们来自同一套外部服务，可在 Adapter 层共享
 连接池、认证、Request ID、超时和响应解码，但不能合并成一个接收任意字典的接口。
+`None` 只表达经过成功调用确认的业务空结果；异常必须映射为 `AgentFailure`。以上 Port
+与时限/资费 Tool 已在 Phase 3A 实现，真实 wire mapping 仍属于 Phase 3B。
 
 ### 10.2 预留输出
 
 ```text
-TrackingResult
+TrackingData
   mail_no
   current_status
   events[event_code, description, occurred_at, location]
   queried_at
 
-DeliveryTimeResult
+DeliveryTimeData
   origin
   destination
   estimated_duration
@@ -747,7 +774,7 @@ DeliveryTimeResult
   estimate_basis
   queried_at
 
-PostageResult
+PostageData
   origin
   destination
   product_code
@@ -1079,21 +1106,29 @@ prompt_version
 | Failure Injection | 评测超时、限流、5xx、非法 JSON、契约漂移、checkpoint 故障和节点重放 |
 | Safety | 评测 Prompt Injection、越权工具和敏感信息日志 |
 
-### 15.2 黑盒多轮样本草案
+### 15.2 黑盒多轮样本
+
+> Phase 5A 已将本节草案实现为 `eval/datasets/agent-workflow-v1.jsonl`、独立 schema 和
+> `/v2/agent/messages` Runner。以下字段以当前公开数据集为准。
 
 ```json
 {
   "id": "tracking_missing_number",
+  "category": "multi_turn_slot_fill",
   "turns": [
     {
-      "user": "帮我查一下邮件",
-      "expect_action": "collect_slots",
-      "expect_missing_slots": ["mail_no"]
+      "message": "帮我查一下邮件",
+      "expected_phase": "waiting_user",
+      "expected_intent": "tracking",
+      "expected_next_action": "collect_slots",
+      "expected_required_inputs": ["mail_no"]
     },
     {
-      "user": "1234567890123",
-      "expect_tool": "tracking",
-      "expect_finish_reason": "stop"
+      "message": "1234567890123",
+      "expected_phase": "completed",
+      "expected_intent": "tracking",
+      "expected_next_action": "complete",
+      "expected_result_status": "success"
     }
   ]
 }
@@ -1105,15 +1140,21 @@ Eval 只调用 V2 HTTP，不读取 checkpointer / Metadata Repository，也不�
 
 ### 15.3 初始质量门禁
 
-这些门禁用于首个代表性评测集，完成数据标注后允许通过 ADR 调整：
+Phase 5A 已将可由公开 V2 响应计算的指标实现为 CLI 门禁；完成代表性数据标注后允许
+通过 ADR 调整。Macro-F1、Slot F1、故障和安全门禁仍需要后续数据集：
 
 | 指标 | 初始门禁 |
 | --- | ---: |
-| Intent Macro-F1 | `>= 0.90` |
-| 关键实体 Slot F1 | `>= 0.90` |
-| 已明确意图的 Wrong Tool Rate | `0` |
-| 正常场景 Task Completion Rate | `>= 0.85` |
-| 不必要澄清率 | `<= 0.10` |
+| Golden 场景通过率 | `1.00` |
+| Intent Accuracy | `>= 0.95` |
+| Required Input Accuracy | `>= 0.95` |
+| Wrong Tool Rate | `0` |
+| Task Completion Rate | `>= 0.90` |
+| 多轮 Recovery Rate | `>= 0.90` |
+| API Error Rate | `0` |
+| 代表性 Intent Macro-F1 | `>= 0.90`（待实现） |
+| 关键实体 Slot F1 | `>= 0.90`（待实现） |
+| 不必要澄清率 | `<= 0.10`（已报告，尚未成为 CLI gate） |
 | Golden Failure Recovery | 全部符合预期状态 |
 | Golden Interrupt / Resume | 全部恢复到预期状态 |
 | 重放或重复请求导致的额外 Tool Call | `0` |
@@ -1321,17 +1362,53 @@ eval/src/spb_eval/
 - 明确意图 Wrong Tool Rate 为 0；
 - 日志和指标不出现完整邮件号。
 
-### 阶段 3：真实轨迹、时限和资费 Adapter
+### 阶段 3A：接口契约前置基础
+
+目标：在不虚构供应商字段的前提下，先完成可独立验证的 Gateway、类型化工具与可靠性
+基础，使真实接口到达后只需补 wire mapping 和配置，而不改动 Agent 核心路由。
+
+> 实施状态（2026-09-04）：工程验证已完成。实现与限制见
+> [Phase 3A：接口契约前置的 Gateway 与可靠性基础](agent-kernel-phase3a.md)。
+
+工作内容：
+
+- 增加 `DeliveryTimeGateway`、`PostageGateway` 与对应类型化 Tool；
+- 让 Workflow Policy 从完整槽位构造时限/资费 Command，并支持可选能力注册；
+- 对可执行地区、重量、路线、查询时间和报价输入建立结果不变量；
+- 建立单次网络尝试的共享 HTTP Client，统一 Request ID、TLS、连接池、超时、
+  响应大小和基础错误分类；
+- 在 LangGraph `recover` 节点实现有界指数退避、确定性 jitter 和受限
+  `Retry-After`；
+- 实现单进程、按 capability 隔离的 Circuit Breaker；
+- 通过 Fake Gateway 与 MockTransport 验证成功、空结果、契约失败、限流、超时、
+  熔断隔离和半开恢复。
+
+交付物：
+
+- 三个独立 Gateway Port 与三个类型化查询 Tool；
+- 共享 HTTP、Retry Schedule 和 Circuit Breaker 基础组件；
+- Phase 3A 合同/故障测试；
+- [Phase 3A 实现证据](agent-kernel-phase3a.md)。
+
+验收标准：
+
+- 时限和资费均可通过同一 StateGraph 到达唯一正确的 Fake Tool；
+- HTTP Client 自身不重试，Graph 是唯一重试预算所有者；
+- `no_match`、瞬态失败和契约失败保持不同语义；
+- 一个能力熔断不阻塞其他能力，半开探测取消后可继续恢复；
+- 未确认的 URL、认证、业务码和 wire 字段不进入实现。
+
+### 阶段 3B：真实轨迹、时限和资费 Adapter
 
 前置条件：取得并评审三类外部接口契约、凭据管理方式和测试环境。
 
 工作内容：
 
 - 为每个接口建立请求/响应契约 fixture；
-- 实现共享 HTTP Client 和三个领域 Gateway；
+- 基于 Phase 3A 共享 HTTP Client 实现三个真实领域 Gateway Adapter；
 - 映射认证、Request ID、超时、限流和错误码；
 - 增加响应 schema 与领域语义校验；
-- 加入有限重试、jitter 和按能力熔断；
+- 按真实 SLA 校准有限重试、jitter 和按能力熔断参数；
 - 建立 MockTransport 合同测试和测试环境烟测；
 - 根据真实接口修订 provisional slots 和结果字段。
 
@@ -1355,17 +1432,66 @@ eval/src/spb_eval/
 
 目标：提供用户可操作的完整 Agent 对话体验。
 
+> Phase 4A（2026-09-04）已完成 JSON 传输切片：V2 仅在显式注入 Agent Service 与
+> Descriptor 时挂载，默认 V1 不变；实现能力发现、创建/推进、interrupt 投影、随机
+> 会话创建收据、消息/Tool 幂等、owner 隔离、会话删除、外层 timeout 和错误映射。
+> 9 个新增 API 集成测试、1 个架构合同测试及完整 `272 passed` 证据见
+> [Phase 4A 实现说明](agent-kernel-phase4a.md)。在该里程碑时，SSE、Web、正式
+> composition root 与默认发布仍属于 Phase 4B。
+>
+> Phase 4B 交互切片（2026-09-04）已完成版本化 SSE、生成类型、运行时 schema gate、
+> 五入口 Web、interrupt/多意图控件、刷新恢复、幂等重试、类型化 Renderer 和 lifespan
+> factory。本地浏览器已端到端验证三个 Fake 物流能力；V1 政策/价格 Agent Adapter、
+> V2 readiness/metrics/trace 与默认生产发布在该里程碑时仍未完成。证据见
+> [Phase 4B 实现说明](agent-kernel-phase4b.md)。
+>
+> Phase 4C 运维基础（2026-09-04）已完成 V2 readiness、固定低基数 Agent 指标、脱敏
+> Run Trace 与 lifespan janitor 调度；默认生产挂载、V1 Tool Adapter、多副本和完整
+> node/edge Trace 仍未完成。证据见
+> [Phase 4C 实现说明](agent-kernel-phase4c.md)。
+>
+> Phase 4D 能力复用切片（2026-09-04）已完成 V1 Policy/Device Tool compatibility
+> Adapter、共享结果合同、完整 Evidence/Provenance 投影、五能力无网络 Demo 和 Web
+> 证据卡片。默认生产挂载、真实物流 Adapter 与多副本运行仍未完成。证据见
+> [Phase 4D 实现说明](agent-kernel-phase4d.md)。
+
 工作内容：
 
 - 实现 `/v2/agent/capabilities`、`messages` 和 reset；
 - 实现 JSON 与 SSE 协议、幂等头、interrupt 投影和状态错误映射；
-- 由 Runtime Adapter 消费 LangGraph 事件流，转换为稳定的 V2 SSE 事件，不直接暴露
-  内部 node 名或 Graph State；
+- 由 API Projection 把公开停止态转换为稳定的 V2 SSE 事件，不直接暴露内部 node 名、
+  Graph State 或原始 `astream_events`；后续 token 流仍经过同一投影层；
 - Web 增加五类入口、自由输入和补槽交互；
 - 拆分类型化 Result Renderer；
 - 加入取消、重新开始、网络恢复和会话过期提示；
 - 从 OpenAPI 生成前端类型并进行运行时事件校验；
 - 保持 V1 页面或回退能力直到 V2 验收完成。
+
+Phase 4B 已完成的交互内容：
+
+- 定义并实现版本化 SSE 投影、断流与重连语义；
+- 从 OpenAPI 生成前端类型并增加运行时事件校验；
+- 实现 Agent Web 五入口、补槽控件、会话恢复/清理与类型化 Renderer；
+- 增加 lifespan dependency factory 和纯本地 Fake composition root。
+
+Phase 4C 已完成的生产化基础：
+
+- 增加独立 V2 readiness，并区分关键依赖失败与 janitor 降级；
+- 增加按 transport/outcome/intent/failure category 聚合的低基数指标；
+- 增加不含 prompt、槽位值、结果 data 和 Graph State 的脱敏 Run Trace；
+- 将 janitor 的启动、周期执行、timeout 和关闭纳入 FastAPI lifespan。
+
+Phase 4D 已完成的能力复用内容：
+
+- 复用 V1 Policy/Device Tool 和统一结果合同，不复制 RAG 与价格匹配实现；
+- 把 V1 状态、Evidence、Provenance 和错误投影为类型化 Agent 契约；
+- 补齐 LangGraph Policy 的两类 Command 构造与五能力白名单路由；
+- 扩展无网络 Demo 和 Agent Web 的政策/价格完整证据展示。
+
+阶段 4 剩余内容：
+
+- 明确默认生产挂载、Compose 构建开关和灰度/回退策略；
+- 在真实 Adapter 可用后完成五类工具的端到端验收。
 
 交付物：
 
@@ -1386,6 +1512,19 @@ eval/src/spb_eval/
 
 目标：用可复现证据说明 Agent 不只是“能演示”，还可度量、可定位和可恢复。
 
+> Phase 5A（2026-09-04）已完成多轮黑盒评测切片：Eval 只经公开 V2 HTTP，场景间
+> 并发、场景内复用 conversation 顺序推进；冻结 13 场景/17 Turn 数据集，输出 Intent、
+> Required Input、Wrong Tool、Task Completion、Recovery、API Error 和延迟指标，并以
+> 独立 response schema、review queue、dataset SHA256 与 `--fail-on-gate` 建立质量门禁。
+> 本地 fixture 七项门禁全部通过，但不代表生产准确率。证据见
+> [Phase 5A 实现说明](agent-kernel-phase5a.md)。
+>
+> Phase 5B（2026-09-04）已完成本地可靠性切片：从 LangGraph checkpoint 的语义审计
+> 事件构造固定白名单 node/edge/interrupt/resume/checkpoint/retry Trace；建立 timeout、
+> 契约漂移、Loop Budget、并发冲突、重放与重启恢复矩阵；Eval 新增要求 dataset hash、
+> Gold 和门禁一致的 `agent-compare` 及逐 Turn 差异报告。证据见
+> [Phase 5B 实现说明](agent-kernel-phase5b.md)。
+
 工作内容：
 
 - 扩展 Eval 的 Agent 多轮 dataset、client、runner、metrics 和 reporting；
@@ -1395,6 +1534,31 @@ eval/src/spb_eval/
 - 建立 checkpoint 恢复、interrupt 重放、图步数耗尽和 Tool 幂等故障注入；
 - 对规则门槛和 Structured LLM fallback 做 baseline/experiment 对比；
 - 生成 review queue，人工检查误路由和不必要澄清。
+
+Phase 5A 已完成：
+
+- Agent 多轮 dataset、V2 HTTP client、runner、metrics 和 reporting；
+- 场景级并发、Turn 级顺序恢复以及不含业务正文的幂等键；
+- 七项可配置门禁、失败仍落盘的 CI 退出语义和人工 review queue；
+- 五意图、本地补槽/多意图恢复、无结果、信息不足、Handoff 与控制命令基线；
+- Eval 不导入 Assistant 实现的架构测试与可提交精简 baseline artifact。
+
+Phase 5B 本地可靠性切片已完成：
+
+- timeout、429、5xx、非法 JSON、状态冲突、Loop Budget、checkpoint/interrupt 重放与
+  SQLite 重启恢复测试矩阵；
+- 不转发 LangGraph debug event 的白名单语义 Trace，可区分 Node、推导 Edge、
+  interrupt/resume、checkpoint 与 Tool retry；
+- conversation/turn 哈希引用、64 事件上限、非法 detail 丢弃和 best-effort Sink；
+- 严格验证 dataset SHA256、Gold 标签及门禁一致性的 Agent baseline/experiment 对比；
+- 核心指标方向和逐 Turn regression/improvement JSON/Markdown 报告。
+
+阶段 5 剩余内容：
+
+- 逐 Node wall-clock span、采样策略、OpenTelemetry exporter 与 Dashboard；
+- 真实接口 Fault Gateway 的限流、超时、契约漂移和恢复率报告；
+- Structured Model 规则 baseline / 模型 experiment 的代表性 holdout 报告；
+- 多副本共享 checkpointer 的冲突、恢复和 Tool 幂等演练。
 
 交付物：
 
@@ -1544,10 +1708,10 @@ eval/src/spb_eval/
 | ADR-004 Checkpoint and Memory Boundary | 为什么 thread checkpoint、元数据、RAG 和长期记忆分开 |
 | ADR-005 Failure Taxonomy | 为什么 `no_match`、技术失败和契约失败必须分开 |
 | [ADR-006 Typed Tool Routing](adr/0006-typed-tool-routing.md) | 为什么模型不直接选择任意工具和参数 |
-| ADR-007 V1/V2 Compatibility | 为什么保留单轮接口并新增 Agent 契约 |
-| ADR-008 Evaluation Gates | 如何证明路由、恢复和状态机行为可靠 |
+| [ADR-007 V1/V2 Compatibility](adr/0007-v1-v2-api-compatibility.md) | 为什么保留单轮接口并显式装配 Agent 契约 |
+| [ADR-008 Evaluation Gates](adr/0008-agent-evaluation-gates.md) | 如何证明路由、恢复和状态机行为可靠 |
 
-前六篇已写入 [`docs/adr/`](adr/README.md)；ADR-007～008 随对应阶段落地。ADR 与最终
+八篇均已写入 [`docs/adr/`](adr/README.md)；ADR 与最终
 评测报告共同构成下一阶段最重要的工程和面试证据。
 
 ## 23. LangGraph 实施参考

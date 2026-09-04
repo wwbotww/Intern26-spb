@@ -76,12 +76,12 @@ export class ChatApiError extends Error {
   }
 }
 
-interface RawSseEvent {
+export interface RawSseEvent {
   event: string
   data: unknown
 }
 
-function parseSseBlock(block: string): RawSseEvent | null {
+export function parseSseBlock(block: string): RawSseEvent | null {
   let event = 'message'
   const data: string[] = []
 

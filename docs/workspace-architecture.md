@@ -1,7 +1,7 @@
 # Workspace 架构与模块边界
 
 > 当前实现基线：`offline-pipeline 0.2.0`、`rag-api 0.5.1`、
-> `assistant-api 0.3.2`、`chat-web 0.2.0`、`eval 0.3.0`。本文只描述已实现边界。
+> `assistant-api 0.3.3`、`chat-web 0.2.0`、`eval 0.5.0`。本文只描述已实现边界。
 
 ## 目标
 
@@ -18,6 +18,7 @@ flowchart LR
     W["apps/chat-web"] -->|"HTTP POST + SSE"| A
     E["eval"] -->|"RAG 专项 HTTP 评估"| R
     E -->|"Assistant HTTP 评估"| A
+    E -->|"Agent V2 多轮 HTTP 评估"| A
     A["apps/assistant-api<br/>单轮工具编排"]
     A -->|"内部 HTTP"| R
     A -->|"只读 SELECT"| P["设备价格 MySQL"]
@@ -75,12 +76,23 @@ Core + PyMySQL 参数化查询和 RapidFuzz 候选排序；连接会话强制只
 `assistant-api` 是当前 `chat-web` 的唯一 API 上游。跨应用只使用 HTTP 或数据库
 适配器，不得导入其他应用实现。请求不接受对话历史，服务不保存会话。
 
-代码库已在 `assistant-api` 隔离路径完成阶段 1–2 LangGraph Agent 工程切片：Domain 契约
+代码库已在 `assistant-api` 隔离路径完成阶段 1–2、3A、4A～4D 与本地 5B，独立
+`eval` 已完成 Phase 5A/5B：Domain 契约
 和纯 Policy 不依赖框架，Application Service 提供 Hybrid Understanding、Region
 Resolver、Slot Merger 和白名单工具执行，Workflow Runtime 负责编排、interrupt/resume、
 会话串行化与生命周期，Adapter 提供 Fake Tool、`AsyncSqliteSaver`、元数据/API 幂等和
-Tool 收据。该图尚未挂载到 FastAPI；因此当前运行拓扑、`/v1` 单轮语义和
-`memory=disabled` 健康状态保持不变。LangGraph import 继续由架构测试限制在 Workflow
+Tool 收据，以及接口无关的单次 HTTP Client 与能力级熔断。时限/资费已能通过 Fake
+Gateway 执行，真实 wire Adapter 尚未实现。Phase 4A/4B 提供只依赖窄化 Service Protocol
+和 Descriptor 的 V2 JSON/SSE HTTP Adapter；稳定事件投影不暴露 Graph 内部状态，
+lifespan factory 负责 SQLite Agent 组件启停。Phase 4C 在该边界内增加只读 schema
+readiness probe、固定标签指标、脱敏停止态 Run Trace 和共享 coordinator 的 janitor
+调度。Phase 4D 再以兼容 Adapter 借用现有政策/价格 Tool；它对被包装工具只依赖
+`AssistantTool` Port，共享 V1 结果合同并投影完整 Evidence。本地 Demo 因而可验证
+五能力路由，同时不复制 RAG 或价格匹配逻辑。Phase 5B 从 checkpoint 审计事件构造
+固定白名单的 node/edge/interrupt/resume/retry Trace；日志层只保留哈希会话引用。
+只有 composition root 显式注入 Agent
+依赖时才挂载。默认 `main.app` 不注入，因此当前运行拓扑、`/v1` 单轮语义和 `memory=disabled`
+健康状态保持不变。LangGraph import 继续由架构测试限制在 Workflow
 Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单进程恢复能力。
 
 ### `apps/chat-web`
@@ -88,14 +100,17 @@ Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单进程恢复�
 职责：
 
 - 提供 Vue 3 单页问答界面；
-- 先由用户显式选择政策或设备价格查询类别；
-- 通过 POST SSE 展示状态、答案、分类证据、信息缺口和错误；
+- 默认保留 V1 政策/设备价格显式模式页面；构建时可显式启用 V2 Agent 页面；
+- V2 页面从 OpenAPI 生成类型，通过运行时校验消费版本化 SSE；
+- 提供五类能力入口、自由输入、意图澄清、结构化补槽和幂等断流重试；
 - 由开发代理或 Nginx 同源代理调用 `assistant-api`；
-- 政策证据显示原文引用，价格证据显示结构化候选卡片；
-- 仅保留页面内消息记录，不承担检索、生成或持久化职责。
+- V1/V2 政策证据均显示原文引用，价格证据均显示结构化候选卡片；V2 使用领域 Renderer；
+- `localStorage` 只保留公开 UI 快照、conversation ID 和未完成幂等键，服务端状态仍由
+  LangGraph checkpoint 持有。
 
 它不加入 Python `uv` workspace，不导入任何 Python 应用，也不直连 Milvus 或
-DeepSeek。当前 API 没有会话历史契约，因此界面中的连续消息仍按单轮请求处理。
+DeepSeek。V1 连续消息仍按单轮请求处理；V2 会话只通过公开 HTTP 契约继续，Web 不读取
+checkpoint 或导入 Python 实现。
 
 ### `packages/contracts`
 
@@ -113,11 +128,15 @@ DeepSeek。当前 API 没有会话历史契约，因此界面中的连续消息�
 
 - 加载人工标注 JSONL 评估集；
 - 以真实客户端方式调用 RAG 或 Assistant 的 `/v1/chat`，以及 RAG
-  `/v1/retrieve`；
+  `/v1/retrieve`；通过 `/v2/agent/messages` 顺序推进多轮 conversation；
 - 计算 RAG 召回/门槛/引用/事实覆盖，以及 Assistant 路由、状态、证据、价格
   候选、延迟和吞吐指标；
 - 离线扫描 reranker 阈值并对比 baseline/experiment；
 - 生成失败样本人工复核队列；
+- 计算 Agent Intent、Required Input、Wrong Tool、Task Completion、Recovery、API
+  Error 与延迟，并输出机器可读质量门禁；
+- 仅在 dataset hash、Gold 标签和门禁阈值一致时，对 Agent baseline/experiment 输出
+  指标及逐 Turn 回归；
 - 生成本地 JSON、JSONL 和 Markdown 报告。
 
 它不得导入 `spb_rag_api`、`spb_assistant_api` 或 `spb_pipeline`，不得直连
@@ -142,8 +161,9 @@ spb-assistant-api -> spb-rag-api / spb-policy-pipeline
 spb-contracts -> 任一应用
 ```
 
-`apps/rag-api/tests/test_architecture.py` 会扫描各 Python 包的 import，阻止
-在线、离线和 Assistant 应用相互导入，也阻止 contracts 反向依赖任一应用。
+`apps/rag-api/tests/test_architecture.py` 会扫描各 Python 包的 import，阻止在线、离线和
+Assistant 应用相互导入，也阻止 contracts 反向依赖任一应用；Phase 5A Eval 测试额外
+阻止 `eval` 导入 Assistant 实现。
 
 ## 运行和发布边界
 

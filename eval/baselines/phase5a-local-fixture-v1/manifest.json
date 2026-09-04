@@ -1,0 +1,78 @@
+{
+  "capabilities": [
+    "policy",
+    "device_price",
+    "tracking",
+    "delivery_time",
+    "postage"
+  ],
+  "dataset": "eval/datasets/agent-workflow-v1.jsonl",
+  "dataset_sha256": "12a42ff261085a4f00dba308525b9cc0720c377ac02f4ec3ddb8c03cf6b12298",
+  "generated_at": "2026-09-04T08:39:51.462102+00:00",
+  "git_revision": "186208fa0a26d96f5821366d49b7beb954c07ae8-dirty",
+  "label": "phase5a-local-fixture",
+  "limitations": [
+    "deterministic local fixtures",
+    "fake shipping gateways",
+    "local SQLite",
+    "not a production accuracy claim"
+  ],
+  "metrics": {
+    "api_error_rate": {
+      "evaluated": 17,
+      "value": 0.0
+    },
+    "case_pass_rate": {
+      "evaluated": 13,
+      "value": 1.0
+    },
+    "intent_accuracy": {
+      "evaluated": 17,
+      "value": 1.0
+    },
+    "recovery_rate": {
+      "evaluated": 4,
+      "value": 1.0
+    },
+    "required_input_accuracy": {
+      "evaluated": 4,
+      "value": 1.0
+    },
+    "task_completion_rate": {
+      "evaluated": 10,
+      "value": 1.0
+    },
+    "turn_latency_ms": {
+      "evaluated": 17,
+      "p50": 47.589,
+      "p95": 66.972
+    },
+    "wrong_tool_rate": {
+      "evaluated": 11,
+      "value": 0.0
+    }
+  },
+  "quality_gate_passed": true,
+  "scenario_count": 13,
+  "service_version": "0.3.2",
+  "splits": {
+    "calibration": {
+      "cases": 7,
+      "turns": 7
+    },
+    "holdout": {
+      "cases": 6,
+      "turns": 10
+    }
+  },
+  "thresholds": {
+    "max_api_error_rate": 0.0,
+    "max_wrong_tool_rate": 0.0,
+    "min_case_pass_rate": 1.0,
+    "min_intent_accuracy": 0.95,
+    "min_recovery_rate": 0.9,
+    "min_required_input_accuracy": 0.95,
+    "min_task_completion_rate": 0.9
+  },
+  "turn_count": 17
+}

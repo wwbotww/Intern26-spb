@@ -23,7 +23,7 @@ from ..domain.ports import (
     ToolExecutionRepository,
 )
 from .migrations import AgentStateMigrator
-from .runtime import TrackingAgentRuntime
+from .runtime import StatefulAgentRuntime
 
 
 class AsyncThreadCheckpointer(Protocol):
@@ -58,13 +58,15 @@ class ConversationRunCoordinator:
 
 
 class StatefulAgentService:
-    """Metadata, TTL, idempotency and graph-run boundary for phase 2."""
+    """Conversation lifecycle, idempotency and graph-run boundary."""
 
     def __init__(
         self,
         *,
-        runtime: TrackingAgentRuntime,
+        runtime: StatefulAgentRuntime,
         metadata: ConversationMetadataRepository,
+        tool_receipts: ToolExecutionRepository | None = None,
+        checkpointer: AsyncThreadCheckpointer | None = None,
         coordinator: ConversationRunCoordinator | None = None,
         ttl: timedelta = timedelta(minutes=30),
         clock: Callable[[], datetime] | None = None,
@@ -74,6 +76,8 @@ class StatefulAgentService:
             raise ValueError("conversation TTL 必须大于 0")
         self._runtime = runtime
         self._metadata = metadata
+        self._tool_receipts = tool_receipts
+        self._checkpointer = checkpointer
         self._coordinator = coordinator or ConversationRunCoordinator()
         self._ttl = ttl
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -86,15 +90,114 @@ class StatefulAgentService:
         conversation_id: UUID | None = None,
     ) -> ConversationMetadata:
         now = self._now()
-        metadata = ConversationMetadata(
-            conversation_id=conversation_id or uuid4(),
-            owner_id=owner_id,
-            created_at=now,
-            updated_at=now,
-            expires_at=now + self._ttl,
+        resolved_id = conversation_id or uuid4()
+        async with self._coordinator.claim(resolved_id):
+            existing = await self._metadata.get(resolved_id)
+            if existing is not None:
+                if (
+                    existing.owner_id != owner_id
+                    or existing.status is not ConversationStatus.ACTIVE
+                    or existing.expires_at <= now
+                ):
+                    raise _state_conflict(
+                        "conversation_not_available",
+                        "会话不存在或不可访问",
+                    )
+                return existing
+            metadata = ConversationMetadata(
+                conversation_id=resolved_id,
+                owner_id=owner_id,
+                created_at=now,
+                updated_at=now,
+                expires_at=now + self._ttl,
+            )
+            await self._metadata.create(metadata)
+            return metadata
+
+    async def create_conversation_idempotently(
+        self,
+        *,
+        owner_id: str,
+        idempotency_key: str,
+        request_hash: str,
+    ) -> ConversationMetadata:
+        now = self._now()
+        metadata = await self._metadata.create_idempotently(
+            metadata=ConversationMetadata(
+                conversation_id=uuid4(),
+                owner_id=owner_id,
+                created_at=now,
+                updated_at=now,
+                expires_at=now + self._ttl,
+            ),
+            key=idempotency_key,
+            request_hash=request_hash,
         )
-        await self._metadata.create(metadata)
+        if (
+            metadata.owner_id != owner_id
+            or metadata.status is not ConversationStatus.ACTIVE
+            or metadata.expires_at <= now
+        ):
+            raise _state_conflict(
+                "conversation_not_available",
+                "会话不存在或不可访问",
+            )
         return metadata
+
+    async def send_message(
+        self,
+        *,
+        conversation_id: UUID,
+        owner_id: str,
+        idempotency_key: str,
+        message: str | None = None,
+        explicit_intent: Intent | None = None,
+        confirm_overwrite: bool = False,
+    ) -> Mapping[str, Any]:
+        """Start a turn or resume an interrupt behind one stable API method."""
+
+        payload = {
+            "operation": "send_message",
+            "message": message,
+            "explicit_intent": (
+                explicit_intent.value if explicit_intent else None
+            ),
+            "confirm_overwrite": confirm_overwrite,
+        }
+
+        async def run() -> Mapping[str, Any]:
+            snapshot = await self._runtime.graph.aget_state(
+                self._runtime.config(str(conversation_id))
+            )
+            if snapshot.values.get("phase") == "waiting_user":
+                return await self._runtime.resume(
+                    thread_id=str(conversation_id),
+                    message=message,
+                    selected_intent=explicit_intent,
+                    confirm_overwrite=confirm_overwrite,
+                )
+            if message is None:
+                raise AgentOperationError(
+                    AgentFailure(
+                        category=FailureCategory.INVALID_INPUT,
+                        code="message_required_for_new_turn",
+                        message="开始新一轮查询必须提供 message",
+                    )
+                )
+            return await self._runtime.start(
+                thread_id=str(conversation_id),
+                message=message,
+                explicit_intent=explicit_intent,
+            )
+
+        return await self._run_idempotently(
+            conversation_id=conversation_id,
+            owner_id=owner_id,
+            idempotency_key=idempotency_key,
+            request_hash=request_fingerprint(payload),
+            operation=run,
+            validate_checkpoint=True,
+        )
 
     async def start(
         self,
@@ -156,6 +259,57 @@ class StatefulAgentService:
             ),
             validate_checkpoint=True,
         )
+
+    async def delete_conversation(
+        self,
+        *,
+        conversation_id: UUID,
+        owner_id: str,
+    ) -> None:
+        """Idempotently remove workflow state while retaining a tombstone."""
+
+        if self._tool_receipts is None or self._checkpointer is None:
+            raise AgentOperationError(
+                AgentFailure(
+                    category=FailureCategory.PERSISTENCE_UNAVAILABLE,
+                    code="conversation_deletion_not_configured",
+                    message="会话清理依赖尚未配置",
+                    retryable=True,
+                )
+            )
+        async with self._coordinator.claim(conversation_id):
+            metadata = await self._metadata.get(conversation_id)
+            if metadata is None or metadata.owner_id != owner_id:
+                raise _state_conflict(
+                    "conversation_not_available",
+                    "会话不存在或不可访问",
+                )
+            if metadata.status is ConversationStatus.DELETED:
+                return
+            try:
+                await self._checkpointer.adelete_thread(str(conversation_id))
+                await self._metadata.delete_idempotency_receipts(
+                    conversation_id
+                )
+                await self._tool_receipts.delete_conversation(
+                    str(conversation_id)
+                )
+                await self._metadata.set_status(
+                    conversation_id=conversation_id,
+                    status=ConversationStatus.DELETED,
+                    updated_at=self._now(),
+                )
+            except AgentOperationError:
+                raise
+            except Exception as error:
+                raise AgentOperationError(
+                    AgentFailure(
+                        category=FailureCategory.PERSISTENCE_UNAVAILABLE,
+                        code="conversation_deletion_failed",
+                        message="会话状态未能完整清理",
+                        retryable=True,
+                    )
+                ) from error
 
     async def _run_idempotently(
         self,
@@ -240,6 +394,11 @@ class StatefulAgentService:
                 "conversation_not_available",
                 "会话不存在或不可访问",
             )
+        if metadata.status is ConversationStatus.DELETED:
+            raise _state_conflict(
+                "conversation_not_available",
+                "会话不存在或不可访问",
+            )
         if (
             metadata.status is not ConversationStatus.ACTIVE
             or metadata.expires_at <= now
@@ -279,18 +438,25 @@ class ConversationJanitor:
         checkpointer: AsyncThreadCheckpointer,
         coordinator: ConversationRunCoordinator | None = None,
         clock: Callable[[], datetime] | None = None,
+        batch_size: int = 100,
     ) -> None:
+        if batch_size < 1:
+            raise ValueError("janitor batch_size 必须大于 0")
         self._metadata = metadata
         self._tool_receipts = tool_receipts
         self._checkpointer = checkpointer
         self._coordinator = coordinator or ConversationRunCoordinator()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._batch_size = batch_size
 
     async def cleanup_expired(self) -> CleanupResult:
         now = self._clock()
         if now.tzinfo is None:
             raise ValueError("clock 必须返回包含时区的 datetime")
-        conversation_ids = await self._metadata.list_expired(now=now)
+        conversation_ids = await self._metadata.list_expired(
+            now=now,
+            limit=self._batch_size,
+        )
         completed = 0
         deleted_idempotency = 0
         deleted_receipts = 0

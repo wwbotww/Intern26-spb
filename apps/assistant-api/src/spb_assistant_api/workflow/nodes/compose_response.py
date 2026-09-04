@@ -118,7 +118,7 @@ def _failure_reply(failure: AgentFailure) -> str:
         FailureCategory.UPSTREAM_RATE_LIMITED,
         FailureCategory.UPSTREAM_UNAVAILABLE,
     }:
-        return "轨迹查询服务暂时不可用，请稍后重试。"
+        return "查询服务暂时不可用，请稍后重试。"
     if failure.category is FailureCategory.CONTRACT_VIOLATION:
         return "查询结果未通过校验，已停止展示。"
     if failure.category is FailureCategory.LOOP_BUDGET_EXCEEDED:

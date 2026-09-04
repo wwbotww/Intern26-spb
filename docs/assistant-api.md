@@ -1,15 +1,27 @@
 # 中国邮政 Assistant API 使用文档
 
-本文面向调用 `assistant-api` 的 Web 或其他 API 调用方。当前版本为 `0.3.2`，
+本文面向调用 `assistant-api` 的 Web 或其他 API 调用方。当前版本为 `0.3.3`，
 提供显式政策/设备价格二选一、单轮问答、结构化证据和 SSE 输出。
 
 > 本文只描述当前 `/v1` 已实现契约，不假设后续业务模式。
 
-仓库已在隔离路径完成 LangGraph 阶段 1–2 Agent Kernel：除条件路由、
+仓库已在隔离路径完成 LangGraph 阶段 1–2、3A、4A～4D、5A 与本地 5B：除条件路由、
 interrupt/resume、类型化工具执行和重放收据外，已加入五意图 Hybrid Understanding、
-跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL 和本地重启恢复。它仍未注册到 FastAPI，
-也不改变本文中的 `/v1` 契约。实现证据见[阶段 1 说明](agent-kernel-phase1.md)、
-[阶段 2 说明](agent-kernel-phase2.md)和[实施方案](agent-workflow-implementation-plan.md)。
+跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、本地重启恢复，以及时限/资费类型化
+Tool、单次 HTTP、退避和能力级熔断基础。Phase 4A/4B 已实现可显式注入 FastAPI 的 V2
+JSON/SSE 路由、interrupt 投影、三层幂等、owner 隔离、删除、OpenAPI 类型生成和
+Stateful Web；Phase 4C 又增加独立 readiness、低基数指标、脱敏 Run Trace 和 janitor
+调度；Phase 4D 通过兼容 Adapter 将现有政策/价格 Tool 注册到 Agent，并保留完整证据；
+Phase 5A 通过公开 V2 HTTP 建立多轮评测和质量门禁；Phase 5B 增加不含业务值的
+node/edge/checkpoint/interrupt/retry 语义 Trace、故障矩阵与 Agent 报告对比。
+但默认 `main.app` 尚不挂载 V2，也不改变本文中的 `/v1` 契约；真实物流
+接口尚未接入。实现证据见
+[阶段 1 说明](agent-kernel-phase1.md)、[阶段 2 说明](agent-kernel-phase2.md)、
+[阶段 3A 说明](agent-kernel-phase3a.md)、[阶段 4A 说明](agent-kernel-phase4a.md)、
+[阶段 4B 说明](agent-kernel-phase4b.md)、[阶段 4C 说明](agent-kernel-phase4c.md)、
+[阶段 4D 说明](agent-kernel-phase4d.md)、[阶段 5A 说明](agent-kernel-phase5a.md)、
+[阶段 5B 说明](agent-kernel-phase5b.md)和
+[实施方案](agent-workflow-implementation-plan.md)。
 
 该服务是只读查询 Demo 的统一入口，不执行审批、交易、流程流转或数据库写入。
 每次请求相互独立，不接收会话历史，也不会自动融合政策和价格结果。
@@ -43,6 +55,16 @@ Assistant Key、RAG Key、MySQL DSN 或模型凭证。`X-Request-ID` 可由调�
 | `GET` | `/health/ready` | 两个工具和运行依赖是否就绪 | 否 |
 | `GET` | `/metrics` | Prometheus 指标 | 否，仅限运维网络 |
 | `GET` | `/docs` | OpenAPI 交互文档 | 由部署策略决定 |
+
+显式注入 `AgentApiDependencies` 或 lifespan factory 时，应用额外挂载
+`GET /v2/agent/capabilities`、`GET /v2/agent/health/ready`、
+`POST /v2/agent/messages` 和
+`DELETE /v2/agent/conversations/{id}`。V2 JSON/SSE 的完整契约、事件顺序、幂等和本地
+演示方式见 [Phase 4B 说明](agent-kernel-phase4b.md)，运维边界见
+[Phase 4C 说明](agent-kernel-phase4c.md)，五能力复用见
+[Phase 4D 说明](agent-kernel-phase4d.md)，黑盒评测见
+[Phase 5A 说明](agent-kernel-phase5a.md)，可靠性 Trace 与报告对比见
+[Phase 5B 说明](agent-kernel-phase5b.md)；它目前不是默认生产端点。
 
 ## 3. `POST /v1/chat`
 
@@ -228,6 +250,11 @@ status -> evidence -> delta -> [usage] -> done
 
 任一工具或依赖不可用时返回 HTTP 503；调用方不能把 503 解释成“没有业务数据”。
 
+显式装配 V2 时，`/v2/agent/health/ready` 独立检查 Agent API、会话持久化、LangGraph
+checkpoint、janitor 和五类 capability。持久化、checkpoint 或全部能力不可用时返回
+503；janitor 单独失败时返回 HTTP 200 + `status=degraded`。该端点不要求业务 Key，但
+和 `/metrics` 一样只应在运维网络可达。
+
 ## 6. HTTP 错误
 
 | HTTP | `detail.code` | 含义 |
@@ -248,5 +275,10 @@ status -> evidence -> delta -> [usage] -> done
 - 所有价格都是数据库观察到的参考信息，不是交易、估值或结算结论；
 - 政策回答必须与返回的公开原文证据一起展示并允许用户核验；
 - `no_match`、信息不足和技术错误必须使用不同 UI 状态；
-- 当前没有服务端记忆、自动意图识别、多工具融合或内部审批动作；
+- 当前已发布的 `/v1` 没有服务端记忆、自动意图识别、多工具融合或内部审批动作；
+- V2 JSON/SSE 与 Stateful Web 仍是显式装配的工程切片，调用契约与限制见
+  [Phase 4B 实现说明](agent-kernel-phase4b.md)和
+  [Phase 4C 运维说明](agent-kernel-phase4c.md)与
+  [Phase 4D 能力复用说明](agent-kernel-phase4d.md)；Phase 5A 本地门禁不能当作生产
+  质量结论，见 [评测说明](agent-kernel-phase5a.md)；
 - 正式法律、行政或业务决定仍应由对应机构和人工流程确认。

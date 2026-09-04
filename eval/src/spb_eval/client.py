@@ -7,6 +7,9 @@ import httpx
 from pydantic import ValidationError
 
 from .schemas import (
+    AgentEvalTurn,
+    AgentPublicResponse,
+    AgentTurnObservation,
     AssistantChatObservation,
     AssistantEvalCase,
     AssistantEvidenceItem,
@@ -299,6 +302,165 @@ class AssistantApiClient:
         await self._client.aclose()
 
     async def __aenter__(self) -> "AssistantApiClient":
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        await self.close()
+
+
+class AgentApiClient:
+    """Strict JSON client for the public Agent V2 black-box contract."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        timeout_seconds: float,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        headers = {"Accept": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        self._client = httpx.AsyncClient(
+            base_url=f"{base_url.rstrip('/')}/",
+            headers=headers,
+            timeout=httpx.Timeout(timeout_seconds),
+            transport=transport,
+        )
+
+    async def readiness(self) -> dict[str, Any]:
+        response = await self._client.get("v2/agent/health/ready")
+        self._raise_for_status(response, operation="readiness")
+        payload = response.json()
+        if not isinstance(payload, dict):
+            raise EvalApiError("agent readiness 响应不是 JSON 对象")
+        return payload
+
+    async def capabilities(self) -> list[dict[str, Any]]:
+        response = await self._client.get("v2/agent/capabilities")
+        self._raise_for_status(response, operation="capabilities")
+        payload = response.json()
+        if not isinstance(payload, list) or not all(
+            isinstance(item, dict) for item in payload
+        ):
+            raise EvalApiError("agent capabilities 响应不是对象数组")
+        return payload
+
+    async def send_message(
+        self,
+        turn: AgentEvalTurn,
+        *,
+        conversation_id: str | None,
+        idempotency_key: str,
+    ) -> AgentTurnObservation:
+        started = perf_counter()
+        payload: dict[str, Any] = {
+            "confirm_overwrite": turn.confirm_overwrite,
+            "stream": False,
+        }
+        if conversation_id is not None:
+            payload["conversation_id"] = conversation_id
+        if turn.message is not None:
+            payload["message"] = turn.message
+        if turn.explicit_intent is not None:
+            payload["explicit_intent"] = turn.explicit_intent
+        try:
+            response = await self._client.post(
+                "v2/agent/messages",
+                headers={"Idempotency-Key": idempotency_key},
+                json=payload,
+            )
+            elapsed_ms = round((perf_counter() - started) * 1000, 3)
+            if response.is_error:
+                return self._http_error_observation(response, elapsed_ms)
+            raw = response.json()
+            if not isinstance(raw, dict):
+                raise EvalApiError("agent message 响应不是 JSON 对象")
+            parsed = AgentPublicResponse.model_validate(raw)
+            return AgentTurnObservation(
+                status="ok",
+                client_elapsed_ms=elapsed_ms,
+                **parsed.model_dump(mode="json"),
+            )
+        except (
+            EvalApiError,
+            httpx.HTTPError,
+            ValueError,
+            TypeError,
+            ValidationError,
+        ) as exc:
+            return AgentTurnObservation(
+                status="error",
+                client_elapsed_ms=round(
+                    (perf_counter() - started) * 1000,
+                    3,
+                ),
+                error=self._sanitize_error(exc),
+            )
+
+    @staticmethod
+    def _raise_for_status(
+        response: httpx.Response,
+        *,
+        operation: str,
+    ) -> None:
+        if response.is_error:
+            raise EvalApiError(
+                f"Agent API {operation} HTTP {response.status_code}"
+            )
+
+    @staticmethod
+    def _http_error_observation(
+        response: httpx.Response,
+        elapsed_ms: float,
+    ) -> AgentTurnObservation:
+        code = ""
+        category = ""
+        retryable = False
+        message = f"Agent API HTTP {response.status_code}"
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            detail = payload.get("detail", payload)
+            if isinstance(detail, dict):
+                code = str(detail.get("code", ""))[:200]
+                category = str(detail.get("category", ""))[:200]
+                retryable = detail.get("retryable") is True
+                public_message = detail.get("message")
+                if isinstance(public_message, str) and public_message:
+                    message = public_message[:500]
+        return AgentTurnObservation(
+            status="error",
+            client_elapsed_ms=elapsed_ms,
+            http_status=response.status_code,
+            error_code=code,
+            error_category=category,
+            retryable=retryable,
+            error=message,
+        )
+
+    @staticmethod
+    def _sanitize_error(exc: Exception) -> str:
+        if isinstance(exc, httpx.TimeoutException):
+            return "Agent API 请求超时"
+        if isinstance(exc, httpx.HTTPError):
+            return "Agent API 网络请求失败"
+        if isinstance(exc, ValidationError):
+            return "Agent API 响应未通过评测端契约校验"
+        return str(exc)[:500]
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    async def __aenter__(self) -> "AgentApiClient":
         return self
 
     async def __aexit__(
