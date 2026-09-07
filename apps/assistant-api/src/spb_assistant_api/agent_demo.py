@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import httpx
 import uvicorn
 
 from .adapters.fake_shipping import (
@@ -27,11 +28,11 @@ from .domain.results import (
 )
 from .domain.slots import RegionRef, RegionResolution, WeightValue
 from .observability.logging import configure_logging
+from .query_model import create_query_understander
 from .settings import AssistantSettings
 from .tools.device_price import DevicePriceTool
 from .tools.policy import PolicyKnowledgeTool
 from .workflow.composition import create_persistent_agent
-
 
 DEMO_MAIL_NO = "1234567890123"
 
@@ -111,9 +112,7 @@ class _DemoPriceRepository:
                 connectivity="5G",
                 size="6.3 英寸",
                 availability="ON_SALE",
-                source_url=(
-                    "https://example.test/device/iphone-16-pro/256gb"
-                ),
+                source_url=("https://example.test/device/iphone-16-pro/256gb"),
                 channel_name="演示官方商城",
                 currency="CNY",
                 original_price=Decimal("8999.00"),
@@ -147,10 +146,22 @@ def _demo_database_path() -> Path:
     return Path(tempfile.gettempdir()) / "spb-assistant-agent-demo.db"
 
 
-def create_demo_app(*, database_path: str | Path | None = None):
-    """Create a network-free five-capability V2 demonstration."""
+def create_demo_app(
+    *,
+    database_path: str | Path | None = None,
+    settings: AssistantSettings | None = None,
+    query_model_transport: httpx.AsyncBaseTransport | None = None,
+):
+    """Local fixture tools, with an explicitly enabled model fallback if set."""
 
     resolved_database = Path(database_path or _demo_database_path())
+    resolved_settings = (settings or AssistantSettings()).model_copy(
+        update={
+            "auth_enabled": False,
+            "rate_limit_enabled": False,
+            "metrics_enabled": True,
+        }
+    )
     policy_tool = PolicyKnowledgeTool(source=_DemoPolicySource())
     device_price_tool = DevicePriceTool(
         repository=_DemoPriceRepository(),
@@ -204,14 +215,20 @@ def create_demo_app(*, database_path: str | Path | None = None):
             product_code="DEMO_STANDARD",
             queried_at=now,
         )
-        async with create_persistent_agent(
-            database_path=resolved_database,
-            tracking_gateway=FakeTrackingGateway({DEMO_MAIL_NO: tracking}),
-            delivery_time_gateway=FakeDeliveryTimeGateway(delivery),
-            postage_gateway=FakePostageGateway(postage),
-            policy_tool=policy_tool,
-            device_price_tool=device_price_tool,
-        ) as components:
+        async with (
+            create_query_understander(
+                resolved_settings, transport=query_model_transport
+            ) as understander,
+            create_persistent_agent(
+                database_path=resolved_database,
+                tracking_gateway=FakeTrackingGateway({DEMO_MAIL_NO: tracking}),
+                delivery_time_gateway=FakeDeliveryTimeGateway(delivery),
+                postage_gateway=FakePostageGateway(postage),
+                policy_tool=policy_tool,
+                device_price_tool=device_price_tool,
+                understander=understander,
+            ) as components,
+        ):
             yield AgentApiDependencies(
                 service=components.service,
                 capabilities=components.runtime.capability_descriptors,
@@ -219,13 +236,8 @@ def create_demo_app(*, database_path: str | Path | None = None):
                 janitor=components.janitor,
             )
 
-    settings = AssistantSettings(
-        auth_enabled=False,
-        rate_limit_enabled=False,
-        metrics_enabled=True,
-    )
     return create_app(
-        settings=settings,
+        settings=resolved_settings,
         tools=legacy_tools,
         agent_api_factory=agent_dependencies,
     )

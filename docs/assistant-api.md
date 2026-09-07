@@ -1,11 +1,11 @@
 # 中国邮政 Assistant API 使用文档
 
-本文面向调用 `assistant-api` 的 Web 或其他 API 调用方。当前版本为 `0.3.3`，
+本文面向调用 `assistant-api` 的 Web 或其他 API 调用方。当前版本为 `0.3.5`，
 提供显式政策/设备价格二选一、单轮问答、结构化证据和 SSE 输出。
 
 > 本文只描述当前 `/v1` 已实现契约，不假设后续业务模式。
 
-仓库已在隔离路径完成 LangGraph 阶段 1–2、3A、4A～4D、5A 与本地 5B：除条件路由、
+仓库已在隔离路径完成 LangGraph 阶段 1–2、3A、4A～4D、5A～5D 本地切片：除条件路由、
 interrupt/resume、类型化工具执行和重放收据外，已加入五意图 Hybrid Understanding、
 跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、本地重启恢复，以及时限/资费类型化
 Tool、单次 HTTP、退避和能力级熔断基础。Phase 4A/4B 已实现可显式注入 FastAPI 的 V2
@@ -14,6 +14,14 @@ Stateful Web；Phase 4C 又增加独立 readiness、低基数指标、脱敏 Run
 调度；Phase 4D 通过兼容 Adapter 将现有政策/价格 Tool 注册到 Agent，并保留完整证据；
 Phase 5A 通过公开 V2 HTTP 建立多轮评测和质量门禁；Phase 5B 增加不含业务值的
 node/edge/checkpoint/interrupt/retry 语义 Trace、故障矩阵与 Agent 报告对比。
+阶段 2 模型补齐已实现可选 DeepSeek Adapter、配置与 lifespan，可在独立 Demo 中显式
+启用；真实合成烟测已完成，代表性质量评测仍待完成，见
+[模型接入说明](agent-query-model-integration.md)。
+Phase 5C 提供本地 `spb-assistant-understanding-export`，复用现有 Understanding Port
+导出有界组件观测供 Eval 独立评分。已完成 48 条 development 真实对照，不增加公开
+HTTP 字段，也不替代多轮验收，见 [Phase 5C](agent-kernel-phase5c.md)。
+Phase 5D 已通过真实 V2/Graph/SQLite + Mock 供应商验证对应 13 场景／28 Turn、消息重放
+与应用重建恢复；本次仅增加回归证据，不修改公开 API，见 [Phase 5D](agent-kernel-phase5d.md)。
 但默认 `main.app` 尚不挂载 V2，也不改变本文中的 `/v1` 契约；真实物流
 接口尚未接入。实现证据见
 [阶段 1 说明](agent-kernel-phase1.md)、[阶段 2 说明](agent-kernel-phase2.md)、

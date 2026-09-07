@@ -10,9 +10,9 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 | --- | --- | --- |
 | `apps/offline-pipeline` | `0.2.0` | 政策采集、附件解析、OCR、切分、向量化与 Milvus 写入 |
 | `apps/rag-api` | `0.5.1` | 政策检索、重排、证据约束回答与引用 |
-| `apps/assistant-api` | `0.3.3` | V1 单轮入口与显式装配的 Stateful Agent V2 |
+| `apps/assistant-api` | `0.3.5` | V1、显式 Stateful Agent V2 与本地理解观测导出 |
 | `apps/chat-web` | `0.2.0` | 浏览器聊天界面与流式响应展示 |
-| `eval` | `0.5.0` | RAG、Assistant、Agent 门禁及同样本实验对比 |
+| `eval` | `0.7.0` | 黑盒／组件评测、同样本对照与人工审核冻结 |
 | `packages/contracts` | `0.1.0` | 离线写入与在线读取共享的数据契约 |
 
 版本号描述当前仓库基线；部署环境仍应以实际镜像标签和 `/health` 返回为准。
@@ -29,13 +29,17 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 ## 下一阶段规划
 
 - [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)：
-  总体仍为 `Proposed`；阶段 0～2、3A、4A～4D、5A 与本地 5B 已完成，3B、真实
-  holdout 以及阶段 6 尚未完成。
+  总体为 `In progress`；阶段 0～2、3A、4A～4D、5A～5D 的本地切片已完成。
+  模型 Adapter、真实烟测及 development 对照已完成；3B、代表性 holdout 与阶段 6 尚未完成。
 - [Phase 1 Agent Kernel 与 Fake Tracking](agent-kernel-phase1.md)：已实现的状态图、模块
   边界、预算、执行收据、Failure 路径、测试证据和未实现范围。
 - [Phase 2 Hybrid Understanding 与 SQLite 持久化](agent-kernel-phase2.md)：五意图规则、
   Structured Model schema gate、跨轮合并、`AsyncSqliteSaver`、元数据/幂等、TTL、并发
   和重启恢复证据。
+- [阶段 2 补齐：真实理解模型接入](agent-query-model-integration.md)：DeepSeek Adapter、
+  显式配置、生命周期、单次有界调用、Mock / V2 验证与真实联调。
+- [2026-09-07 模型真实烟测](agent-query-model-live-smoke-20260907.md)：5 次模型尝试、
+  三类补槽、unknown／超时回退、7 次免模型幂等重放与用量边界；不是 holdout。
 - [Phase 3A Gateway 与可靠性基础](agent-kernel-phase3a.md)：时限/资费类型化 Tool、共享
   单次 HTTP 边界、有界退避、能力级熔断和接口到达前的合同测试证据。
 - [Phase 4A Stateful Agent V2 JSON API](agent-kernel-phase4a.md)：显式装配的 V2 JSON、
@@ -51,6 +55,12 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
   13 场景/17 Turn fixture、七项质量门禁、失败归因和可复现本地基线。
 - [Phase 5B 可靠性故障矩阵、语义 Trace 与 Agent 报告对比](agent-kernel-phase5b.md)：
   checkpoint 增量语义 Trace、隐私白名单、故障恢复矩阵和严格同样本逐 Turn 对比。
+- [Phase 5C Understanding 组件质量评测](agent-kernel-phase5c.md)：独立输入／观测契约、
+  Intent／硬槽位 F1、失败与用量口径、有界调用、数据冻结和同样本对照。
+- [2026-09-07 Understanding 对照证据](agent-understanding-comparison-20260907.md)：
+  48 条 development 数据、20 次真实模型请求、14 条改善与成本／泛化边界。
+- [Phase 5D 人工审核冻结与 V2 语义工作流回归](agent-kernel-phase5d.md)：跨文件污染检查、
+  pending 人工审核、数据冻结，以及 13 场景／28 Turn 的离线 Mock 供应商集成证据；未批准真实 holdout。
 - [Agent Workflow ADR](adr/README.md)：已接受的受约束 Agent、LangGraph Runtime、
   Hybrid Understanding、Memory Boundary、Failure Taxonomy、类型化路由和评测门禁决策。
 - [Assistant Agent V2 OpenAPI](openapi/assistant-agent-v2.openapi.json)：Phase 4D JSON/SSE 与

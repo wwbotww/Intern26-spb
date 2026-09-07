@@ -1,8 +1,8 @@
-# SPB RAG、Assistant 与 Stateful Agent 黑盒评估
+# SPB RAG、Assistant、Agent 黑盒与 Understanding 组件评估
 
-`eval/` 是独立的轻量评估包，只通过 HTTP 调用 `rag-api` 或
-`assistant-api`。它不导入在线或离线应用、不直连 Milvus/MySQL，也不读取本地
-爬取数据。
+`eval/` 是独立的轻量评估包（当前 `0.7.0`），端到端评测只通过 HTTP 调用 `rag-api`
+或 `assistant-api`；Understanding 组件另通过版本化输入／观测文件测量。它不导入
+在线或离线应用、不直连 Milvus/MySQL，也不读取本地爬取数据或 Graph checkpoint。
 
 当前评估能力包括：
 
@@ -24,6 +24,61 @@
   Recovery、API Error Rate 和 Turn P50/P95，并生成可供 CI 使用的质量门禁。
 - 严格验证 dataset hash、Gold 标签和门禁阈值后，对比 Agent baseline/experiment 的
   核心指标和逐 Turn 回归。
+- 独立计算 Understanding 六类 Intent Macro-F1、联合硬槽位 micro-F1、缺槽提示、
+  正常 unknown／失败回退、调用预算、已知／未知用量与组件延迟，并从原始观测重算对照。
+
+## Understanding 组件评测（Phase 5C）
+
+它与下文 RAG／Assistant／Agent HTTP 数据集和命令分开，不用 `required_inputs`
+正确率代替 Slot F1。流程为 `understanding-prepare` → Assistant 本地 exporter →
+`understanding-score` / `understanding-compare`；只有模型导出阶段可能访问付费模型。
+
+```bash
+uv run --package spb-eval spb-eval understanding-prepare \
+  --dataset eval/datasets/query-understanding-development-v1.jsonl \
+  --output eval/reports/qu-example/requests.json
+
+uv run --package spb-assistant-api spb-assistant-understanding-export \
+  --requests eval/reports/qu-example/requests.json \
+  --output eval/reports/qu-example/rules.jsonl --mode rules
+
+uv run --package spb-eval spb-eval understanding-score \
+  --dataset eval/datasets/query-understanding-development-v1.jsonl \
+  --observations eval/reports/qu-example/rules.jsonl \
+  --output-dir eval/reports/qu-example/scored --fail-on-gate
+```
+
+当前规则基线 Macro-F1 未达门禁，最后一条命令会先保存报告，再返回 3。请求与原始观测
+拒绝覆盖；新 entry point 需先 `uv sync --all-packages`。普通测试、评分与规则导出不
+需要模型 Key；真实导出须显式开启、限制调用预算并另获授权，不放入默认 CI。
+
+新数据契约使用 `development/holdout`；holdout 必须 reviewed、不能含 seen_smoke，且
+同 group 不跨 split。该校验不能替代真实人工标注和近重复审核。默认提供的 48 条是
+synthetic development / draft；真实对照已用 20 次模型请求完成，不代表泛化准确率。
+报告不含问题正文或实体原值，但 fingerprint 可关联，私有数据与报告仍不得公开。
+
+详细契约、公式、失败分母、命令和退出码见
+[Phase 5C](../docs/agent-kernel-phase5c.md)；已复核的本次结果见
+[development 对照证据](../docs/agent-understanding-comparison-20260907.md)。
+
+## 人工审核冻结与 V2 对齐（Phase 5D）
+
+`understanding-review --dataset <候选 JSONL> --against <已见 JSONL> --output-dir <新目录>`
+生成污染 audit、全部 pending 的 review.json 与审核说明；`--against` 可重复。候选和参考
+均使用 `qu-case-v1`，候选在批准前保留 development。审核者人工核对完整 Gold、语义近
+重复／group，填写审核别名、时间、检查项和逐条 approve/exclude 后，使用
+`understanding-freeze` 的同组参数并加 `--review <review.json>` 冻结数据与无 Gold 请求。
+源数据／参考集／逐条 SHA 变化、pending、已见污染或不完整审核会阻止冻结。
+
+这些命令不推理、不读取 Key、不代签审核，也不自动冻结代码／Prompt／配置。产物放入
+`eval/datasets/private/` 或 `eval/reports/`，目标目录拒绝覆盖；完整命令与限制见
+[Phase 5D](../docs/agent-kernel-phase5d.md)。
+
+V2 新夹具 `datasets/agent-understanding-workflow-development-v1.jsonl` 含 13 场景／28
+Turn，支持新 `development` split，不改变旧校准／holdout 数据。受控 Mock 模型的报告可
+用 `.venv/bin/python apps/assistant-api/tests/test_phase5d_understanding_v2.py --output-dir
+eval/reports/understanding-phase5d/v2-fixture` 生成；该脚本固定使用 ASGI／Mock transport，
+不允许切换到付费模型。它验证真实 Workflow 的集成语义，不衡量模型质量。
 
 ## 数据集
 
@@ -221,6 +276,7 @@ uv run --package spb-eval spb-eval assistant-run \
 本地五能力 Demo 不需要 API Key：
 
 ```bash
+ASSISTANT_QUERY_MODEL_ENABLED=false ASSISTANT_HOST=127.0.0.1 \
 ASSISTANT_AGENT_DEMO_DB=/tmp/spb-agent-eval.db \
 uv run --package spb-assistant-api spb-assistant-agent-demo
 

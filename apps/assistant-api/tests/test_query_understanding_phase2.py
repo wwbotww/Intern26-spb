@@ -279,7 +279,7 @@ def test_unknown_rule_result_uses_versioned_model_and_rule_entities() -> None:
 
     assert result.selected_intent is Intent.POLICY
     assert result.source == "model"
-    assert result.prompt_version == "query-understanding-v1"
+    assert result.prompt_version == "query-understanding-v2"
     assert len(model.calls) == 1
     assert model.calls[0]["prompt_version"] == result.prompt_version
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-
 from spb_assistant_api.api.app import _default_tools, create_app
 from spb_assistant_api.domain.models import QueryMode, ToolResult, ToolStatus
 from spb_assistant_api.services.dispatcher import (
@@ -29,6 +29,31 @@ def _tool(name: str) -> FakeTool:
             answer="ok",
         ),
     )
+
+
+def test_default_test_settings_do_not_load_local_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "ASSISTANT_QUERY_MODEL_ENABLED=true\n"
+        "ASSISTANT_QUERY_MODEL_API_KEY=fixture-model-key\n"
+        "ASSISTANT_RAG_BASE_URL=http://rag.example.test\n"
+        "ASSISTANT_RAG_API_KEY=fixture-rag-key\n"
+        "ASSISTANT_MYSQL_DSN=mysql+pymysql://fixture@mysql.example.test/db\n",
+        encoding="utf-8",
+    )
+    settings = AssistantSettings()
+    assert not settings.query_model_enabled
+    assert not settings.query_model_api_key.get_secret_value()
+    assert not settings.rag_base_url
+    assert not settings.rag_api_key.get_secret_value()
+    assert not settings.mysql_dsn.get_secret_value()
+    # Configuration tests can explicitly opt into their own synthetic file.
+    explicit = AssistantSettings(_env_file=dotenv)
+    assert explicit.query_model_enabled
+    assert explicit.query_model_api_key.get_secret_value() == "fixture-model-key"
 
 
 def test_live_reports_explicit_modes_and_disabled_memory() -> None:
@@ -90,9 +115,7 @@ def test_default_tools_enable_only_configured_price_source() -> None:
     tools = _default_tools(
         AssistantSettings(
             auth_enabled=False,
-            mysql_dsn=(
-                "mysql+pymysql://readonly:secret@mysql/device_price"
-            ),
+            mysql_dsn=("mysql+pymysql://readonly:secret@mysql/device_price"),
         )
     )
 
@@ -132,8 +155,6 @@ def test_settings_reject_non_mysql_price_dsn() -> None:
 
 def test_settings_reject_invalid_rag_url_and_candidate_limits() -> None:
     with pytest.raises(ValidationError, match="rag_base_url"):
-        AssistantSettings(
-            rag_base_url="http://user:secret@rag-api:8080?token=secret"
-        )
+        AssistantSettings(rag_base_url="http://user:secret@rag-api:8080?token=secret")
     with pytest.raises(ValidationError, match="rag_top_k"):
         AssistantSettings(rag_top_k=50, rag_candidate_k=40)

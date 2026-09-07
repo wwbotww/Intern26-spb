@@ -34,6 +34,20 @@ class AssistantSettings(BaseSettings):
     )
     metrics_enabled: bool = True
 
+    # Optional semantic fallback for the explicitly composed V2 Agent.
+    query_model_enabled: bool = False
+    query_model_base_url: str = "https://api.deepseek.com"
+    query_model_api_key: SecretStr = SecretStr("")
+    query_model_name: str = Field(
+        default="deepseek-v4-flash", min_length=1, max_length=128
+    )
+    query_model_timeout_seconds: float = Field(default=8.0, gt=0, le=20)
+    query_model_max_tokens: int = Field(default=768, ge=128, le=4096)
+    query_model_max_response_bytes: int = Field(
+        default=65536, ge=1024, le=262144
+    )
+    query_model_max_concurrency: int = Field(default=2, ge=1, le=20)
+
     rag_base_url: str = ""
     rag_api_key: SecretStr = SecretStr("")
     rag_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
@@ -60,6 +74,25 @@ class AssistantSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_dependency_settings(self) -> "AssistantSettings":
+        if self.query_model_enabled:
+            parsed_model_url = urlsplit(self.query_model_base_url.strip())
+            if (
+                parsed_model_url.scheme != "https"
+                or not parsed_model_url.hostname
+                or parsed_model_url.username is not None
+                or parsed_model_url.password is not None
+                or parsed_model_url.query
+                or parsed_model_url.fragment
+            ):
+                raise ValueError(
+                    "query_model_base_url 必须是无凭据、查询参数和片段的 HTTPS URL"
+                )
+            if not self.query_model_api_key.get_secret_value().strip():
+                raise ValueError(
+                    "启用模型理解时必须配置 ASSISTANT_QUERY_MODEL_API_KEY"
+                )
+            if not self.query_model_name.strip():
+                raise ValueError("启用模型理解时 query_model_name 不能为空")
         rag_base_url = self.rag_base_url.strip()
         if rag_base_url:
             parsed_url = urlsplit(rag_base_url)
@@ -78,9 +111,7 @@ class AssistantSettings(BaseSettings):
             raise ValueError("rag_top_k 不能大于 rag_candidate_k")
         dsn = self.mysql_dsn.get_secret_value().strip()
         if dsn and not dsn.startswith("mysql+pymysql://"):
-            raise ValueError(
-                "mysql_dsn 必须使用 mysql+pymysql:// 驱动"
-            )
+            raise ValueError("mysql_dsn 必须使用 mysql+pymysql:// 驱动")
         if self.price_result_limit > self.price_candidate_limit:
             raise ValueError(
                 "price_result_limit 不能大于 price_candidate_limit"
@@ -91,8 +122,6 @@ class AssistantSettings(BaseSettings):
         value = self.api_keys.get_secret_value()
         return tuple(
             dict.fromkeys(
-                item.strip()
-                for item in value.split(",")
-                if item.strip()
+                item.strip() for item in value.split(",") if item.strip()
             )
         )

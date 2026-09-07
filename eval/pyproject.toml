@@ -1,6 +1,6 @@
 [project]
 name = "spb-eval"
-version = "0.5.0"
+version = "0.7.0"
 description = "政策 RAG、Assistant 与 Stateful Agent 黑盒评估工具"
 requires-python = ">=3.11"
 dependencies = [

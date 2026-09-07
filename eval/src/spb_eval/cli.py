@@ -49,6 +49,17 @@ from .schemas import (
     AssistantRunConfig,
     RunConfig,
 )
+from .understanding_dataset import write_requests
+from .understanding_metrics import UnderstandingThresholds
+from .understanding_reporting import (
+    compare_understanding,
+    score_understanding,
+    write_understanding_report,
+)
+from .understanding_review import (
+    freeze_understanding_holdout,
+    prepare_understanding_review,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -259,6 +270,54 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("eval/reports/stability"),
     )
+    for command, help_text in (
+        (
+            "understanding-prepare",
+            "校验分层 Understanding 数据并导出不含 Gold 的请求",
+        ),
+        ("understanding-score", "从组件观测计算 Intent/Slot F1、失败回退与用量"),
+        ("understanding-compare", "从同样本组件观测重算 Rules/Hybrid 对照"),
+    ):
+        understanding = subparsers.add_parser(command, help=help_text)
+        understanding.add_argument("--dataset", type=Path, required=True)
+        understanding.add_argument(
+            "--split",
+            choices=("development", "holdout"),
+            default="development",
+        )
+        if command == "understanding-prepare":
+            understanding.add_argument("--output", type=Path, required=True)
+            continue
+        understanding.add_argument(
+            "--output-dir",
+            type=Path,
+            default=Path("eval/reports/understanding"),
+        )
+        understanding.add_argument(
+            "--min-intent-macro-f1", type=float, default=0.90
+        )
+        understanding.add_argument("--min-slot-micro-f1", type=float, default=0.95)
+        understanding.add_argument(
+            "--max-model-failure-rate", type=float, default=0.05
+        )
+        understanding.add_argument("--fail-on-gate", action="store_true")
+        if command == "understanding-score":
+            understanding.add_argument("--observations", type=Path, required=True)
+        else:
+            understanding.add_argument("--baseline", type=Path, required=True)
+            understanding.add_argument("--experiment", type=Path, required=True)
+    for command, help_text in (
+        ("understanding-review", "检查候选与已见语料污染并生成 pending 人工审核包"),
+        ("understanding-freeze", "核验人工审核与污染后冻结 holdout；不执行模型"),
+    ):
+        review = subparsers.add_parser(command, help=help_text)
+        review.add_argument("--dataset", type=Path, required=True)
+        review.add_argument(
+            "--against", type=Path, action="append", required=True
+        )
+        review.add_argument("--output-dir", type=Path, required=True)
+        if command == "understanding-freeze":
+            review.add_argument("--review", type=Path, required=True)
     return parser
 
 
@@ -515,6 +574,53 @@ def main(argv: list[str] | None = None) -> int:
                 "json": str(json_path),
                 "markdown": str(markdown_path),
             }
+        elif args.command == "understanding-review":
+            output = prepare_understanding_review(
+                args.dataset, args.against, args.output_dir
+            )
+        elif args.command == "understanding-freeze":
+            output = freeze_understanding_holdout(
+                args.dataset, args.against, args.review, args.output_dir
+            )
+        elif args.command == "understanding-prepare":
+            request = write_requests(args.dataset, args.split, args.output)
+            output = {
+                "requests": str(args.output),
+                "cases": len(request["cases"]),
+                "dataset_sha256": request["dataset_sha256"],
+            }
+        elif args.command in {"understanding-score", "understanding-compare"}:
+            thresholds = UnderstandingThresholds(
+                min_intent_macro_f1=args.min_intent_macro_f1,
+                min_slot_micro_f1=args.min_slot_micro_f1,
+                max_model_failure_rate=args.max_model_failure_rate,
+            )
+            if args.command == "understanding-score":
+                report = score_understanding(
+                    args.dataset, args.split, args.observations, thresholds
+                )
+                gate_passed = report["summary"]["quality_gate"]["passed"]
+            else:
+                report = compare_understanding(
+                    args.dataset,
+                    args.split,
+                    args.baseline,
+                    args.experiment,
+                    thresholds,
+                )
+                gate_passed = report["experiment"]["summary"]["quality_gate"][
+                    "passed"
+                ] and not any(
+                    row["transition"] == "regressed"
+                    for row in report["transitions"]
+                )
+            output = {
+                "report_dir": str(
+                    write_understanding_report(report, args.output_dir)
+                ),
+                "quality_gate_passed": gate_passed,
+            }
+            gate_failed = args.fail_on_gate and not gate_passed
         else:
             raise ValueError(f"未知命令：{args.command}")
     except (AnalysisError, DatasetError, OSError, ValueError) as exc:

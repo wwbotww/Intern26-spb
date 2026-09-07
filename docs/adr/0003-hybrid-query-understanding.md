@@ -39,3 +39,8 @@ Phase 2 已实现五意图规则、邮件号/Decimal 重量/行政区实体、Re
 Slot Merger、控制命令和 Structured LLM schema gate。规则、显式 UI 和活跃 Workflow
 可决策时不会调用模型；模型非法输出 fail closed。当前只注入模型 Port，没有配置真实
 供应商，因此尚不能用回归夹具代替代表性语料上的模型质量评测。
+
+2026-09-07 实施补充（决策未变）：已实现 DeepSeek Adapter、开关与生命周期，并以
+Mock HTTP / V2 验证单次调用、输出拒绝和规则硬实体重提。真实合成烟测已验证三个
+业务补槽与 unknown／超时回退；代表性效果对照尚未完成。详见
+[模型接入说明](../agent-query-model-integration.md)。

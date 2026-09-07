@@ -5,6 +5,10 @@
 - 前置提交：`07699e0`（Phase 0–1）
 - 当阶段 API 边界：尚未挂载 FastAPI；后续 Phase 4A 已增加显式装配的 V2 JSON
 
+> 本文保留 2026-09-03 里程碑语义。2026-09-07 已实现真实模型 Provider Adapter 的工程
+> 接入、Mock 验证与真实合成烟测；代表性质量评测仍待完成。见
+> [后续补齐说明](agent-query-model-integration.md)。
+
 ## 1. 阶段结果
 
 本阶段把 Phase 1 的单意图、内存态 Fake Tracking 垂直切片扩展为两个可独立验证的

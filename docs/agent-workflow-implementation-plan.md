@@ -1,13 +1,13 @@
 # LangGraph Stateful Agent Workflow 下一阶段实施方案
 
-> 文档状态：`Proposed`，用于下一阶段设计评审、任务拆分和验收，不描述当前已上线能力。
+> 文档状态：`In progress`，用于设计、任务拆分和验收。阶段性本地实现不等于整体上线。
 >
 > 起始设计基线：提交 `093e29d`；Phase 0–1 实现里程碑：提交 `07699e0`；
-> `assistant-api 0.3.3`、`chat-web 0.2.0`、`eval 0.5.0`。
+> 当前版本：`assistant-api 0.3.5`、`chat-web 0.2.0`、`eval 0.7.0`。
 >
-> 更新日期：2026-09-04。
+> 更新日期：2026-09-07。
 >
-> 实施进度：阶段 0、1、2、3A、4A～4D、5A 与本地 5B 已完成。当前包含锁定的
+> 实施进度：阶段 0、1、2、3A、4A～4D、5A～5D 的本地切片已完成。当前包含锁定的
 > `langgraph 1.2.11` 与 `langgraph-checkpoint-sqlite 3.1.1`、正式 Agent StateGraph、
 > Fake Tracking Tool、五意图 Hybrid Understanding、跨轮合并与控制、
 > `AsyncSqliteSaver`、会话元数据/API 幂等/Tool 收据、TTL、并发门禁和 State 迁移；
@@ -19,18 +19,32 @@
 > Phase 4D 通过 compatibility Adapter 复用 V1 政策/价格 Tool、共享结果合同并完成
 > 五能力本地闭环；Phase 5A 已增加只经 V2 HTTP 的多轮 Agent Eval、版本化 13 场景 /
 > 17 Turn fixture、Intent/补槽/路由/完成/恢复/API 错误指标和 CI 门禁；Phase 5B 已增加
-> checkpoint 增量语义 Trace、本地故障矩阵与严格同样本的 Agent 实验对比。默认生产
+> checkpoint 增量语义 Trace、本地故障矩阵与严格同样本的 Agent 实验对比；Phase 5C
+> 已增加独立 Understanding 组件评测、硬槽位 F1、有界模型导出和 development 真实对照。默认生产
 > `main.app` 尚未挂载 V2，逐 Node 耗时 span 和真实接口 holdout 仍待完成。当前完整
-> Python 工作区 `308 passed`、Web `17 passed`，类型检查、production build 和
-> `uv lock --check` 通过。实现证据见
+> Python 工作区在 Phase 5D 收口后 `411 passed`；Web 沿用 2026-09-06 的 `17 passed`、
+> 类型检查和 production build 证据；锁文件离线检查通过。实现证据见
 > [Phase 2 说明](agent-kernel-phase2.md)、
 > [Phase 3A 说明](agent-kernel-phase3a.md)、
 > [Phase 4A 说明](agent-kernel-phase4a.md)、
 > [Phase 4B 说明](agent-kernel-phase4b.md)、
 > [Phase 4C 说明](agent-kernel-phase4c.md)、
 > [Phase 4D 说明](agent-kernel-phase4d.md)、
-> [Phase 5A 说明](agent-kernel-phase5a.md)与
-> [Phase 5B 说明](agent-kernel-phase5b.md)。
+> [Phase 5A 说明](agent-kernel-phase5a.md)、
+> [Phase 5B 说明](agent-kernel-phase5b.md)、[Phase 5C 说明](agent-kernel-phase5c.md)与
+> [Phase 5D 说明](agent-kernel-phase5d.md)。
+>
+> 2026-09-07 已补齐阶段 2 的 DeepSeek Provider Adapter、显式配置、lifespan、
+> 单次有界 JSON 调用、硬实体重提和 Mock / V2 多轮验证。真实合成烟测已完成：
+> 5 次模型尝试中 4 次成功、1 次超时安全回退；代表性理解评测尚未完成。详见
+> [模型接入说明](agent-query-model-integration.md)和[真实烟测证据](agent-query-model-live-smoke-20260907.md)。
+> 随后 Phase 5C 在冻结的 48 条 synthetic development / draft 数据上完成 Rules/Hybrid
+> 同样本对照：20 次授权模型请求全部成功，完整样本通过 34→48，Macro-F1 0.7068→1.0000、
+> 硬槽位 F1 0.9600→1.0000。该结果不是独立 holdout，详见
+> [对照证据与限制](agent-understanding-comparison-20260907.md)。
+> Phase 5D 又完成 pending 人工审核／跨文件污染检查／数据冻结工具，及对应 13 场景／
+> 28 Turn 的 V2 Mock 供应商回归、28 次免模型重放和三类应用重建恢复。没有自动批准
+> 独立 holdout，也未新增付费调用；人工数据验收仍是独立检查点。
 >
 > 外部接口状态：轨迹、时限和资费接口尚未提供。本文中的字段、错误和时效策略为
 > 领域侧预留，最终以接口契约评审结果为准。
@@ -97,6 +111,28 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 本项目可单测的普通函数，领域模型和 Tool Port 保持框架无关。阶段 0 已在
 `pyproject.toml` 声明 `langgraph>=1.0,<2`，并由 `uv.lock` 固定实际验证版本
 `1.2.11`；后续升级必须重新执行 Graph 与 Checkpointer 合同测试。
+
+### 1.3 当前执行顺序（2026-09-07）
+
+保持原阶段编号，把本地切片、真实联调、完整验收分别标记。以下是剩余工作的执行顺序，
+不是增加新的架构阶段，也不把 Phase 5D 完成视为阶段 0～5 已全部验收。
+
+| 顺序 | 归属 | 内容 | 当前状态 / 依赖 |
+| --- | --- | --- | --- |
+| 1 | 阶段 2 补齐 | 真实理解模型 Adapter、配置、失败回退和合成输入烟测 | 已完成工程与真实烟测；保留一次超时证据，不等于质量验收 |
+| 2 | 阶段 5 | Understanding 质量对照、数据审核与 V2 场景验证 | Phase 5C development 真实对照与 Phase 5D 审核冻结／V2 Mock 回归完成；待人工审核新 holdout、固定代码／Prompt 后另获预算真实对照，不能用 Mock 代替 |
+| 3 | 阶段 5 | 逐 Node wall-clock span、采样、OpenTelemetry exporter 与 Dashboard | 下一项可独立开发；第 2 项等待人工数据期间推进，不代表 holdout 已验收 |
+| 4 | 阶段 3B | 真实物流 Adapter、地区/参数契约、烟测及故障报告 | 等待物流合同与测试凭据，资料到达可提前 |
+| 5 | 阶段 4 收口 | 正式 V2 装配、Web/Compose 开关、身份隔离、持久化卷、CI 和回退 | 尚未完成；测试/CI 可先做，真实五能力验收依赖第 4 项 |
+| 6 | 阶段 6 | 生产持久化、多副本协调、升级回滚、标准演示和真实指标回填 | 最后完整验收，不能默认省略多副本要求 |
+
+模型凭据已在本地配置，不进入 Git。已看过的烟测样本归入 development，不当作未见
+holdout；Phase 5C 已分别统计正常 unknown、模型失败回退、未知用量、预算跳过和缺失行。
+当前没有已审核的代表性 holdout；不得把 development 全通过解释为质量验收完成。
+Phase 5D 已提供 `understanding-review` / `understanding-freeze`，但审核声明必须由真实
+审核者填写；新样本与已见语料都必须纳入人工语义重叠检查。详见 [Phase 5D](agent-kernel-phase5d.md)。
+若最终只交付单副本 Demo，需要显式调整 Definition of Done。当前“CI 门禁”指 CLI
+的失败退出码，实际自动工作流仍待第 5 项接入。
 
 ## 2. 范围与非目标
 
@@ -1134,14 +1170,19 @@ prompt_version
 }
 ```
 
-Eval 只调用 V2 HTTP，不读取 checkpointer / Metadata Repository，也不导入 Agent 实现。
+Workflow Eval 只调用 V2 HTTP，不读取 checkpointer / Metadata Repository，也不导入 Agent 实现。
 内部 Node、Reducer、Policy 与 Graph 拓扑测试验证“状态图实现”，黑盒流程评测验证
 “用户实际行为”。
+
+Phase 5C 另以独立文件契约测量 Understanding 组件：Eval 导出无 Gold 输入，Assistant
+本地 CLI 调用现有 Port 并导出脱敏观测，Eval 独立重算指标。该路径不执行 Graph、不新增
+公开 HTTP 字段、不替代多轮验收；边界见 [ADR-0010](adr/0010-understanding-component-evaluation.md)。
 
 ### 15.3 初始质量门禁
 
 Phase 5A 已将可由公开 V2 响应计算的指标实现为 CLI 门禁；完成代表性数据标注后允许
-通过 ADR 调整。Macro-F1、Slot F1、故障和安全门禁仍需要后续数据集：
+通过 ADR 调整。Phase 5C 已实现组件 Macro-F1 与联合硬槽位 micro-F1，但代表性验收、
+真实接口故障和安全报告仍待补齐；缺槽提示正确率不再被混作实体 F1：
 
 | 指标 | 初始门禁 |
 | --- | ---: |
@@ -1152,8 +1193,9 @@ Phase 5A 已将可由公开 V2 响应计算的指标实现为 CLI 门禁；完�
 | Task Completion Rate | `>= 0.90` |
 | 多轮 Recovery Rate | `>= 0.90` |
 | API Error Rate | `0` |
-| 代表性 Intent Macro-F1 | `>= 0.90`（待实现） |
-| 关键实体 Slot F1 | `>= 0.90`（待实现） |
+| Intent Macro-F1（固定六类） | `>= 0.90`（组件门禁已实现，代表性 holdout 待验） |
+| 关键实体联合 micro-F1 | `>= 0.95`（Phase 5C 工程初值，代表性 holdout 待验） |
+| 模型失败率 / 实际调用 | `<= 0.05`（组件门禁已实现，无调用时 N/A） |
 | 不必要澄清率 | `<= 0.10`（已报告，尚未成为 CLI gate） |
 | Golden Failure Recovery | 全部符合预期状态 |
 | Golden Interrupt / Resume | 全部恢复到预期状态 |
@@ -1334,6 +1376,10 @@ eval/src/spb_eval/
 > [Phase 2：Hybrid Query Understanding 与 SQLite 持久化](agent-kernel-phase2.md)。
 > 真实模型 Provider、完整行政区数据、生产多副本 checkpointer 和 V2 HTTP 挂载不包含
 > 在本阶段的“完成”范围内。
+
+> 2026-09-07 补齐：DeepSeek Adapter、配置、生命周期和 Mock / V2 链路已实现。
+> Prompt 升为 `query-understanding-v2`；真实供应商合成烟测已完成，代表性质量报告仍未完成。
+> 见[模型接入补齐说明](agent-query-model-integration.md)。
 
 工作内容：
 
@@ -1524,6 +1570,15 @@ Phase 4D 已完成的能力复用内容：
 > 契约漂移、Loop Budget、并发冲突、重放与重启恢复矩阵；Eval 新增要求 dataset hash、
 > Gold 和门禁一致的 `agent-compare` 及逐 Turn 差异报告。证据见
 > [Phase 5B 实现说明](agent-kernel-phase5b.md)。
+>
+> Phase 5C（2026-09-07）完成组件质量评测切片：独立数据／观测契约、无 Gold 输入、
+> SHA256 冻结、Macro-F1／硬槽位 F1、失败／用量口径、调用预算与逐样本对照。48 条
+> synthetic development 真实对照使用 20 次模型尝试，14 条改善、0 条退化；仍须独立
+> holdout 与 V2 同场景验收。见 [Phase 5C 实现说明](agent-kernel-phase5c.md)。
+>
+> Phase 5D（2026-09-07）完成数据审核交接与 V2 离线验证：候选／已见数据／逐样本
+> SHA 绑定、pending 审核和冻结工具；13 场景／28 Turn 的真实 V2/Graph/SQLite + Mock
+> Provider 回归及 28 次免模型重放全部通过。见 [Phase 5D 说明](agent-kernel-phase5d.md)。
 
 工作内容：
 
@@ -1553,11 +1608,28 @@ Phase 5B 本地可靠性切片已完成：
 - 严格验证 dataset SHA256、Gold 标签及门禁一致性的 Agent baseline/experiment 对比；
 - 核心指标方向和逐 Turn regression/improvement JSON/Markdown 报告。
 
-阶段 5 剩余内容：
+Phase 5C 组件评测切片已完成：
 
+- 48 条 synthetic development 标注、group/split 防泄漏与 draft/holdout 门禁；
+- Assistant 本地导出与 Eval 独立评分，Gold、Prompt、Key 不进入观测；
+- 固定六类 Macro-F1、四硬字段联合 micro-F1、缺槽、失败、用量与组件延迟；
+- 串行、有界、无自动重试的真实模型实验及预算耗尽／中断保留失败分母；
+- 从同一 Gold 与原始观测重算报告、逐样本差异、review queue 和 CLI 门禁；
+- 38 个新增离线用例及 20 次授权 development 模型请求的精简证据。
+
+Phase 5D 离线切片已完成：
+
+- 跨文件已见 ID／规范化输入／语义 group 检查，人工 approve/exclude/pending 交接；
+- 源数据、参考集、逐条 SHA 与审核决定绑定，失败拒绝冻结，批准数据和无 Gold 请求分离；
+- 关联 11 条组件样本的 13 场景／28 Turn V2 development 数据，独立脚本 Mock Provider；
+- 分步补槽、多意图、歧义、控制、切换／字段覆盖确认、逐消息重放与三业务应用重建恢复；
+- 31 个新增离线测试、机器可读本地摘要；未生成已审核新 holdout、无新增付费调用。
+
+阶段 5 剩余内容（保留独立验收，等待人工数据时可推进可观测性）：
+
+- 人工审核独立 holdout、固定代码／Prompt／配置并另获预算授权，完成真实对照及对应 V2 联调；
 - 逐 Node wall-clock span、采样策略、OpenTelemetry exporter 与 Dashboard；
 - 真实接口 Fault Gateway 的限流、超时、契约漂移和恢复率报告；
-- Structured Model 规则 baseline / 模型 experiment 的代表性 holdout 报告；
 - 多副本共享 checkpointer 的冲突、恢复和 Tool 幂等演练。
 
 交付物：

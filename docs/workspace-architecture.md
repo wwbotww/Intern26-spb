@@ -1,13 +1,14 @@
 # Workspace 架构与模块边界
 
 > 当前实现基线：`offline-pipeline 0.2.0`、`rag-api 0.5.1`、
-> `assistant-api 0.3.3`、`chat-web 0.2.0`、`eval 0.5.0`。本文只描述已实现边界。
+> `assistant-api 0.3.5`、`chat-web 0.2.0`、`eval 0.7.0`。本文只描述已实现边界。
 
 ## 目标
 
 仓库同时承载离线数据生产、在线检索问答、单轮工具编排和黑盒评估工具。各应用必须
-在代码、依赖、进程、权限和发布层面保持隔离；评估工具只能通过 HTTP 使用
-在线 API。
+在代码、依赖、进程、权限和发布层面保持隔离；端到端评估只通过 HTTP 使用在线 API。
+Understanding 组件评估另通过本地版本化输入／观测文件交互，不导入应用实现，也不
+替代 Workflow 端到端验收。
 
 ```mermaid
 flowchart LR
@@ -77,7 +78,7 @@ Core + PyMySQL 参数化查询和 RapidFuzz 候选排序；连接会话强制只
 适配器，不得导入其他应用实现。请求不接受对话历史，服务不保存会话。
 
 代码库已在 `assistant-api` 隔离路径完成阶段 1–2、3A、4A～4D 与本地 5B，独立
-`eval` 已完成 Phase 5A/5B：Domain 契约
+`eval` 已完成 Phase 5A/5B，Phase 5C 再补跨进程文件契约组件评测：Domain 契约
 和纯 Policy 不依赖框架，Application Service 提供 Hybrid Understanding、Region
 Resolver、Slot Merger 和白名单工具执行，Workflow Runtime 负责编排、interrupt/resume、
 会话串行化与生命周期，Adapter 提供 Fake Tool、`AsyncSqliteSaver`、元数据/API 幂等和
@@ -94,6 +95,25 @@ readiness probe、固定标签指标、脱敏停止态 Run Trace 和共享 coord
 依赖时才挂载。默认 `main.app` 不注入，因此当前运行拓扑、`/v1` 单轮语义和 `memory=disabled`
 健康状态保持不变。LangGraph import 继续由架构测试限制在 Workflow
 Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单进程恢复能力。
+
+`query_model.py` 是模型组合根，显式开关决定是否实例化独立 DeepSeek Adapter，并在
+lifespan 关闭其连接池。Adapter 复用共享 HTTP，只返回领域理解 DTO；Hybrid 执行规则
+优先和硬实体重提。模型凭据、Prompt 和供应商原始响应不进入 Graph State。接入已通过
+Mock HTTP / V2 多轮测试与真实供应商合成烟测，代表性质量评测仍待完成；不影响默认
+V1 装配。Assistant 测试域隔离进程配置与默认 dotenv，显式测试配置仍可覆盖，避免
+本地凭据污染合同测试或意外触发付费依赖。
+
+Phase 5C 的 `understanding_export.py` 是本地组件观测入口，调用同一 Understanding
+Port；组合根可装饰 Model Port 控制调用预算，Adapter 用脱敏 observer 提供用量／失败
+测量，Client 仍由组合根唯一关闭。该入口不加载 Gold、不执行 Graph 或 Tool，不新增
+公开 HTTP 调试字段。独立 Eval 校验文件契约及指纹后重算 Intent／硬槽位 F1，详见
+[ADR-0010](adr/0010-understanding-component-evaluation.md)。48 条 development 真实
+对照已经完成，人工审核 holdout 与对应 V2 场景仍待验收。
+
+Phase 5D 的跨数据集审核／冻结逻辑仅位于 Eval，源数据与参考集变更会使旧审核失效。
+应用侧测试独立提供 Mock 供应商响应，再让 Eval 经 ASGI HTTP 调用真实 V2/Graph/SQLite；
+13 场景／28 Turn、逐消息重放与应用重建恢复已验证，但不代替真实 holdout 联调。
+没有为评测增加线上调试接口、Graph 字段或跨应用生产依赖。
 
 ### `apps/chat-web`
 
@@ -137,6 +157,10 @@ checkpoint 或导入 Python 实现。
   Error 与延迟，并输出机器可读质量门禁；
 - 仅在 dataset hash、Gold 标签和门禁阈值一致时，对 Agent baseline/experiment 输出
   指标及逐 Turn 回归；
+- 为 Understanding 组件导出无 Gold 输入、校验独立 observation schema，并按同一完整
+  Gold 重算 Intent／硬槽位 F1、失败／未知用量、组件延迟及逐样本差异；
+- 在本地审核工具中检查跨文件已见数据污染，核验人工审核与源数据指纹后导出冻结数据；
+  不自动审核语义标签，不代表身份认证或代表性数据保证；
 - 生成本地 JSON、JSONL 和 Markdown 报告。
 
 它不得导入 `spb_rag_api`、`spb_assistant_api` 或 `spb_pipeline`，不得直连

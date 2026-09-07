@@ -286,7 +286,7 @@ README、日志或提交记录。
 `/health/ready` 才返回 200。任一配置缺失或依赖不可用时保持 503。`chat-web`
 已通过同源代理使用该入口，不再直接调用 `rag-api`。
 
-LangGraph Agent 正按独立路径开发。阶段 1–2、3A、4A～4D、5A 与本地 5B 已完成：
+LangGraph Agent 正按独立路径开发。阶段 1–2、3A、4A～4D、5A～5D 的本地切片已完成：
 除 Fake Tracking、类型化工具路由和 bounded loop 外，已覆盖五意图 Hybrid
 Understanding、跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、并发门禁、本地重启恢复，
 以及时限/资费类型化 Tool、共享单次 HTTP 边界、有界退避和能力级熔断。Phase 4A 又实现
@@ -298,6 +298,16 @@ V2 readiness、低基数 Agent 指标、脱敏 Run Trace 与 lifespan janitor �
 新增只走 V2 HTTP 的 13 场景/17 Turn 多轮 Eval、六类质量指标、CI 门禁与失败复核队列；
 Phase 5B 又加入脱敏 node/edge/checkpoint/interrupt/retry 语义 Trace、故障注入矩阵和
 严格同数据集的 Agent baseline/experiment 逐 Turn 对比；
+阶段 2 模型补齐已实现可选 DeepSeek Adapter、显式配置、单次有界调用和生命周期，
+真实合成烟测已验证识别／补槽／超时回退，代表性质量评测待完成，见
+[模型接入与配置](docs/agent-query-model-integration.md)。
+Phase 5C 已新增独立 Understanding 组件评测、有界观测导出与同样本对照：48 条合成
+development 样本上使用 20 次真实模型请求，Macro-F1 0.7068→1.0000、硬槽位 F1
+0.9600→1.0000；这不是独立 holdout 或生产质量结论，见
+[对照证据与限制](docs/agent-understanding-comparison-20260907.md)。
+Phase 5D 已增加人工审核／跨文件污染检查／数据冻结工具，以及 13 场景／28 Turn 的
+V2 Mock 供应商回归、逐消息幂等重放和应用重建恢复；没有自动批准 holdout，也未增加
+付费模型调用，见 [Phase 5D](docs/agent-kernel-phase5d.md)。
 默认 `main.app` 仍不
 挂载 V2，`/v1/chat` 继续是无服务端记忆的显式单轮接口，真实物流接口仍待后续阶段。详见
 [阶段 1 实现说明](docs/agent-kernel-phase1.md)、
@@ -309,6 +319,7 @@ Phase 5B 又加入脱敏 node/edge/checkpoint/interrupt/retry 语义 Trace、故
 [阶段 4D 实现说明](docs/agent-kernel-phase4d.md)、
 [阶段 5A 实现说明](docs/agent-kernel-phase5a.md)、
 [阶段 5B 实现说明](docs/agent-kernel-phase5b.md)、
+[阶段 5C 实现说明](docs/agent-kernel-phase5c.md)、
 [实施方案](docs/agent-workflow-implementation-plan.md)和[架构决策记录](docs/adr/README.md)。
 
 本地启动框架服务：
@@ -361,6 +372,7 @@ npm run dev
 无需外部 API Key 的 V2 Agent 本地演示：
 
 ```bash
+ASSISTANT_QUERY_MODEL_ENABLED=false ASSISTANT_HOST=127.0.0.1 \
 uv run --package spb-assistant-api spb-assistant-agent-demo
 
 cd apps/chat-web
@@ -370,8 +382,9 @@ npm run dev
 ```
 
 该入口装配三个 Fake 物流 Gateway，以及由本地 Source/Repository fixture 驱动的真实
-V1 政策/价格业务 Tool；五类能力均不访问外部网络，不得作为生产服务。真实 Adapter
-开发时再提供对应 Base URL、认证合同和 API Key。
+V1 政策/价格业务 Tool；上述关闭模型的模式不访问外部网络，不得作为生产服务。
+可按[模型接入说明](docs/agent-query-model-integration.md)显式启用 DeepSeek 语义理解，
+此时仅模型 fallback 访问供应商，业务工具仍为 fixture。真实物流 Adapter 等待接口合同。
 
 Docker 启动 API 和界面：
 
@@ -491,6 +504,9 @@ uv run pytest packages/contracts/tests
 - [Phase 4D V1 Tool 复用与五能力 Agent 闭环](docs/agent-kernel-phase4d.md)
 - [Phase 5A Agent 多轮黑盒评测与质量门禁](docs/agent-kernel-phase5a.md)
 - [Phase 5B 可靠性故障矩阵、语义 Trace 与 Agent 报告对比](docs/agent-kernel-phase5b.md)
+- [Phase 5C Understanding 质量评测与有界同样本对照](docs/agent-kernel-phase5c.md)
+- [Phase 5D 人工审核冻结与 V2 语义工作流回归](docs/agent-kernel-phase5d.md)
+- [2026-09-07 Understanding development 对照证据](docs/agent-understanding-comparison-20260907.md)
 - [Agent Workflow 架构决策记录](docs/adr/README.md)
 - [Assistant Agent V2 OpenAPI（Phase 4D 显式装配实现）](docs/openapi/assistant-agent-v2.openapi.json)
 - [AI 应用 / Agent 求职项目复盘](docs/project-retrospective.md)

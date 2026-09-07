@@ -418,7 +418,7 @@ class AgentEvalCase(BaseModel):
     id: NonEmptyText
     category: NonEmptyText
     turns: list[AgentEvalTurn] = Field(min_length=1, max_length=10)
-    split: DatasetSplit = "calibration"
+    split: DatasetSplit | Literal["development"] = "calibration"
     tags: list[NonEmptyText] = Field(default_factory=list)
     notes: str = ""
 

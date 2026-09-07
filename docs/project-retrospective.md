@@ -6,10 +6,10 @@
 > 模块能力，不代表完整真实业务场景；后续场景待需求稳定后另行补充。
 >
 > 代码基线：`offline-pipeline 0.2.0`、`rag-api 0.5.1`、
-> `assistant-api 0.3.3`、`chat-web 0.2.0`、`eval 0.5.0`。
+> `assistant-api 0.3.5`、`chat-web 0.2.0`、`eval 0.7.0`。
 >
 > Agent 工程基线：Phase 2 提交 `186208f`；Phase 3A、4A～4D、5A、5B 工作树验证于
-> 2026-09-04。
+> 2026-09-04；真实模型 Adapter、Phase 5C development 对照及 Phase 5D 离线审核／V2 回归完成于 2026-09-07。
 
 ## 1. 30 秒技术介绍
 
@@ -28,9 +28,13 @@ Agent Runtime 已基于 LangGraph 实现五意图理解、状态化补槽、受�
 业务 Tool 与结果合同，五能力无网络 Demo 已闭环；Phase 5A 又通过公开 V2 HTTP 建立
 13 场景/17 Turn 多轮评测、质量门禁和失败复核队列；Phase 5B 再加入不含业务值的
 node/edge/checkpoint/interrupt/retry 语义 Trace、本地故障矩阵和严格同样本的 Agent
-baseline/experiment 逐 Turn 对比。默认服务仍未发布 V2，也没有接入
-真实物流接口。这个边界需要
-在面试中主动说明。
+baseline/experiment 逐 Turn 对比。阶段 2 模型补齐又实现独立 DeepSeek Adapter、单次
+有界请求、显式配置和生命周期，并用真实 DeepSeek 验证识别、补槽、规则免模型和超时
+安全回退。Phase 5C 进一步分离 Understanding 组件与 Workflow 验收，在 48 条合成
+development 样本上量化 Rules/Hybrid 增益及调用成本。代表性语义效果仍待独立 holdout；
+Phase 5D 已补跨数据集审核冻结工具和对应 13 场景／28 Turn 的 V2 Mock 集成回归。
+默认服务仍未发布 V2，也没有接入真实物流接口。
+这个边界需要在面试中主动说明。
 
 ## 2. 当前技术需求与负责范围
 
@@ -111,12 +115,26 @@ CPU reranker 和生成链路的排队是明确的性能边界。
 
 ### 当前代码验证
 
-当前工作树（Phase 3A + 4A～4D + 5A，基于 `186208f`）已完成：
+历史 Phase 5B 基线（提交 `27f735a`）已于 2026-09-06 复核：
 
-- 296 个 Python 测试通过；Phase 3A/4A/4B/4C/4D/5A 相对前序分别新增
-  22/10/5/6/8/5 个 case。
+- 308 个 Python 测试通过。
 - 17 个 Chat Web 测试通过，OpenAPI 生成类型校验和生产构建成功。
-- Docker Compose 配置解析通过。
+- 五能力 HTTP fixture 的 13 场景 / 17 Turn、七项门禁全部通过。
+
+2026-09-07 模型联调收口后新增 34 个 case（33 个模型集成、1 个配置隔离），完整
+Python 工作区 `342 passed`，锁文件离线检查通过。真实烟测共 5 次模型尝试：4 次成功、
+1 次超时安全回退；三类业务补槽完成，7 次幂等重放无追加模型调用。详见
+[模型接入证据](agent-query-model-integration.md)和[真实烟测报告](agent-query-model-live-smoke-20260907.md)。
+随后 Phase 5C 新增 38 个组件评测／预算／契约用例，完整 Python `380 passed`。相同
+48 条 development 数据上，20 次授权模型调用全部成功，Macro-F1 0.7068→1.0000、
+硬槽位 F1 0.9600→1.0000，完整样本通过 34→48，已知用量 40,097 tokens。该数字
+不是代表性质量验收，Web 沿用上述未改动基线。见
+[组件对照证据](agent-understanding-comparison-20260907.md)。
+
+Phase 5D 随后新增 31 个 case，全量 Python `411 passed`。13 场景／28 Turn 的离线
+V2 回归通过，28 次额外幂等重放不追加 Mock 模型调用，三类任务可在重新装配应用后
+继续补槽；真实付费请求为 0。审核工具不会自动批准新 holdout，独立人工数据仍待提供。
+详见 [Phase 5D](agent-kernel-phase5d.md)。
 
 `assistant-api 0.3.1` 曾完成 10 条混合烟测并全部通过，但样本量小且早于当前版本，
 只作为历史回归线索。
@@ -152,9 +170,14 @@ RapidFuzz 排序。硬字段冲突直接排除；LLM 不连接 MySQL，也不能
 Eval 覆盖召回、拒答、引用、事实覆盖、路由、候选 Recall、P50 / P95、并发、
 基线对比、阈值扫描、Wilson 区间和人工 review queue。Phase 5A 进一步按真实
 conversation 顺序执行 Agent 多轮 Turn，计算 Intent、Required Input、Wrong Tool、
-Task Completion、Recovery 和 API Error 门禁。评测只调用 HTTP，避免内部函数测试
+Task Completion、Recovery 和 API Error 门禁。Workflow 评测只调用 HTTP，避免内部函数测试
 替代真实调用链。Phase 5B 的报告对比进一步要求 dataset SHA256、完整 Gold 与门禁阈值
 全部一致，并把缺失 Turn 和 API error 保留为逐 Turn 回归。
+
+Phase 5C 另以无 Gold 输入／脱敏 observation 文件测量 Understanding 组件，不为评分
+给生产 API 增加 debug 字段。实体错值按 FP + FN、缺值按 FN；区分模型正常 unknown、
+失败回退、预算 skipped 与未观测行。独立重算和数据指纹防止漏记失败或更换样本制造
+虚假提升；小型 development 全通过仍不能证明端到端或未见样本效果。
 
 ### 5.6 Demo 的可靠性约束
 
@@ -168,11 +191,12 @@ Task Completion、Recovery 和 API Error 门禁。评测只调用 HTTP，避免�
 | --- | --- | --- |
 | RAG / Grounding | 混合检索、重排、证据判断、引用和拒答 | 可描述为已实现 |
 | Tool abstraction | Agent 五类 Command/Tool；Policy/Device 通过 Port Adapter 复用 V1，三类物流使用 Gateway | 物流能力仍是 Fake Gateway |
-| Query Understanding | Phase 2 五意图 Hybrid、硬实体、跨轮冲突与 schema gate | 未接真实模型 Provider |
+| Query Understanding | 五意图 Hybrid、硬实体、schema gate；DeepSeek Adapter 与 Phase 5C Rules/Hybrid 组件对照 | 48 条 development 已测，人工审核 holdout 待验 |
 | Routing | V1 显式路由；Agent 由确定性 Policy + Descriptor 白名单路由 | 不允许模型提交任意工具名 |
 | Stateful workflow | LangGraph interrupt/resume、SQLite checkpoint、TTL、三层幂等、V2 JSON/SSE、Web 刷新恢复与删除 | 仅本地单进程，默认服务未发布 V2 |
 | Failure handling | 分类、有限重试、结果拒绝、受限 Retry-After、能力级熔断；Phase 5B 本地故障矩阵 | 真实接口故障注入仍待完成 |
-| Evaluation | Phase 5A 多轮 V2 HTTP 与七项门禁；Phase 5B 同样本对比和逐 Turn 回归 | 当前 Agent 数据集是小型 fixture |
+| Evaluation | Phase 5A/B 多轮 V2 HTTP 与逐 Turn 回归；Phase 5C 组件 F1、成本与失败分母 | fixture／development 不能替代代表性端到端数据 |
+| Data governance | Phase 5D 跨文件污染检查、pending 审核、SHA 绑定、排除记录和数据冻结 | 语义近重复需人工审核，身份声明不是认证 |
 | Production awareness | 鉴权、限流、健康、指标、日志和容器安全 | 当前是单副本 Demo 基线 |
 
 面试中可把整体称为“AI 应用与受约束 Agent 工程 Demo”，但必须区分已发布 V1 与隔离
@@ -191,11 +215,20 @@ Adapter、逐 Node 分布式耗时 span 或多副本能力。
 - 将 RAG 与结构化 MySQL 查询封装为统一 Assistant API，通过 typed ports /
   adapters、只读访问和确定性实体匹配约束模型权限及金额类幻觉。
 - 完成 FastAPI + Vue 双版本 SSE Demo，加入鉴权、限流、健康检查、Prometheus、
-  结构化日志、非 root 只读容器及 OpenAPI 类型生成；当前基线通过 296 个 Python 测试
-  与 17 个前端测试。
+  结构化日志、非 root 只读容器及 OpenAPI 类型生成；当前基线通过 411 个 Python 测试，
+  前端沿用未改动基线的 17 个测试、类型检查和构建证据。
+- 接入规则优先的 DeepSeek 语义理解，以版本化 JSON 契约、确定性硬实体重提和
+  LangGraph interrupt/resume 完成三类合成查询；真实烟测验证单次预算内失败回退和
+  已保存幂等结果免模型重放，不把小样本连通率包装成意图准确率。
+- 建立独立 Understanding 组件评测，冻结数据／代码／Prompt 并控制模型调用预算；在
+  48 条合成 development 样本上，Rules/Hybrid Macro-F1 为 0.7068/1.0000、硬槽位 F1
+  为 0.9600/1.0000，使用 20 次模型调用修正 14 条样本；明确独立 holdout 尚待验证。
 - 构建仅依赖 V2 HTTP 的 Agent 多轮 Eval，以 conversation 级顺序执行验证
   interrupt/resume；本地 13 场景/17 Turn fixture 中 Intent、Task Completion 和
   Recovery 均为 1.0000，Wrong Tool/API Error 为 0，明确该数字不是生产准确率。
+- 为理解模型建立数据审核冻结与 Workflow 集成回归：源语料／参考集／逐条指纹绑定
+  人工审核，拒绝已见污染和过期审核；13 场景／28 Turn 的 Mock 供应商 V2 回归与 28 次
+  消息重放通过，验证补槽、确认与恢复，不把 Mock 输出当作模型质量证据。
 
 ## 8. 面试问题索引
 
@@ -249,6 +282,9 @@ Adapter、逐 Node 分布式耗时 span 或多副本能力。
 - [Phase 4D V1 Tool 复用与五能力 Agent 闭环证据](agent-kernel-phase4d.md)
 - [Phase 5A Agent 多轮黑盒评测与质量门禁证据](agent-kernel-phase5a.md)
 - [Phase 5B 可靠性故障矩阵、语义 Trace 与 Agent 报告对比证据](agent-kernel-phase5b.md)
+- [Phase 5C Understanding 组件评测与预算边界](agent-kernel-phase5c.md)
+- [Phase 5D 人工审核冻结与 V2 集成回归](agent-kernel-phase5d.md)
+- [2026-09-07 同样本 development 对照证据](agent-understanding-comparison-20260907.md)
 - `apps/offline-pipeline/src/spb_pipeline/`：采集、解析、OCR、切分、向量化和同步。
 - `apps/rag-api/src/spb_rag_api/`：检索、重排、证据判断和回答服务。
 - `apps/assistant-api/src/spb_assistant_api/`：显式路由、政策工具、价格匹配和统一协议。
@@ -256,7 +292,7 @@ Adapter、逐 Node 分布式耗时 span 或多副本能力。
 
 ## 11. LangGraph Agent 化设计与阶段证据
 
-> 状态：总体方案仍处于 Proposed；阶段 0～2、3A、4A～4D、5A 与本地 5B 已完成。当前已有正式
+> 状态：总体方案为 In progress；阶段 0～2、3A、4A～4D、5A～5D 的本地切片已完成。当前已有正式
 > `StateGraph` Agent Kernel、五意图 Hybrid Understanding、Region Resolver、Slot
 > Merger、`AsyncSqliteSaver`、interrupt/resume、会话幂等/TTL/串行推进、类型化路由、
 > 结果校验、Tool 重放收据、时限/资费 Tool、有限退避与能力级熔断，以及显式装配的
@@ -268,9 +304,11 @@ Adapter、逐 Node 分布式耗时 span 或多副本能力。
 > 质量指标已经完成。
 
 该独立路径正在把当前单轮 Dispatcher 演进为受约束、可观测、可恢复的 Stateful Tool
-Agent，以 LangGraph 作为核心 Workflow Runtime；本地 Phase 5B 已完成，下一步可在
-不依赖外部接口的前提下继续逐 Node span/部署硬化，Phase 3B 则等待接口后接入三个真实
-只读查询能力。详细实施基线见
+Agent，以 LangGraph 作为核心 Workflow Runtime。当前已补齐模型 Adapter、真实烟测、
+组件评测工程与 development 对照；Phase 5D 又补审核冻结工具和 V2 Mock 同场景回归。
+独立 holdout 仍需真实审核者处理，之后另获预算真实对照；等待数据时可继续逐 Node span /
+Dashboard，不把离线完成写成代表性验收。物流合同
+到达后完成阶段 3B，再收口 V2 发布与阶段 6 硬化。详细实施基线见
 [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
 ### 11.1 设计问题与目标
@@ -327,8 +365,10 @@ thread-scoped 工作状态的唯一事实源，应用元数据仓储只保存 ow
 
 邮件号、重量和行政区划等硬字段不依赖模型自由生成；模型只在规则不能可靠判断时
 输出受 Pydantic / JSON Schema 约束的候选意图和槽位。Phase 2 已实现五意图规则、
-硬实体、Structured Model Port/schema gate 和版本化 Prompt；尚未配置真实模型
-Provider。低置信或候选接近时请求澄清，不把模型自报 confidence 当成真实校准概率。
+硬实体、Structured Model Port/schema gate 和版本化 Prompt。2026-09-07 又实现独立
+DeepSeek Adapter、开关和生命周期；Prompt v2 明确模型只补语义分类，编造槽位会被
+规则重提结果覆盖。真实烟测已验证语义识别、规则补槽和失败回退。低置信或候选接近时请求澄清，不把模型
+自报 confidence 当成真实校准概率。
 
 #### 决策四：Query Understanding 与 Routing 分离
 
@@ -438,13 +478,14 @@ input_required|result -> delta -> done` 投影，并用 `error` 表达建流后�
 不一致直接拒绝。通过后从逐 Turn observation 重算 summary，再输出固定方向的核心指标
 与逐 Turn regression/improvement，
 把 API error、缺失 Turn、理解、补槽、路由和结果合同失败保留在证据中。这使规则
-baseline 与后续 Structured Model experiment 可以复现，但当前尚无真实模型报告。
+baseline 与后续 Structured Model experiment 可以复现。当前已有小量真实烟测记录，
+但尚无代表性同样本 Rules/Hybrid 质量对照报告；已看过的烟测输入不能当作未见 holdout。
 
 ### 11.3 Agent 能力路线与当前证据
 
 | 岗位能力 | 当前状态 | 下一份关键证据 |
 | --- | --- | --- |
-| Query Understanding | Phase 5A：五意图规则 + 17 Turn V2 黑盒 Intent/补槽门禁 | 真实模型 baseline、Macro-F1、Slot F1、错误分析 |
+| Query Understanding | 五意图 Hybrid；Phase 5C 真实组件对照、Phase 5D V2 Mock 回归 | 人工审核 holdout 与真实 V2 场景联调 |
 | Tool / Function Calling | Phase 5A：五查询白名单；本地 Result Wrong Tool 0/11 | 真实五工具 holdout Wrong Tool Rate |
 | LangGraph Orchestration | Phase 5B：StateGraph 条件路径、interrupt/resume/checkpoint/Tool retry 脱敏语义 Trace | 逐 Node wall-clock span 与生产采样 |
 | Stateful Workflow | Phase 4C：SQLite checkpoint、TTL、三层幂等、owner、删除、API/Web 恢复、janitor | 多副本 checkpointer 与跨进程冲突测试 |
@@ -453,7 +494,7 @@ baseline 与后续 Structured Model experiment 可以复现，但当前尚无真
 | Failure Handling | Phase 5B：分类、退避、Retry-After、熔断、契约拒绝与本地故障矩阵 | 真实 Gateway 故障注入报告 |
 | Human in the Loop | Phase 5A：4 个补槽/多意图场景经 V2 HTTP 恢复 4/4 | 代表性任务完成率 |
 | LLMOps / Observability | Phase 5B：低基数 Run 指标、独立 readiness、停止态摘要 + node/edge 语义 Trace | wall-clock span、OpenTelemetry 与 Dashboard |
-| Agent Evaluation | Phase 5B：13 场景/17 Turn V2 HTTP、七项门禁、review queue 与同样本逐 Turn 对比 | 真实模型/接口 holdout |
+| Agent Evaluation | Phase 5A/B：V2 门禁；Phase 5C：组件评分；Phase 5D：审核冻结与 28 Turn 集成回归 | 真实模型/接口 holdout |
 | Grounding | Phase 4D：V1 RAG 引用/拒答通过完整 Evidence Adapter 进入 V2 | 真实 RAG V2 黑盒回归 |
 
 阶段 0～5B 当前已有的可复核证据：LangGraph 导入被架构测试限制在 Workflow Runtime /
@@ -471,8 +512,12 @@ Renderer 及多意图选择。Phase 4C 又验证 V2 readiness fail-closed、固�
 Provenance 防篡改和五能力路由。Phase 5A 再从 Eval 进程只经公开 HTTP 验证 13 场景 /
 17 Turn、五意图、4 次多轮恢复和 11 个结果路由，七项本地 fixture 门禁全部通过；
 Phase 5B 新增 12 个测试 case，验证语义 Trace 的隐私/路径/恢复投影，以及 Agent 报告的
-同数据、同 Gold、同门禁约束和逐 Turn 差异。当前完整 Python workspace `308 passed`、
-Web `17 passed`，类型生成检查与 production build 通过。
+同数据、同 Gold、同门禁约束和逐 Turn 差异。Phase 5B 历史完整 Python workspace
+`308 passed`、Web `17 passed`，类型生成检查与 production build 通过；2026-09-07
+模型联调与测试配置隔离收口后完整 Python 为 `342 passed`。
+Phase 5C 再新增 38 个评测／导出用例后为 `380 passed`，并在离线测试通过后完成
+20 次授权模型请求的同样本 development 对照。
+Phase 5D 新增 31 个审核／冻结／V2 集成 case 后为 `411 passed`，无新增付费请求。
 这些证据仍不替代真实工具、生产持久化后端和代表性端到端质量报告。
 
 ### 11.4 推荐演示路径
@@ -529,8 +574,9 @@ Web `17 passed`，类型生成检查与 production build 通过。
 - Task：提高理解覆盖率，同时保持可解释和可回归；
 - Action：显式选择和状态优先，正则/词典处理硬实体，Structured LLM 只作为
   fallback，低置信时澄清；
-- Result：本地 V2 黑盒 fixture 的 Intent 为 17/17、required input 为 4/4且无不必要
-  澄清；样本小且未接模型，不能表述为 Macro-F1、Slot F1 或生产准确率。
+- Result：规则 V2 黑盒 fixture 的 Intent 为 17/17；随后真实 DeepSeek 将三条规则原判
+  unknown 的合成改写分别识别为轨迹／时限／资费，均通过规则补槽完成。无关输入一次
+  超时、独立复测正确判 unknown；这些小样本不能表述为 Macro-F1、Slot F1 或生产准确率。
 
 #### 故事 E：如何让 Agent 安全失败
 
@@ -541,7 +587,7 @@ Web `17 passed`，类型生成检查与 production build 通过。
 - Result：Phase 3A/4A 分别新增 22/10 个自动化 case，Phase 4B 再增加 SSE/lifespan 与
   Web contract 测试，Phase 4C 增加 6 个 operations/隐私用例，Phase 4D 增加 8 个
   Tool 复用/故障合同用例，Phase 5A 增加 5 个 Eval/门禁用例，Phase 5B 增加 12 个
-  Trace/故障/报告对比用例；本阶段全量为 Python `308 passed`、Web `17 passed`；
+  Trace/故障/报告对比用例；Phase 5B 历史全量为 Python `308 passed`、Web `17 passed`；
   真实 Gateway 错误恢复率、烟测和线上指标仍待接口接入后填写。
 
 #### 故事 F：如何让新 Agent 复用旧系统而不复制逻辑
@@ -576,9 +622,56 @@ Web `17 passed`，类型生成检查与 production build 通过。
 - Result：Phase 5B 用 timeout 恢复、重试耗尽、契约漂移、Loop Budget 和 HITL 用例验证
   路径及隐私边界；后续仍需补逐 Node span、采样和真实接口 trace。
 
+#### 故事 I：真实模型联调如何验证成本与失败边界
+
+- Situation：Provider 的 JSON mode 不能保证业务契约，正常输入也可能出现长尾超时；
+  配置好 Key 还会让未隔离的本地测试意外读到外部依赖。
+- Task：验证模型真的补充语义，同时控制错误路由、重复调用和凭据扩散。
+- Action：仅对规则不能决策的输入发一次有界请求，结构校验后重提硬字段；按 Provider
+  日志与 Graph 语义 Trace 区分正常 unknown 和失败回退，重复请求复用消息收据；测试
+  隔离默认 dotenv／环境，只允许显式配置合成依赖。
+- Result：真实 5 次请求中 4 次成功、1 次触发 8 秒 deadline 并安全 handoff；同预算
+  人工复测成功，但不删除首次失败、不宣称系统自动重试。7 次已保存结果重放未追加
+  模型调用；成功响应已知 7998 tokens，超时账单未知而非零。33 个模型集成用例覆盖
+  Mock 合同与 V2 分支，完整 Python 342 项通过；不宣称模型计费 exactly-once。
+
+#### 故事 J：如何证明模型有增益，而不混淆评测对象
+
+- Situation：规则能处理硬实体，却会漏掉口语意图；V2 只暴露业务投影，缺槽提示正确
+  不代表实体值提取正确，模型失败回退也可能碰巧得到正确 unknown。
+- Task：建立可复算的 Rules/Hybrid 质量／成本对照，同时守住应用边界和付费预算。
+- Action：Eval 冻结数据并仅导出无 Gold 输入，Assistant 复用现有 Port 产出独立观测；
+  错值计 FP + FN，失败／跳过／缺失行不丢弃，记录正常 unknown 与失败回退。串行
+  Model Port 装饰器按尝试数扣预算，Adapter observer 只给脱敏测量，底层 Client
+  仍由组合根唯一关闭。用 dataset/input/code/config/prompt 指纹约束同样本对照。
+- Result：48 条合成 development 样本、44 条单意图评分行、46 条槽位评分行／26 个
+  原子 Gold 值；20 次真实请求带来 14 条改善、0 条退化，Macro-F1 0.7068→1.0000、
+  硬槽位 F1 0.9600→1.0000。槽位改善来自正确意图后的规则重提，不是信任模型实体。
+  已知用量 40,097 tokens、模型 P95 999.20 ms；新增 38 个离线用例后全量 380 项通过。
+- Boundary：所有标签是 draft、4 条已见烟测；不能把 development 全通过写成生产
+  准确率。未运行 Graph，因此仍须独立 holdout 和 V2 同场景验收；没有测得货币成本
+  或并发 SLA。完整证据见[对照报告](agent-understanding-comparison-20260907.md)。
+
+#### 故事 K：如何防止“组件高分”掩盖工作流问题
+
+- Situation：组件评测的上下文是显式输入，不能证明历史槽位真的被保存；已见 development
+  也不能通过改名变成 holdout，人工审阅后再改 Gold 会使审核失效。
+- Task：让新数据有审核交接，让已识别的意图进入真实 Workflow 后可验证。
+- Action：在独立 Eval 中按参考语料检查 ID／规范化输入／语义 group 污染，绑定候选、
+  参考集和逐条 SHA；冻结时重新校验而非信任已编辑 audit。用独立脚本供应商响应经过
+  真实 Adapter、V2、LangGraph、SQLite 和 Tool，让 Eval 只看到 HTTP 契约；每个消息
+  再用同一幂等键重放，另测应用关闭后重建恢复。原始 query 不改写，编造邮件号被丢弃。
+- Result：13 个 development 场景／28 Turn、15 次澄清输入、11 个结果路由及 9 个多轮
+  场景全部通过，28 次重放不追加 Mock 模型调用；三类任务在应用重建后仍能继续补槽。
+  429／非法结构会安全 handoff，同时让成功路径 Eval 失败；本阶段 31 个新增测试后
+  全量 411 项通过，付费模型请求为 0。
+- Boundary：Mock 验证集成，不评测模型智力；审核是人类声明而非身份认证，语义近重复
+  不由精确哈希检查自动解决。设备旧匹配器的品牌／Pro 候选行为也不等于中文型号精确
+  理解。没有自动签字批准 holdout，没有多副本或外部账单 exactly-once 结论。
+
 ### 11.6 简历 bullet 模板
 
-当前可以使用、但必须明确 `Phase 5B / Fake Gateway / local fixture / local SQLite / opt-in V2`
+当前可以使用、但必须明确 `Phase 5D / Fake Gateway / fixture 或 development / local SQLite / opt-in V2`
 范围的工程表述：
 
 - 基于 LangGraph `StateGraph` 实现可注入依赖的轨迹查询 Agent Kernel，以显式 Node、
@@ -591,6 +684,9 @@ Web `17 passed`，类型生成检查与 production build 通过。
   Resolver 处理硬实体，以 Slot Merger 保护跨轮冲突，并用版本化 Structured Model
   schema gate 阻止任意工具名；18 场景/21 turn 公开回归夹具全部匹配，明确该结果不是
   生产 Macro-F1。
+- 为 Hybrid 接入独立 DeepSeek Adapter，以单次 deadline、输出校验和规则回退限制模型
+  权限与成本；通过真实合成烟测验证语义识别、三类补槽及超时安全退出，7 次幂等重放
+  无新增模型调用，质量提升留待冻结 holdout 后量化。
 - 构建 `AsyncSqliteSaver` + Metadata/API Idempotency/Tool Receipt 分层持久化，在关闭连接
   并重新编译 Graph 后恢复同一 interrupt；测试同时覆盖重复 resume、同会话并发拒绝、
   30 分钟可配置 TTL 清理和 v1 -> v2 State migration。
@@ -621,6 +717,13 @@ Web `17 passed`，类型生成检查与 production build 通过。
 - 为 Agent Eval 增加严格同样本 baseline/experiment 对比，强制 dataset SHA256、完整
   Gold 和门禁阈值一致，输出核心指标方向与逐 Turn regression/improvement，防止因换
   样本或漏掉 API error 产生虚假提升。
+- 设计 Understanding 组件与 V2 Workflow 分层评测，采用无 Gold 请求、独立观测契约、
+  版本／数据指纹和有界模型调用；在 48 条合成 development 数据上将 Macro-F1 从
+  0.7068 提升至 1.0000，20 次真实请求、14 条改善／0 条退化，同时保留用量和尾延迟
+  代价；人工审核 holdout 与完整 V2 场景另行验收。
+- 实现数据审核冻结与 Understanding→Workflow 分层回归，以跨文件污染校验、逐条 SHA、
+  人工批准／排除记录防止无意泄漏；13 场景／28 Turn 的 V2 Mock 集成回归及 28 次幂等
+  消息重放通过，验证多轮补槽、切换／覆盖确认和应用重建恢复，明确不代表生产模型质量。
 
 以下 bullet 仍只有在真实接口、代表性评测和报告完成后才能使用；方括号内容必须替换为
 真实数字：
@@ -641,8 +744,9 @@ Web `17 passed`，类型生成检查与 production build 通过。
 
 | 指标 | Baseline | Experiment | 数据集 / 环境 | 证据路径 |
 | --- | ---: | ---: | --- | --- |
-| Intent Macro-F1 | 待测 | 待测 | 待补 | 待补 |
-| Slot F1 | 待测 | 待测 | 待补 | 待补 |
+| Intent Macro-F1 | 0.7068 | 1.0000 | Phase 5C，48 条 development／44 条单意图评分 | [对照证据](agent-understanding-comparison-20260907.md) |
+| 联合硬槽位 micro-F1 | 0.9600 | 1.0000 | Phase 5C，46 行／26 个原子 Gold 值 | 同上 |
+| 代表性 Intent / Slot F1 | 待测 | 待测 | 独立审核 holdout 待补 | 待补 |
 | Intent Accuracy | 1.0000（17/17） | 待测 | Phase 5A 本地 fixture | `eval/baselines/phase5a-local-fixture-v1` |
 | Required Input Accuracy | 1.0000（4/4） | 待测 | Phase 5A 本地 fixture | 同上 |
 | Wrong Tool Rate | 0.0000（0/11） | 待测 | Phase 5A 本地 fixture | 同上 |
@@ -651,9 +755,14 @@ Web `17 passed`，类型生成检查与 production build 通过。
 | Recovery Rate | 1.0000（4/4） | 待测 | Phase 5A 本地 fixture | 同上 |
 | 平均 / P95 Loop Steps | 待测 | 待测 | 待补 | 待补 |
 | 端到端 P50 / P95 | 待测 | 待测 | 待补 | 待补 |
-| Structured LLM fallback 率 | 待测 | 待测 | 待补 | 待补 |
+| Structured LLM 调用率 | 0/48 | 20/48（41.67%） | Phase 5C development 组件 | [对照证据](agent-understanding-comparison-20260907.md) |
+| 模型失败 / 实际尝试 | N/A | 0/20 | 同上；不含先前烟测 | 同上 |
+| 模型 P50 / P95 | N/A | 725.34 / 999.20 ms | 同上；非 V2 端到端 | 同上 |
+| 已知 total tokens | 0 | 40,097 | 同上；未知用量调用 0，非货币账单 | 同上 |
+| V2 语义工作流场景／Turn 通过 | — | 13/13、28/28 | Phase 5D development／Mock Provider | [Phase 5D](agent-kernel-phase5d.md) |
+| V2 消息重放追加模型调用 | — | 0/28 次重放 | 同上；不是供应商计费保证 | 同上 |
 
-Phase 5A 数字明确标记为本地 fixture，不得替代真实接口/模型的代表性报告；没有代表性
+Phase 5A 数字是本地 fixture，Phase 5C 是 synthetic development，均不得替代代表性报告；没有代表性
 数据时继续保留“待测”，不得用设计门禁或单个演示样例填充生产指标。
 
 ### 11.8 当前与完成后的表述边界
@@ -699,16 +808,29 @@ Phase 5A 数字明确标记为本地 fixture，不得替代真实接口/模型�
 - 现有项目已经具备 RAG grounding、typed ports、只读工具、契约校验和黑盒评测
   基础；
 - 已实现从单轮 Dispatcher 渐进复用到受约束 Agent 的兼容路径。
+- 实现 DeepSeek Query Understanding Adapter，复用共享 HTTP 并把并发排队和网络纳入
+  总 deadline；通过 JSON/schema 两层检查、规则硬实体重提和失败回退保护 Tool 边界。
+  Mock HTTP + V2 验证“模型识别 -> 缺槽 interrupt -> 规则 resume -> 幂等完成”，
+  明确未将模型计费 exactly-once 或真实模型准确率列为已验证能力。
+- 完成真实 DeepSeek 小量烟测，5 次尝试含 4 次成功与 1 次超时安全回退；保留失败与
+  未知用量，三类业务补槽和 7 次免模型幂等重放已验证；模型集成 33 个 case、测试
+  配置隔离 1 个 case，完整 Python workspace `342 passed`。
+- 完成 Phase 5C 独立 Understanding 组件评测与 48 条 development 同样本对照，真实
+  模型使用本轮授权的全部 20 次请求、无重试，14 条改善／0 条退化；指标、用量、版本
+  指纹与边界已落盘，新增 38 个用例后完整 Python workspace `380 passed`。
+- 完成 Phase 5D pending 审核、跨文件污染校验和冻结工具，以及 13 场景／28 Turn
+  V2 Mock 集成回归、28 次重放和三类应用重建恢复；新增 31 个用例后全量 `411 passed`。
+  未自动批准真实 holdout，未追加付费调用。
 
 当前不能表述：
 
-- 已配置并评测真实 Structured LLM Provider；当前只有可注入 Port、版本化 Prompt 和
-  schema gate；
+- 已完成代表性 Structured LLM 质量评测或生产 SLA 验证；当前完成工程接入、Mock、
+  真实烟测和 development 对照，未审核小样本不能替代独立 holdout 或生产长尾统计；
 - 已实现生产级多副本 LangGraph Agent 或跨进程会话锁；当前持久化结论只适用于本地
   单进程 SQLite；
 - 已接入轨迹、时限和资费真实接口；
 - 已在代表性真实数据、真实接口和 Structured Model 上达到质量门禁；当前只有本地
-  fixture baseline；
+  fixture 与 development 证据；
 - 已完成 Redis/分布式熔断、逐 Node OpenTelemetry 耗时 span、真实 Gateway 故障报告或
   Structured Model 代表性对比。
 

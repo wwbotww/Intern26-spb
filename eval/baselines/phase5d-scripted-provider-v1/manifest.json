@@ -1,0 +1,40 @@
+{
+  "label": "phase5d-scripted-provider-development",
+  "generated_at": "2026-09-07T04:55:53.754252+00:00",
+  "git_revision": "27f735a-dirty",
+  "assistant_version": "0.3.5",
+  "eval_version": "0.7.0",
+  "dataset": "eval/datasets/agent-understanding-workflow-development-v1.jsonl",
+  "dataset_sha256": "1047d400f8e3d724f4333ac09ed636394f261e71e2a96dc0c6a153b081b58eb5",
+  "component_dataset_sha256": "598868598a5f9d3ab872e0e36ba02c9daa682ee3fb3de9d4a8103030308d47eb",
+  "fixture_source_sha256": "642d6d6a896e6e82816132b434dd64ba4b8e9a7f7588a3240845d014c56f2421",
+  "run_report_sha256": "9fc4961f474e2197d0726dfaee002a88305af29d37a7a76a183113200f9d1de9",
+  "api_transport": "httpx.ASGITransport",
+  "model_transport": "httpx.MockTransport",
+  "scenario_count": 13,
+  "turn_count": 28,
+  "split": "development",
+  "linked_component_cases": 11,
+  "model_attempts": 9,
+  "paid_model_requests": 0,
+  "extra_idempotent_message_replays": 28,
+  "extra_model_calls_from_replay": 0,
+  "quality_gate_passed": true,
+  "metrics": {
+    "case_pass_rate": {"evaluated": 13, "value": 1.0},
+    "turn_pass_rate": {"evaluated": 28, "value": 1.0},
+    "intent_accuracy": {"evaluated": 28, "value": 1.0},
+    "required_input_accuracy": {"evaluated": 15, "value": 1.0},
+    "wrong_tool_rate": {"evaluated": 11, "value": 0.0},
+    "task_completion_rate": {"evaluated": 11, "value": 1.0},
+    "recovery_rate": {"evaluated": 9, "value": 1.0},
+    "api_error_rate": {"evaluated": 28, "value": 0.0}
+  },
+  "limitations": [
+    "Scripted provider integration regression, not measured model quality or unseen holdout.",
+    "Real V2/Graph/SQLite/Tool code but ASGI transport, fake shipping and single-product price fixtures.",
+    "Weak device identity matching is a known boundary; this does not validate Chinese-generation normalization.",
+    "No network latency, production concurrency, multi-replica or provider billing claims.",
+    "Independent reviewed holdout remains pending; no real candidate data was auto-approved."
+  ]
+}
