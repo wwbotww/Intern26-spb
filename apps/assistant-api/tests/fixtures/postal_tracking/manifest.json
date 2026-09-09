@@ -1,0 +1,21 @@
+{
+  "profile": "postal-tracking-doc-2019-v1",
+  "classification": "synthetic-development",
+  "provider_verified": false,
+  "source": "Synthetic cases derived from a supplied interface document; no live responses or credentials",
+  "assumptions": {
+    "request_location": "POST form body, not URL query",
+    "digest": "Base64 of raw MD5 over UTF-8 JSON followed by explicitly configured signing_system_id",
+    "response_envelope": "Concrete query response, not the generic msgBody envelope",
+    "response_receive_id": "SYNTHETIC is explicitly configured for these fixtures",
+    "timezone": "Asia/Shanghai is explicit for these fixtures, not provider-confirmed",
+    "empty": "Only explicit success plus [] means no records"
+  },
+  "cases": {
+    "success.json": "Single synthetic waybill; reversed times; 203 is preserved without mapping to 10",
+    "empty.json": "Provisional explicit no-records outcome",
+    "business_rejected.json": "Human-readable reason must not determine retry/no-match classification",
+    "cross_mail.json": "Negative case reproducing the document's inconsistent multi-waybill query example without copying its values",
+    "signature_vectors.json": "Locally frozen compatibility vectors, cross-checked using OpenSSL; not provider golden vectors"
+  }
+}

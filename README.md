@@ -286,7 +286,7 @@ README、日志或提交记录。
 `/health/ready` 才返回 200。任一配置缺失或依赖不可用时保持 503。`chat-web`
 已通过同源代理使用该入口，不再直接调用 `rag-api`。
 
-LangGraph Agent 正按独立路径开发。阶段 1–2、3A、4A～4D、5A～5D 的本地切片已完成：
+LangGraph Agent 正按独立路径开发。阶段 1–2、3A、4A～4D、5A～5E 的本地切片已完成：
 除 Fake Tracking、类型化工具路由和 bounded loop 外，已覆盖五意图 Hybrid
 Understanding、跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、并发门禁、本地重启恢复，
 以及时限/资费类型化 Tool、共享单次 HTTP 边界、有界退避和能力级熔断。Phase 4A 又实现
@@ -308,6 +308,11 @@ development 样本上使用 20 次真实模型请求，Macro-F1 0.7068→1.0000�
 Phase 5D 已增加人工审核／跨文件污染检查／数据冻结工具，以及 13 场景／28 Turn 的
 V2 Mock 供应商回归、逐消息幂等重放和应用重建恢复；没有自动批准 holdout，也未增加
 付费模型调用，见 [Phase 5D](docs/agent-kernel-phase5d.md)。
+
+Phase 5E 已增加真实 Node wall-clock、独立 invocation Trace、OTel 采样/导出与全量指标。
+独立 [本地监控栈](deploy/observability/docker-compose.yml) 使用无模型 Fake Demo，配有
+Grafana 面板、只读 Trace 详情和可复现 smoke；不修改默认 V1 生产入口。当前 Python
+`443 passed`，详见 [Phase 5E](docs/agent-kernel-phase5e.md)。
 默认 `main.app` 仍不
 挂载 V2，`/v1/chat` 继续是无服务端记忆的显式单轮接口，真实物流接口仍待后续阶段。详见
 [阶段 1 实现说明](docs/agent-kernel-phase1.md)、
@@ -506,6 +511,7 @@ uv run pytest packages/contracts/tests
 - [Phase 5B 可靠性故障矩阵、语义 Trace 与 Agent 报告对比](docs/agent-kernel-phase5b.md)
 - [Phase 5C Understanding 质量评测与有界同样本对照](docs/agent-kernel-phase5c.md)
 - [Phase 5D 人工审核冻结与 V2 语义工作流回归](docs/agent-kernel-phase5d.md)
+- [Phase 5E 逐节点遥测与本地 Dashboard](docs/agent-kernel-phase5e.md)
 - [2026-09-07 Understanding development 对照证据](docs/agent-understanding-comparison-20260907.md)
 - [Agent Workflow 架构决策记录](docs/adr/README.md)
 - [Assistant Agent V2 OpenAPI（Phase 4D 显式装配实现）](docs/openapi/assistant-agent-v2.openapi.json)
@@ -536,6 +542,12 @@ uv run pytest packages/contracts/tests
   循环；隔离的 Agent 路径已具备自动理解、状态化受限循环、五类本地查询能力和
   可注入的 V2 JSON/SSE 路由与 Agent Web，但默认服务尚未发布 V2，也没有接入真实
   物流接口；
+- 邮政轨迹已据单份文档完成 provisional 表单、兼容签名及 Gateway 离线实现；默认
+  关闭，T2 已验证来源 / 查询新鲜度和兼容迁移；T3 已完成受控 V2 装配、来源契约 /
+  Web 展示与语义级熔断，Python 全量 `641 passed`、Web `29 passed`。实际环境未开启，
+  已完成本地收尾，接口暂不可达，T4 真实互通暂缓，见 [T3 说明](docs/agent-kernel-phase3b-tracking-t3.md)；
+- 新收到的资费文档已完成 [契约分析与后续切片建议](docs/agent-kernel-phase3b-postage-analysis.md)，
+  资费真实 Adapter 尚未实现，时限文档仍未提供；不把文档到达或 Mock 通过当作真实接入；
 - 设备价格匹配已加入品牌、系列、型号和容量等硬约束，但阈值与展示上限仍需用
   更大的代表性数据集持续校准；
 - 问答结果用于政策信息辅助检索，涉及行政决定或法律结论时仍应核验主管部门

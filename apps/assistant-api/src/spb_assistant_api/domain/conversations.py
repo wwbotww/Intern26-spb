@@ -21,7 +21,7 @@ class ConversationMetadata(BaseModel):
     conversation_id: UUID
     owner_id: str = Field(min_length=1, max_length=255)
     status: ConversationStatus = ConversationStatus.ACTIVE
-    state_schema_version: str = Field(default="2", min_length=1, max_length=16)
+    state_schema_version: str = Field(default="3", min_length=1, max_length=16)
     created_at: datetime
     updated_at: datetime
     expires_at: datetime

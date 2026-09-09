@@ -1,6 +1,6 @@
 # Docker Compose 部署与运行
 
-> 适用基线：`chat-web 0.2.0`、`assistant-api 0.3.5`、`rag-api 0.5.1`。
+> 适用基线：`chat-web 0.2.0`、`assistant-api 0.3.6`、`rag-api 0.5.1`。
 >
 > 本文只描述仓库当前的通用部署方式，不记录具体客户、主机、内网地址或密钥。
 
@@ -21,7 +21,7 @@ Optional Prometheus -> rag-api / assistant-api metrics
 | 服务 | 镜像标签 | 主机绑定 | 说明 |
 | --- | --- | --- | --- |
 | `chat-web` | `intern26-spb-chat-web:0.2.0` | `127.0.0.1:3000` | Nginx 托管静态页面并反向代理 `/api/` |
-| `assistant-api` | `intern26-spb-assistant-api:0.3.5` | `127.0.0.1:8081` | 单轮工具编排入口 |
+| `assistant-api` | `intern26-spb-assistant-api:0.3.6` | `127.0.0.1:8081` | 单轮工具编排入口 |
 | `rag-api` | `intern26-spb-rag-api:0.5.1` | `127.0.0.1:8080` | 政策检索与回答 |
 | `prometheus` | `prom/prometheus:v3.5.0` | `127.0.0.1:9091` | 可选 `monitoring` profile |
 
@@ -181,3 +181,18 @@ npm run dev
 ```
 
 默认开发代理连接 `http://127.0.0.1:8081`，因此需先启动并配置 `assistant-api`。完整接口行为见 [Assistant API](assistant-api.md) 和 [RAG API 调用契约](api-reference.md)。
+
+### Phase 5E 独立合成监控栈
+
+`deploy/observability/docker-compose.yml` 独立启动 Agent Fake Demo + Prometheus + Tempo +
+Grafana；不加载 `.env`，明确禁用模型，不修改上述 V1 生产栈。仅回环端口、只读容器、
+tmpfs 演示数据与匿名 Viewer；容器停止会丢失测试会话/指标/Trace。启动、烟测、只读
+Trace 下钻与停止流程见 [Phase 5E](agent-kernel-phase5e.md)。该配置不是 V2 生产发布方案。
+
+### T3 受控 V2 入口（默认关闭）
+
+代码已支持 `ASSISTANT_AGENT_ENABLED` 和独立 tracking 开关，要求鉴权及绝对 SQLite
+文件路径；公开来源、语义熔断与 Web 在本地 Mock 下通过验收。配置、生命周期和可复现
+浏览器夹具见 [T3](agent-kernel-phase3b-tracking-t3.md)。本 Compose 仍未启用该路径；
+不要只改开关就当作生产发布。阶段 6A 需补持久化卷 / 备份、代理 owner 身份映射、CI
+与升级回退，真实物流调用须先通过 T4 的合同确认和单独授权。

@@ -44,7 +44,7 @@ const intentOrder: PublicIntent[] = [
 const presentation: Record<PublicIntent, CapabilityPresentation> = {
   tracking: {
     icon: '轨',
-    description: '识别或补充 13 位邮件号，查询最新状态与轨迹节点。',
+    description: '识别或补充 13 位邮件号，查询轨迹节点与本次数据来源。',
     example: '帮我查一下邮件 1234567890123',
   },
   delivery_time: {

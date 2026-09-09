@@ -19,7 +19,9 @@ from spb_assistant_api.domain.results import (
     DeliveryTimeData,
     PostageData,
     TrackingData,
+    TrackingEvent,
 )
+from spb_assistant_api.domain.tracking import TrackingQueryResult
 from spb_assistant_api.domain.slots import (
     RegionRef,
     RegionResolution,
@@ -42,11 +44,11 @@ class TimeoutOnceTrackingGateway:
     async def query(
         self,
         command: TrackingCommand,
-    ) -> TrackingData | None:
+    ) -> TrackingQueryResult:
         self.commands.append(command)
         if len(self.commands) == 1:
             await asyncio.sleep(5)
-        return _tracking_data()
+        return await FakeTrackingGateway({MAIL_NO: _tracking_data()}).query(command)
 
 
 def _settings() -> AssistantSettings:
@@ -76,6 +78,7 @@ def _tracking_data() -> TrackingData:
     return TrackingData(
         mail_no=MAIL_NO,
         current_status="运输中",
+        events=[TrackingEvent(description="合成运输节点", occurred_at=NOW)],
         queried_at=NOW,
     )
 
@@ -226,7 +229,7 @@ def test_create_resume_and_replay_use_one_durable_conversation(
         assert replayed_resume.json()["turn_id"] == completed["turn_id"]
         assert new_turn.status_code == 200
         assert new_turn.json()["turn_id"] != completed["turn_id"]
-        assert len(gateway.commands) == 1
+        assert len(gateway.commands) == 2
 
     asyncio.run(scenario())
 

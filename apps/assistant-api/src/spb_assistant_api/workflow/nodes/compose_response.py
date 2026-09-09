@@ -1,19 +1,40 @@
 from __future__ import annotations
 
-from ...domain.agent_actions import ControlAction, HandoffAction
+from ...domain.agent_actions import ControlAction, HandoffAction, InvokeToolAction
+from ...domain.agent_errors import AgentOperationError
 from ...domain.agent_events import AgentEventType
 from ...domain.failures import AgentFailure, FailureCategory
 from ...domain.results import AgentResult
+from ...services.result_validator import AgentResultValidator
 from ..node_utils import agent_event
 from ..state import AgentState
 
 
 def compose_agent_response(state: AgentState) -> dict[str, object]:
     raw_error = state.get("last_error")
+    if raw_error is None and state.get("last_result") is not None:
+        # A historical checkpoint can resume after validate_result. Apply the
+        # current invariant gate again before publishing restored facts.
+        try:
+            action = InvokeToolAction.model_validate(state.get("pending_action"))
+            result = AgentResult.model_validate(state["last_result"])
+            if result.tool != action.tool_name:
+                raise ValueError("response tool identity mismatch")
+            AgentResultValidator().validate(command=action.command, result=result)
+        except AgentOperationError as error:
+            raw_error = error.failure.model_dump(mode="json")
+        except ValueError:
+            raw_error = AgentFailure(
+                category=FailureCategory.CONTRACT_VIOLATION,
+                code="response_execution_context_invalid",
+                message="回复缺少可校验的执行上下文",
+            ).model_dump(mode="json")
     if raw_error is not None:
         failure = AgentFailure.model_validate(raw_error)
         return {
             "phase": "failed",
+            "last_result": None,
+            "last_error": failure.model_dump(mode="json"),
             "reply": _failure_reply(failure),
             "required_inputs": [],
             "result": None,

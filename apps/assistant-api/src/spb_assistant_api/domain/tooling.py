@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TypeAlias
@@ -25,6 +27,27 @@ CommandModel: TypeAlias = (
     | DeliveryTimeCommand
     | PostageCommand
 )
+
+
+def argument_fingerprint(command: CommandModel) -> str:
+    """Argument integrity only; never a conversation-wide cache identity."""
+    payload = json.dumps(
+        command.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+class LegacyToolCallReference(BaseModel):
+    """Identity copied only from a legacy checkpoint's pending invocation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tool_call_id: UUID
+    tool_name: str
+    argument_fingerprint: str
 
 
 @dataclass(frozen=True, slots=True)

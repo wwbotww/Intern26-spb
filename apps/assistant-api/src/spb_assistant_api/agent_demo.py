@@ -28,6 +28,8 @@ from .domain.results import (
 )
 from .domain.slots import RegionRef, RegionResolution, WeightValue
 from .observability.logging import configure_logging
+from .observability.metrics import ServiceMetrics
+from .observability.telemetry import create_workflow_telemetry
 from .query_model import create_query_understander
 from .settings import AssistantSettings
 from .tools.device_price import DevicePriceTool
@@ -158,6 +160,8 @@ def create_demo_app(
     resolved_settings = (settings or AssistantSettings()).model_copy(
         update={
             "auth_enabled": False,
+            "agent_enabled": False,
+            "tracking_enabled": False,
             "rate_limit_enabled": False,
             "metrics_enabled": True,
         }
@@ -173,6 +177,7 @@ def create_demo_app(
         QueryMode.POLICY: policy_tool,
         QueryMode.DEVICE_PRICE: device_price_tool,
     }
+    metrics = ServiceMetrics()
 
     @asynccontextmanager
     async def agent_dependencies():
@@ -216,6 +221,9 @@ def create_demo_app(
             queried_at=now,
         )
         async with (
+            create_workflow_telemetry(
+                resolved_settings, metrics=metrics
+            ) as telemetry,
             create_query_understander(
                 resolved_settings, transport=query_model_transport
             ) as understander,
@@ -227,6 +235,7 @@ def create_demo_app(
                 policy_tool=policy_tool,
                 device_price_tool=device_price_tool,
                 understander=understander,
+                telemetry=telemetry,
             ) as components,
         ):
             yield AgentApiDependencies(
@@ -240,6 +249,7 @@ def create_demo_app(
         settings=resolved_settings,
         tools=legacy_tools,
         agent_api_factory=agent_dependencies,
+        metrics=metrics,
     )
 
 

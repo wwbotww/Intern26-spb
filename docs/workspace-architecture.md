@@ -1,7 +1,7 @@
 # Workspace 架构与模块边界
 
 > 当前实现基线：`offline-pipeline 0.2.0`、`rag-api 0.5.1`、
-> `assistant-api 0.3.5`、`chat-web 0.2.0`、`eval 0.7.0`。本文只描述已实现边界。
+> `assistant-api 0.3.6`、`chat-web 0.2.0`、`eval 0.7.0`。本文只描述已实现边界。
 
 ## 目标
 
@@ -83,7 +83,13 @@ Core + PyMySQL 参数化查询和 RapidFuzz 候选排序；连接会话强制只
 Resolver、Slot Merger 和白名单工具执行，Workflow Runtime 负责编排、interrupt/resume、
 会话串行化与生命周期，Adapter 提供 Fake Tool、`AsyncSqliteSaver`、元数据/API 幂等和
 Tool 收据，以及接口无关的单次 HTTP Client 与能力级熔断。时限/资费已能通过 Fake
-Gateway 执行，真实 wire Adapter 尚未实现。Phase 4A/4B 提供只依赖窄化 Service Protocol
+Gateway 执行；Phase 3B-T 已新增邮政轨迹 wire Adapter 的离线切片，默认关闭，
+时限 / 资费 wire Adapter 仍未实现。轨迹的领域来源、query_id 作用域和 State / 收据迁移
+已在 [T2](agent-kernel-phase3b-tracking-t2.md) 验证；[T3](agent-kernel-phase3b-tracking-t3.md)
+又完成受控组合根、公开来源 / Web、语义级单次熔断和未装配能力的前置阻断，并完成本地收尾。
+接口暂不可达，T4 真实互通暂缓。新收到的资费文档已完成
+[3B-P 评审](agent-kernel-phase3b-postage-analysis.md)，尚未新增 Adapter；时限仍待文档。
+Phase 4A/4B 提供只依赖窄化 Service Protocol
 和 Descriptor 的 V2 JSON/SSE HTTP Adapter；稳定事件投影不暴露 Graph 内部状态，
 lifespan factory 负责 SQLite Agent 组件启停。Phase 4C 在该边界内增加只读 schema
 readiness probe、固定标签指标、脱敏停止态 Run Trace 和共享 coordinator 的 janitor
@@ -92,7 +98,8 @@ readiness probe、固定标签指标、脱敏停止态 Run Trace 和共享 coord
 五能力路由，同时不复制 RAG 或价格匹配逻辑。Phase 5B 从 checkpoint 审计事件构造
 固定白名单的 node/edge/interrupt/resume/retry Trace；日志层只保留哈希会话引用。
 只有 composition root 显式注入 Agent
-依赖时才挂载。默认 `main.app` 不注入，因此当前运行拓扑、`/v1` 单轮语义和 `memory=disabled`
+依赖时才挂载；T3 的 `ASSISTANT_AGENT_ENABLED` 可启用该受控工厂，要求鉴权和独立 SQLite
+路径。默认仍不注入，因此当前默认运行拓扑、`/v1` 单轮语义和 `memory=disabled`
 健康状态保持不变。LangGraph import 继续由架构测试限制在 Workflow
 Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单进程恢复能力。
 
@@ -114,6 +121,13 @@ Phase 5D 的跨数据集审核／冻结逻辑仅位于 Eval，源数据与参考
 应用侧测试独立提供 Mock 供应商响应，再让 Eval 经 ASGI HTTP 调用真实 V2/Graph/SQLite；
 13 场景／28 Turn、逐消息重放与应用重建恢复已验证，但不代替真实 holdout 联调。
 没有为评测增加线上调试接口、Graph 字段或跨应用生产依赖。
+
+Phase 5E 在图装配边界包装实际 Node 函数，不侵入领域决策；Runtime 每次实际 invocation
+创建独立 root，Node 是 children，interrupt/resume 不保留跨轮活跃 span。OTel SDK、
+采样和 exporter 仅由 `observability/telemetry.py` 与 Demo lifespan 管理，不注册全局
+provider、不写 checkpoint；与 API 共享低基数指标，语义 Trace 继续独立保留。
+`deploy/observability` 是默认禁用模型、仅本地回环、tmpfs 的独立合成监控栈，不改变
+默认 V1 生产 Compose。详见 [Phase 5E](agent-kernel-phase5e.md)。
 
 ### `apps/chat-web`
 

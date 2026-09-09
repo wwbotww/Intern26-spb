@@ -75,6 +75,8 @@ class AgentState(TypedDict, total=False):
     schema_version: str
     conversation_id: str
     turn_id: str
+    query_id: str
+    legacy_tool_call: dict[str, Any] | None
     message: str
     latest_message: str
     explicit_intent: str | None

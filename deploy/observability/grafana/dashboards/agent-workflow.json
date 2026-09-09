@@ -1,0 +1,358 @@
+{
+  "uid": "agent-workflow",
+  "title": "Agent Workflow — Local Evidence",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "tags": [
+    "agent",
+    "langgraph",
+    "phase5e",
+    "synthetic"
+  ],
+  "timezone": "browser",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "refresh": "5s",
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Scope and reading guide",
+      "type": "text",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Synthetic local demo · Fake gateways · **model disabled** · trace sampling = 100%.\n\nAPI runs include idempotency replay; workflow/node counters count actual execution. Interrupt ends immediately; resume creates a new trace. `failed` = typed node failure, `error` = exception, `interrupted` / `cancelled` are control flow. Rates need ≥ 2 scrapes; no data ≠ zero. These panels are **not quality/holdout/SLO evidence**."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Workflow invocations · process lifetime",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (mode, outcome) (assistant_agent_workflow_invocations_total{job=\"spb-assistant-agent\"})",
+          "legendFormat": "{{mode}} / {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "API run P95 · includes replay",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(assistant_agent_run_duration_seconds_bucket{job=\"spb-assistant-agent\"}[$__rate_interval])))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Actual node execution rate",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (node, outcome) (rate(assistant_agent_node_executions_total{job=\"spb-assistant-agent\"}[$__rate_interval]))",
+          "legendFormat": "{{node}} / {{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Node wall-clock P95 · excludes human wait",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, node) (rate(assistant_agent_node_duration_seconds_bucket{job=\"spb-assistant-agent\"}[$__rate_interval])))",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Node failure fraction · failed/error over all executions",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by (node) (rate(assistant_agent_node_executions_total{job=\"spb-assistant-agent\",outcome=~\"failed|error\"}[$__rate_interval])) or on (node) (0 * sum by (node) (rate(assistant_agent_node_executions_total{job=\"spb-assistant-agent\"}[$__rate_interval])))) / sum by (node) (rate(assistant_agent_node_executions_total{job=\"spb-assistant-agent\"}[$__rate_interval]))",
+          "legendFormat": "{{node}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Telemetry errors · process lifetime",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation) (assistant_agent_telemetry_errors_total{job=\"spb-assistant-agent\"})",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "title": "OTLP batch export outcomes · process lifetime",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (assistant_agent_trace_export_batches_total{job=\"spb-assistant-agent\"})",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Prometheus scrape availability",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "agent-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"spb-assistant-agent\"}",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "title": "Sampled Workflow traces · open a row to inspect nodes",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Trace ID"},
+            "properties": [
+              {
+                "id": "links",
+                "value": [{"title": "View node spans", "url": "/d/agent-trace?var-trace_id=${__value.raw}", "targetBlank": false}]
+              }
+            ]
+          }
+        ]
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "agent-tempo"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"spb-assistant-agent\" && name = \"agent.workflow\" }",
+          "limit": 20,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "showHeader": true
+      }
+    }
+  ]
+}

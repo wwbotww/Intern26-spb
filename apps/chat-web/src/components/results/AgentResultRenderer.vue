@@ -13,7 +13,12 @@ const data = computed(() => props.result.data ?? {})
 </script>
 
 <template>
-  <TrackingResult v-if="result.type === 'tracking'" :data="data" />
+  <TrackingResult
+    v-if="result.type === 'tracking'"
+    :data="data"
+    :status="result.status"
+    :provenance="result.provenance ?? []"
+  />
   <DeliveryTimeResult v-else-if="result.type === 'delivery_time'" :data="data" />
   <PostageResult v-else-if="result.type === 'postage'" :data="data" />
   <EvidenceResult

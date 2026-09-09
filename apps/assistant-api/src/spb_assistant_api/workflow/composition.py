@@ -28,6 +28,7 @@ from ..domain.ports import (
     ToolExecutionRepository,
 )
 from ..observability.agent_trace import log_agent_workflow_trace
+from ..observability.telemetry import WorkflowTelemetry
 from ..services.agent_tools import (
     AgentCommandDispatcher,
     AgentToolRegistry,
@@ -69,6 +70,7 @@ def create_agent_runtime(
     request_timeout_seconds: float = 30,
     clock: Callable[[], datetime] | None = None,
     workflow_trace_sink: WorkflowTraceSink | None = log_agent_workflow_trace,
+    telemetry: WorkflowTelemetry | None = None,
 ) -> StatefulAgentRuntime:
     """Compose the capability-neutral Agent from injected dependencies.
 
@@ -97,6 +99,7 @@ def create_agent_runtime(
     )
     graph = build_agent_graph(
         checkpointer=checkpointer,
+        telemetry=telemetry,
         dependencies=AgentGraphDependencies(
             understander=understander or HybridQueryUnderstander(),
             policy=policy,
@@ -114,6 +117,7 @@ def create_agent_runtime(
         capability_descriptors=registry.descriptors,
         clock=resolved_clock,
         workflow_trace_sink=workflow_trace_sink,
+        telemetry=telemetry,
     )
 
 
@@ -144,6 +148,7 @@ async def create_persistent_agent(
     janitor_batch_size: int = 100,
     clock: Callable[[], datetime] | None = None,
     workflow_trace_sink: WorkflowTraceSink | None = log_agent_workflow_trace,
+    telemetry: WorkflowTelemetry | None = None,
 ) -> AsyncIterator[PersistentAgentComponents]:
     """Compose the local SQLite Agent runtime and persistence lifecycle.
 
@@ -172,6 +177,7 @@ async def create_persistent_agent(
                 request_timeout_seconds=request_timeout_seconds,
                 clock=resolved_clock,
                 workflow_trace_sink=workflow_trace_sink,
+                telemetry=telemetry,
             )
             coordinator = ConversationRunCoordinator()
             service = StatefulAgentService(

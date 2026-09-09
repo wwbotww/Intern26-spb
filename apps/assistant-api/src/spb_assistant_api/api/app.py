@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from .. import __version__
 from ..adapters.mysql_price import MySQLPriceRepository
 from ..adapters.rag_policy import RagPolicyClient
+from ..configured_agent import configured_tracking, create_configured_agent_factory
 from ..domain.models import QueryMode
 from ..domain.ports import AssistantTool
 from ..middleware.operations import OperationsConfig, OperationsMiddleware
@@ -84,11 +85,14 @@ def create_app(
     tools: Mapping[QueryMode, AssistantTool] | None = None,
     agent_api: AgentApiDependencies | None = None,
     agent_api_factory: AgentApiDependencyFactory | None = None,
+    metrics: ServiceMetrics | None = None,
 ) -> FastAPI:
     if agent_api is not None and agent_api_factory is not None:
         raise ValueError("agent_api 与 agent_api_factory 不能同时提供")
     resolved_settings = settings or AssistantSettings()
-    service_metrics = ServiceMetrics()
+    if resolved_settings.agent_enabled:
+        configured_tracking(resolved_settings)
+    service_metrics = metrics if metrics is not None else ServiceMetrics()
     resolved_tools = (
         tools
         if tools is not None
@@ -96,6 +100,16 @@ def create_app(
     )
     registry = ToolRegistry(resolved_tools)
     dispatcher = QueryDispatcher(registry)
+    if (
+        resolved_settings.agent_enabled
+        and agent_api is None
+        and agent_api_factory is None
+    ):
+        agent_api_factory = create_configured_agent_factory(
+            settings=resolved_settings,
+            legacy_tools=resolved_tools,
+            metrics=service_metrics,
+        )
 
     @asynccontextmanager
     async def activate_agent_api(

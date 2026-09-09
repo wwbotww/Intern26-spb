@@ -1,11 +1,11 @@
 # 中国邮政 Assistant API 使用文档
 
-本文面向调用 `assistant-api` 的 Web 或其他 API 调用方。当前版本为 `0.3.5`，
+本文面向调用 `assistant-api` 的 Web 或其他 API 调用方。当前版本为 `0.3.6`，
 提供显式政策/设备价格二选一、单轮问答、结构化证据和 SSE 输出。
 
 > 本文只描述当前 `/v1` 已实现契约，不假设后续业务模式。
 
-仓库已在隔离路径完成 LangGraph 阶段 1–2、3A、4A～4D、5A～5D 本地切片：除条件路由、
+仓库已在隔离路径完成 LangGraph 阶段 1–2、3A、4A～4D、5A～5E 本地切片：除条件路由、
 interrupt/resume、类型化工具执行和重放收据外，已加入五意图 Hybrid Understanding、
 跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、本地重启恢复，以及时限/资费类型化
 Tool、单次 HTTP、退避和能力级熔断基础。Phase 4A/4B 已实现可显式注入 FastAPI 的 V2
@@ -22,8 +22,20 @@ Phase 5C 提供本地 `spb-assistant-understanding-export`，复用现有 Unders
 HTTP 字段，也不替代多轮验收，见 [Phase 5C](agent-kernel-phase5c.md)。
 Phase 5D 已通过真实 V2/Graph/SQLite + Mock 供应商验证对应 13 场景／28 Turn、消息重放
 与应用重建恢复；本次仅增加回归证据，不修改公开 API，见 [Phase 5D](agent-kernel-phase5d.md)。
-但默认 `main.app` 尚不挂载 V2，也不改变本文中的 `/v1` 契约；真实物流
-接口尚未接入。实现证据见
+
+Phase 5E 为显式装配的 V2 增加逐 Node wall-clock、OTel 采样与有界异步导出，仍不增加
+公开 Trace/debug 字段。默认不导出；`ASSISTANT_OTEL_*` 配置及本地 Dashboard 见
+[Phase 5E](agent-kernel-phase5e.md)。此开关不启用默认 `main.app` 的 V2。
+Phase 3B-T 的 T0/T1 已完成邮政轨迹 provisional 契约、表单 / 签名和 Gateway 的离线
+实现，见 [Phase 3B-T](agent-kernel-phase3b-tracking.md)。
+[T2](agent-kernel-phase3b-tracking-t2.md) 随后完成领域来源、查询作用域、State / 收据迁移
+及 Mock HTTP → Gateway → Graph → SQLite → V2 集成回归。
+[T3](agent-kernel-phase3b-tracking-t3.md) 已完成受控组合根、公开来源 / Renderer 和语义级
+熔断；默认开关仍关闭，显式 `ASSISTANT_AGENT_ENABLED` 才挂载 V2，轨迹再由独立开关
+启用。需要鉴权与绝对 SQLite 路径，不改变本文中的 `/v1` 契约；没有调用真实物流接口。
+完整配置和 T4 联调前提见 T3 文档。T3 已完成本地收尾，接口暂不可达，T4 暂缓。
+新收到的资费文档已完成 [3B-P 分析](agent-kernel-phase3b-postage-analysis.md)，未新增资费
+Adapter 或公开 API 字段；时限文档仍未提供。实现证据见
 [阶段 1 说明](agent-kernel-phase1.md)、[阶段 2 说明](agent-kernel-phase2.md)、
 [阶段 3A 说明](agent-kernel-phase3a.md)、[阶段 4A 说明](agent-kernel-phase4a.md)、
 [阶段 4B 说明](agent-kernel-phase4b.md)、[阶段 4C 说明](agent-kernel-phase4c.md)、

@@ -3,11 +3,11 @@
 > 文档状态：`In progress`，用于设计、任务拆分和验收。阶段性本地实现不等于整体上线。
 >
 > 起始设计基线：提交 `093e29d`；Phase 0–1 实现里程碑：提交 `07699e0`；
-> 当前版本：`assistant-api 0.3.5`、`chat-web 0.2.0`、`eval 0.7.0`。
+> 当前版本：`assistant-api 0.3.6`、`chat-web 0.2.0`、`eval 0.7.0`。
 >
-> 更新日期：2026-09-07。
+> 更新日期：2026-09-09。
 >
-> 实施进度：阶段 0、1、2、3A、4A～4D、5A～5D 的本地切片已完成。当前包含锁定的
+> 实施进度：阶段 0、1、2、3A、4A～4D、5A～5E 的本地切片已完成。当前包含锁定的
 > `langgraph 1.2.11` 与 `langgraph-checkpoint-sqlite 3.1.1`、正式 Agent StateGraph、
 > Fake Tracking Tool、五意图 Hybrid Understanding、跨轮合并与控制、
 > `AsyncSqliteSaver`、会话元数据/API 幂等/Tool 收据、TTL、并发门禁和 State 迁移；
@@ -21,18 +21,24 @@
 > 17 Turn fixture、Intent/补槽/路由/完成/恢复/API 错误指标和 CI 门禁；Phase 5B 已增加
 > checkpoint 增量语义 Trace、本地故障矩阵与严格同样本的 Agent 实验对比；Phase 5C
 > 已增加独立 Understanding 组件评测、硬槽位 F1、有界模型导出和 development 真实对照。默认生产
-> `main.app` 尚未挂载 V2，逐 Node 耗时 span 和真实接口 holdout 仍待完成。当前完整
-> Python 工作区在 Phase 5D 收口后 `411 passed`；Web 沿用 2026-09-06 的 `17 passed`、
-> 类型检查和 production build 证据；锁文件离线检查通过。实现证据见
+> `main.app` 尚未挂载 V2，真实模型/接口 holdout 仍待完成。Phase 5E 已实现逐 Node
+> wall-clock span、采样、OTLP 与本地 Dashboard。Phase 3B-T 的 T0/T1 再完成轨迹
+> provisional 契约与未装配的表单 / 签名 / Gateway；T2 完成查询作用域、State v3 / 收据
+> 迁移、来源与观察时间；T3 完成默认关闭的受控 V2 组合根、公开来源 / Web 与语义级熔断。
+> 当前完整 Python 工作区 `641 passed`，Web `29 passed`，类型检查和 production build
+> 通过，并已完成 T3 收尾复核；接口暂不可访问，T4 真实互通暂缓。实现证据见
 > [Phase 2 说明](agent-kernel-phase2.md)、
 > [Phase 3A 说明](agent-kernel-phase3a.md)、
+> [Phase 3B-T 说明](agent-kernel-phase3b-tracking.md)、
+> [T2 新鲜度与收据说明](agent-kernel-phase3b-tracking-t2.md)、
+> [T3 受控装配与来源展示](agent-kernel-phase3b-tracking-t3.md)、
 > [Phase 4A 说明](agent-kernel-phase4a.md)、
 > [Phase 4B 说明](agent-kernel-phase4b.md)、
 > [Phase 4C 说明](agent-kernel-phase4c.md)、
 > [Phase 4D 说明](agent-kernel-phase4d.md)、
 > [Phase 5A 说明](agent-kernel-phase5a.md)、
 > [Phase 5B 说明](agent-kernel-phase5b.md)、[Phase 5C 说明](agent-kernel-phase5c.md)与
-> [Phase 5D 说明](agent-kernel-phase5d.md)。
+> [Phase 5D 说明](agent-kernel-phase5d.md)与[Phase 5E 说明](agent-kernel-phase5e.md)。
 >
 > 2026-09-07 已补齐阶段 2 的 DeepSeek Provider Adapter、显式配置、lifespan、
 > 单次有界 JSON 调用、硬实体重提和 Mock / V2 多轮验证。真实合成烟测已完成：
@@ -45,9 +51,14 @@
 > Phase 5D 又完成 pending 人工审核／跨文件污染检查／数据冻结工具，及对应 13 场景／
 > 28 Turn 的 V2 Mock 供应商回归、28 次免模型重放和三类应用重建恢复。没有自动批准
 > 独立 holdout，也未新增付费调用；人工数据验收仍是独立检查点。
+> Phase 5E 又完成独立 root/Node spans、全量低基数指标与有界异步导出；本地监控烟测
+> 5 次实际调用对应 5 条 Trace / 24 个 Node spans，2 次幂等重放不额外执行图。
 >
-> 外部接口状态：轨迹、时限和资费接口尚未提供。本文中的字段、错误和时效策略为
-> 领域侧预留，最终以接口契约评审结果为准。
+> 外部接口状态：已收到 V1.0.0（2019-11-25）的轨迹文档，已据此完成 T0/T1 离线实现；
+> 签名、时间和错误口径等冲突仍待确认，真实接口未调用。2026-09-09 又收到资费文档，
+> 已完成 [Phase 3B-P 分析](agent-kernel-phase3b-postage-analysis.md)，尚未实现资费 Adapter；
+> 时限文档仍未提供。用户确认接口暂不可访问，真实联调暂缓，后续可推进资费离线切片或 6A。
+> 未确认项保留 provisional 标记；文档到达、离线实现、供应商互通分别验收。
 
 ## 1. 建设目标
 
@@ -112,27 +123,41 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 `pyproject.toml` 声明 `langgraph>=1.0,<2`，并由 `uv.lock` 固定实际验证版本
 `1.2.11`；后续升级必须重新执行 Graph 与 Checkpointer 合同测试。
 
-### 1.3 当前执行顺序（2026-09-07）
+### 1.3 当前执行顺序（2026-09-09）
 
 保持原阶段编号，把本地切片、真实联调、完整验收分别标记。以下是剩余工作的执行顺序，
-不是增加新的架构阶段，也不把 Phase 5D 完成视为阶段 0～5 已全部验收。
+不是增加新的架构阶段，也不把 Phase 5E 完成视为阶段 0～5 已全部验收。
 
 | 顺序 | 归属 | 内容 | 当前状态 / 依赖 |
 | --- | --- | --- | --- |
 | 1 | 阶段 2 补齐 | 真实理解模型 Adapter、配置、失败回退和合成输入烟测 | 已完成工程与真实烟测；保留一次超时证据，不等于质量验收 |
 | 2 | 阶段 5 | Understanding 质量对照、数据审核与 V2 场景验证 | Phase 5C development 真实对照与 Phase 5D 审核冻结／V2 Mock 回归完成；待人工审核新 holdout、固定代码／Prompt 后另获预算真实对照，不能用 Mock 代替 |
-| 3 | 阶段 5 | 逐 Node wall-clock span、采样、OpenTelemetry exporter 与 Dashboard | 下一项可独立开发；第 2 项等待人工数据期间推进，不代表 holdout 已验收 |
-| 4 | 阶段 3B | 真实物流 Adapter、地区/参数契约、烟测及故障报告 | 等待物流合同与测试凭据，资料到达可提前 |
-| 5 | 阶段 4 收口 | 正式 V2 装配、Web/Compose 开关、身份隔离、持久化卷、CI 和回退 | 尚未完成；测试/CI 可先做，真实五能力验收依赖第 4 项 |
-| 6 | 阶段 6 | 生产持久化、多副本协调、升级回滚、标准演示和真实指标回填 | 最后完整验收，不能默认省略多副本要求 |
+| 3 | 阶段 5 | 逐 Node wall-clock span、采样、OpenTelemetry exporter 与 Dashboard | Phase 5E 本地闭环已完成；有界导出与隐私测试、Docker/Prometheus/Tempo/Grafana 验证通过，不代表 holdout 已验收 |
+| 4 | 阶段 3B-T | 轨迹单能力本地收尾 | T0～T3 本地 / Mock 完成，641 Python / 29 Web 回归通过；T4 因接口不可达暂缓，恢复后仍需合同确认与调用授权 |
+| 5 | 阶段 3B-P | 资费合同分析及离线切片 | P0 分析完成；P1 领域 / 产品 / 代码目录与报价口径 → P2 协议 Gateway → P3 受控 V2/Web，均为后续计划；P4 真实联调暂缓 |
+| 6 | 阶段 4 收口 / 6A | 正式 V2 装配、Web/Compose 开关、身份隔离、持久化卷、CI 和回退 | T3 已提供受控工厂、生命周期和 Web；代理访客身份、卷 / 备份、CI / Compose / 回退仍待完成，可独立推进。完整真实五能力验收仍待逐能力合同确认与联调 |
+| 7 | 阶段 6 | 生产持久化、多副本协调、升级回滚、标准演示和真实指标回填 | 最后完整验收，不能默认省略多副本要求 |
 
 模型凭据已在本地配置，不进入 Git。已看过的烟测样本归入 development，不当作未见
 holdout；Phase 5C 已分别统计正常 unknown、模型失败回退、未知用量、预算跳过和缺失行。
 当前没有已审核的代表性 holdout；不得把 development 全通过解释为质量验收完成。
 Phase 5D 已提供 `understanding-review` / `understanding-freeze`，但审核声明必须由真实
 审核者填写；新样本与已见语料都必须纳入人工语义重叠检查。详见 [Phase 5D](agent-kernel-phase5d.md)。
+
+原先等待物流资料时拟先推进阶段 6A；轨迹文档到达后，优先执行 **阶段 3B-T**。
+T0/T1 已完成，T2 又修复了会话级 Tool 收据误缓存新查询和写死 Fake 来源的问题，并
+完成双后端回归及旧 State / 收据迁移。T3 已接入默认关闭、具备鉴权/owner、readiness
+和生命周期的 V2/Web 路径，同步公开来源结构、OpenAPI 生成类型、Eval 镜像和 Renderer。
+语义级熔断成功边界已移到完整合同校验之后；未开放能力在补槽前直接结束。
+真实联调是独立的 T4，不以本地签名向量冒充供应商确认。T3 已按本地 / Mock 范围收尾，
+T4 因用户确认网络不可达而暂缓，详见 [Phase 3B-T](agent-kernel-phase3b-tracking.md)。
+新资费文档已完成分析，下一轮开发建议按 [3B-P 切片](agent-kernel-phase3b-postage-analysis.md)
+执行；不能把 CSB / 双层签名和多金额口径直接套成轨迹 Adapter。
+阶段 6A 的单实例 SQLite 卷、CI、Web/Compose 和 V1 回退准备可复用 T3，并可独立推进，
+但不替代完整部署验收。尚无可装配、通过验收 Adapter 的能力
+继续标为 unavailable，不把独立监控 Demo 的 Fake Tool 当作生产依赖。
 若最终只交付单副本 Demo，需要显式调整 Definition of Done。当前“CI 门禁”指 CLI
-的失败退出码，实际自动工作流仍待第 5 项接入。
+的失败退出码，实际自动工作流仍待第 6 项接入。
 
 ## 2. 范围与非目标
 
@@ -521,8 +546,10 @@ attempt
 deadline_at
 ```
 
-一个 Agent Step 最多执行一个工具。相同参数指纹已有成功结果时，Workflow 应复用
-结果或要求显式刷新，避免网络重试、页面重复提交造成重复调用。
+一个 Agent Step 最多执行一个工具。同一 query_id 内的相同逻辑执行已有完成收据时，
+Workflow 应复用结果，避免 checkpoint 重放造成重复调用。新查询即使参数相同也生成
+新的执行身份并重新取数，不能把参数指纹当作会话级结果缓存键，见
+[ADR-0012](adr/0012-query-scoped-tool-receipts.md)。
 
 ## 8. Stateful Workflow
 
@@ -565,6 +592,8 @@ class AgentState(TypedDict, total=False):
     schema_version: str
     conversation_id: str
     turn_id: str
+    query_id: str  # 一次业务查询，跨补槽 / 重试保持；新查询重新生成
+    legacy_tool_call: dict[str, Any] | None  # 仅迁移已校验的旧 pending invocation
     latest_message: str
     phase: AgentPhaseValue  # JSON-native Literal，不持久化 Enum 对象
     turn_count: int
@@ -692,10 +721,15 @@ Tool 调用的执行收据由独立 `ToolExecutionRepository` 管理，避免把
 - 相同 key 但不同 request hash 返回冲突，不复用旧结果；
 - 同一会话只允许一个活跃 Graph Run，避免两个请求同时从同一 checkpoint 分叉；
 - 重复消息不能重复扣减 retry budget 或重复调用已成功工具；
-- Tool Call 使用独立 `tool_call_id`，可跨重试关联；
-- `execute_tool` 以 `(conversation_id, argument_fingerprint)` 查询执行收据；恢复或重放
-  节点时先复用成功结果，再决定是否发起外部调用；
-- 用户主动要求刷新时生成新 argument fingerprint 版本或显式 refresh 标志。
+- 每个业务查询生成独立 `query_id`，跨补槽与重试保持；查询内按工具和规范化参数
+  生成稳定 `tool_call_id`，新查询即使参数相同也使用新执行身份；
+- `execute_tool` 以 `(conversation_id, tool_call_id)` 查询执行收据；恢复或重放节点时
+  校验 Command 指纹和收据身份，复用该次执行的原结果 / 查询时间，包括 no_match；
+- `argument_fingerprint` 只用于参数一致性校验，不用修改参数或伪造版本来刷新；
+- 用户重新查询使用新的 HTTP 幂等键；复用旧键表示重放原响应，而不是刷新。
+
+上述作用域已在 [Phase 3B-T / T2](agent-kernel-phase3b-tracking-t2.md) 实现，并提供
+State v1/v2 → v3 与 SQLite 收据索引的失败关闭迁移；不保证跨系统 exactly-once。
 
 ### 8.5 Interrupt 与恢复协议
 
@@ -1446,7 +1480,19 @@ eval/src/spb_eval/
 
 ### 阶段 3B：真实轨迹、时限和资费 Adapter
 
-前置条件：取得并评审三类外部接口契约、凭据管理方式和测试环境。
+前置条件：按能力取得并评审外部接口契约；真实联调另需凭据管理方式和测试环境。
+不要求三份文档同时到齐后才开始离线开发，但三能力完整验收条件保持不变。
+
+> 2026-09-09：拆出 [Phase 3B-T 轨迹单能力切片](agent-kernel-phase3b-tracking.md)。
+> T0/T1 已完成显式 provisional profile、合成 fixtures、form 传输、兼容签名及
+> PostalTrackingGateway；新增 84 个用例后全量 `527 passed`，真实请求为 0。
+> 随后 [T2](agent-kernel-phase3b-tracking-t2.md) 再新增 58 项后全量 `585 passed`，已完成
+> 来源 / 新鲜度 / 收据兼容及邮政 Mock → Graph → SQLite → V2 验证。
+> [T3](agent-kernel-phase3b-tracking-t3.md) 再新增 56 项 Python 后全量 `641 passed`，Web
+> 新增 12 项后 `29 passed`，受控装配 / 来源展示 / 语义熔断完成本地验证。生产默认仍关闭，
+> T3 收尾回归保持上述结果；用户确认各接口暂不可访问，T4 暂缓，不能记为阶段 3B 整体已验收。
+> 新收到的资费文档已完成 [Phase 3B-P 评审](agent-kernel-phase3b-postage-analysis.md)。
+> P0 分析完成，P1～P3 离线实现 / 集成尚未开始，P4 真实互通独立验收；时限仍待文档。
 
 工作内容：
 
@@ -1579,6 +1625,10 @@ Phase 4D 已完成的能力复用内容：
 > Phase 5D（2026-09-07）完成数据审核交接与 V2 离线验证：候选／已见数据／逐样本
 > SHA 绑定、pending 审核和冻结工具；13 场景／28 Turn 的真实 V2/Graph/SQLite + Mock
 > Provider 回归及 28 次免模型重放全部通过。见 [Phase 5D 说明](agent-kernel-phase5d.md)。
+>
+> Phase 5E（2026-09-07）完成真实节点计时、OTel 采样/导出、全量指标和本地监控闭环。
+> SDK 属于组合根 lifespan，不修改 Graph State 或 API，不继承外部追踪上下文。
+> 见 [Phase 5E 说明](agent-kernel-phase5e.md)。
 
 工作内容：
 
@@ -1625,10 +1675,18 @@ Phase 5D 离线切片已完成：
 - 分步补槽、多意图、歧义、控制、切换／字段覆盖确认、逐消息重放与三业务应用重建恢复；
 - 31 个新增离线测试、机器可读本地摘要；未生成已审核新 holdout、无新增付费调用。
 
-阶段 5 剩余内容（保留独立验收，等待人工数据时可推进可观测性）：
+Phase 5E 本地可观测性切片已完成：
+
+- 8 个 Node 的同步/异步执行边界 span，start/resume 独立 root、retry attempt 与 reused；
+- interrupt 当场结束、取消/异常继续传播、JSON/SSE 幂等重放不虚增节点；
+- 默认关闭导出、父子一致采样、全量低基数 Histogram、隐私字段白名单与生命周期；
+- 独立合成 Docker 栈、Prometheus/Tempo/Grafana provisioning 与可复现无模型烟测；
+- 32 个新增测试后完整 Python `443 passed`，没有新增付费调用。
+
+阶段 5 剩余内容（保留独立验收，等待外部资料时可推进阶段 6A 装配准备）：
 
 - 人工审核独立 holdout、固定代码／Prompt／配置并另获预算授权，完成真实对照及对应 V2 联调；
-- 逐 Node wall-clock span、采样策略、OpenTelemetry exporter 与 Dashboard；
+- 生产遥测配置与运维验收；跨服务传播、tail sampling / Collector 属于后续扩展，不视为已完成；
 - 真实接口 Fault Gateway 的限流、超时、契约漂移和恢复率报告；
 - 多副本共享 checkpointer 的冲突、恢复和 Tool 幂等演练。
 

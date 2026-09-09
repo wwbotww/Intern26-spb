@@ -10,7 +10,7 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 | --- | --- | --- |
 | `apps/offline-pipeline` | `0.2.0` | 政策采集、附件解析、OCR、切分、向量化与 Milvus 写入 |
 | `apps/rag-api` | `0.5.1` | 政策检索、重排、证据约束回答与引用 |
-| `apps/assistant-api` | `0.3.5` | V1、显式 Stateful Agent V2 与本地理解观测导出 |
+| `apps/assistant-api` | `0.3.6` | V1、显式 Stateful Agent V2、理解观测与逐 Node 遥测 |
 | `apps/chat-web` | `0.2.0` | 浏览器聊天界面与流式响应展示 |
 | `eval` | `0.7.0` | 黑盒／组件评测、同样本对照与人工审核冻结 |
 | `packages/contracts` | `0.1.0` | 离线写入与在线读取共享的数据契约 |
@@ -29,8 +29,10 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 ## 下一阶段规划
 
 - [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)：
-  总体为 `In progress`；阶段 0～2、3A、4A～4D、5A～5D 的本地切片已完成。
-  模型 Adapter、真实烟测及 development 对照已完成；3B、代表性 holdout 与阶段 6 尚未完成。
+  总体为 `In progress`；阶段 0～2、3A、4A～4D、5A～5E 的本地切片已完成。
+  模型 Adapter、真实烟测及 development 对照已完成；3B-T 的 T0～T3 契约 / Adapter、
+  来源 / 新鲜度 / 迁移、受控 V2 / Web 已本地验证并收尾；接口不可达，T4 暂缓。
+  3B-P 资费文档分析完成、Adapter 未实现；代表性 holdout 与阶段 6 未完成。
 - [Phase 1 Agent Kernel 与 Fake Tracking](agent-kernel-phase1.md)：已实现的状态图、模块
   边界、预算、执行收据、Failure 路径、测试证据和未实现范围。
 - [Phase 2 Hybrid Understanding 与 SQLite 持久化](agent-kernel-phase2.md)：五意图规则、
@@ -42,6 +44,14 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
   三类补槽、unknown／超时回退、7 次免模型幂等重放与用量边界；不是 holdout。
 - [Phase 3A Gateway 与可靠性基础](agent-kernel-phase3a.md)：时限/资费类型化 Tool、共享
   单次 HTTP 边界、有界退避、能力级熔断和接口到达前的合同测试证据。
+- [Phase 3B-T 邮政轨迹契约与适配器](agent-kernel-phase3b-tracking.md)：T0/T1 的
+  provisional 表单 / 签名 / Gateway 与 84 项协议测试；真实互通仍待确认。
+- [T2 查询新鲜度、执行收据与轨迹来源](agent-kernel-phase3b-tracking-t2.md)：58 项新增
+  测试、State v3 / SQLite 迁移及邮政 Mock V2 集成。
+- [T3 受控装配、公开来源与 Web 闭环](agent-kernel-phase3b-tracking-t3.md)：56 项新增 Python
+  与 12 项 Web 用例、配置 / 生命周期、语义熔断、来源契约及浏览器验收；已完成本地收尾，T4 暂缓。
+- [Phase 3B-P 资费接口评审与切片建议](agent-kernel-phase3b-postage-analysis.md)：CSB / 双层
+  签名、产品 / 地区 / 计费条件、金额口径、现有模块差距与 P1～P4 建议；仅分析，未实现 Adapter。
 - [Phase 4A Stateful Agent V2 JSON API](agent-kernel-phase4a.md)：显式装配的 V2 JSON、
   interrupt 投影、三层幂等、owner 隔离、外层 timeout、会话删除和 API 集成证据。
 - [Phase 4B Versioned SSE 与 Stateful Agent Web](agent-kernel-phase4b.md)：稳定 SSE 投影、
@@ -63,6 +73,8 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
   pending 人工审核、数据冻结，以及 13 场景／28 Turn 的离线 Mock 供应商集成证据；未批准真实 holdout。
 - [Agent Workflow ADR](adr/README.md)：已接受的受约束 Agent、LangGraph Runtime、
   Hybrid Understanding、Memory Boundary、Failure Taxonomy、类型化路由和评测门禁决策。
+- [Phase 5E 逐节点遥测与本地 Dashboard](agent-kernel-phase5e.md)：OTel 父子 span、
+  采样/有界导出、Prometheus 指标、只读 Trace 下钻及独立 Docker 合成烟测。
 - [Assistant Agent V2 OpenAPI](openapi/assistant-agent-v2.openapi.json)：Phase 4D JSON/SSE 与
   readiness 已在显式装配路径实现；默认生产装配和真实接口字段仍用于后续
   breaking-change 评审。

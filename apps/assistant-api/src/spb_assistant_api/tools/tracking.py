@@ -11,6 +11,7 @@ from ..domain.results import (
     SourceReference,
 )
 from ..domain.tooling import CommandModel, ToolDescriptor
+from ..domain.tracking import TrackingQueryResult
 
 
 TRACKING_TOOL_NAME = "tracking"
@@ -22,7 +23,7 @@ TRACKING_DESCRIPTOR = ToolDescriptor(
     required_slots=("mail_no",),
     read_only=True,
     max_attempts=2,
-    capability_version="phase-1",
+    capability_version="phase-3b-t3",
 )
 
 
@@ -44,26 +45,50 @@ class TrackingTool:
                 )
             )
 
-        data = await self._gateway.query(command)
+        observation = await self._gateway.query(command)
+        if not isinstance(observation, TrackingQueryResult):
+            raise AgentOperationError(
+                AgentFailure(
+                    category=FailureCategory.CONTRACT_VIOLATION,
+                    code="tracking_observation_missing",
+                    message="轨迹接口必须返回包含来源和查询时间的类型化结果",
+                )
+            )
+        data = observation.data
+        provenance = [
+            SourceReference(
+                source_type=observation.source.source_type,
+                source_name=observation.source.source_name,
+                source_profile=observation.source.profile,
+                history_completeness=observation.history_completeness,
+                queried_at=observation.queried_at,
+            )
+        ]
+        warnings = []
+        if observation.source.source_type == "fake_gateway":
+            warnings.append("当前结果来自合成测试数据，不代表真实邮件状态。")
+        if observation.history_completeness != "complete":
+            warnings.append("查询来源未确认完整历史；返回记录不代表现实中的最终投递状态。")
         if data is None:
             return AgentResult(
                 tool=TRACKING_TOOL_NAME,
                 intent=Intent.TRACKING,
                 status=AgentResultStatus.NO_MATCH,
-                answer="未查询到该邮件的轨迹记录。",
+                answer="本次查询未返回该邮件的轨迹记录，不代表邮件不存在。",
                 reason_code="tracking_not_found",
+                provenance=provenance,
+                warnings=warnings,
             )
         return AgentResult(
             tool=TRACKING_TOOL_NAME,
             intent=Intent.TRACKING,
-            status=AgentResultStatus.SUCCESS,
-            answer="已查询到该邮件的最新轨迹。",
+            status=(
+                AgentResultStatus.PARTIAL
+                if observation.history_completeness == "partial"
+                else AgentResultStatus.SUCCESS
+            ),
+            answer="已取得本次查询返回的邮件轨迹，请结合节点时间查看。",
             data=data,
-            provenance=[
-                SourceReference(
-                    source_type="fake_gateway",
-                    source_name="phase-1-tracking-fixture",
-                    queried_at=data.queried_at,
-                )
-            ],
+            provenance=provenance,
+            warnings=warnings,
         )

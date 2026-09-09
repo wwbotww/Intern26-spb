@@ -88,6 +88,60 @@ class ServiceMetrics:
             "V2 Agent message operations currently executing.",
             registry=self.registry,
         )
+        self.agent_node_executions = Counter(
+            "assistant_agent_node_executions_total",
+            "Actual node body executions, including retries and resumes.",
+            ("node", "outcome"),
+            registry=self.registry,
+        )
+        self.agent_node_duration = Histogram(
+            "assistant_agent_node_duration_seconds",
+            "Node wall-clock duration; excludes time waiting for a user.",
+            ("node", "outcome"),
+            registry=self.registry,
+            buckets=(
+                0.001,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.5,
+                1,
+                2,
+                5,
+                10,
+                30,
+            ),
+        )
+        self.agent_workflow_invocations = Counter(
+            "assistant_agent_workflow_invocations_total",
+            "Actual graph invocations; excludes API idempotency replays.",
+            ("mode", "outcome"),
+            registry=self.registry,
+        )
+        self.agent_telemetry_errors = Counter(
+            "assistant_agent_telemetry_errors_total",
+            "Best-effort telemetry failures, never business failures.",
+            ("operation",),
+            registry=self.registry,
+        )
+        self.agent_trace_exports = Counter(
+            "assistant_agent_trace_export_batches_total",
+            "OTLP batch export results; not a count of business requests.",
+            ("outcome",),
+            registry=self.registry,
+        )
+        for operation in (
+            "start",
+            "finish",
+            "export",
+            "shutdown",
+            "initialize",
+        ):
+            self.agent_telemetry_errors.labels(operation=operation)
+        for outcome in ("success", "failure"):
+            self.agent_trace_exports.labels(outcome=outcome)
         self.agent_interrupts = Counter(
             "assistant_agent_interrupts_total",
             "V2 Agent runs paused for bounded human input.",
@@ -155,6 +209,35 @@ class ServiceMetrics:
                 category=_bounded_failure_category(failure_category),
             ).inc()
 
+    def observe_agent_node(
+        self, *, node: str, outcome: str, duration_seconds: float
+    ) -> None:
+        node = node if node in AGENT_NODES else "unknown"
+        outcome = outcome if outcome in NODE_OUTCOMES else "unknown"
+        self.agent_node_executions.labels(node=node, outcome=outcome).inc()
+        self.agent_node_duration.labels(node=node, outcome=outcome).observe(
+            max(0.0, duration_seconds)
+        )
+
+    def observe_agent_workflow(self, *, mode: str, outcome: str) -> None:
+        self.agent_workflow_invocations.labels(
+            mode=mode if mode in {"start", "resume"} else "unknown",
+            outcome=outcome if outcome in WORKFLOW_OUTCOMES else "unknown",
+        ).inc()
+
+    def observe_telemetry_error(self, operation: str) -> None:
+        self.agent_telemetry_errors.labels(
+            operation=operation
+            if operation
+            in {"start", "finish", "export", "shutdown", "initialize"}
+            else "unknown"
+        ).inc()
+
+    def observe_trace_export(self, *, success: bool) -> None:
+        self.agent_trace_exports.labels(
+            outcome="success" if success else "failure"
+        ).inc()
+
     def set_agent_readiness(self, *, component: str, ready: bool) -> None:
         self.agent_readiness.labels(
             component=_bounded_readiness_component(component)
@@ -170,7 +253,8 @@ class ServiceMetrics:
         deleted_tool_receipts: int = 0,
     ) -> None:
         normalized_outcome = (
-            outcome if outcome in {"success", "partial", "error", "timeout"}
+            outcome
+            if outcome in {"success", "partial", "error", "timeout"}
             else "error"
         )
         self.agent_janitor_runs.labels(outcome=normalized_outcome).inc()
@@ -187,6 +271,40 @@ class ServiceMetrics:
     def render(self) -> bytes:
         return generate_latest(self.registry)
 
+
+AGENT_NODES = frozenset(
+    {
+        "ingest",
+        "understand",
+        "decide_next",
+        "clarify",
+        "execute_tool",
+        "validate_result",
+        "recover",
+        "compose_response",
+    }
+)
+NODE_OUTCOMES = frozenset(
+    {
+        "success",
+        "failed",
+        "error",
+        "interrupted",
+        "cancelled",
+        "unknown",
+    }
+)
+WORKFLOW_OUTCOMES = frozenset(
+    {
+        "completed",
+        "waiting_user",
+        "handoff",
+        "failed",
+        "error",
+        "cancelled",
+        "unknown",
+    }
+)
 
 _TRANSPORTS = frozenset({"json", "sse", "unknown"})
 _OUTCOMES = frozenset(
@@ -209,9 +327,7 @@ _INTENTS = frozenset(
         "unknown",
     }
 )
-_INTERRUPTS = frozenset(
-    {"collect_slots", "clarify_intent", "unknown"}
-)
+_INTERRUPTS = frozenset({"collect_slots", "clarify_intent", "unknown"})
 _FAILURE_CATEGORIES = frozenset(
     {
         "invalid_input",

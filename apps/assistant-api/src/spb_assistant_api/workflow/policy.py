@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
+from uuid import UUID, uuid5
 
 from pydantic import TypeAdapter
 
@@ -39,7 +37,12 @@ from ..domain.slots import (
     SlotPayload,
     TrackingSlots,
 )
-from ..domain.tooling import CommandModel, ToolDescriptor
+from ..domain.tooling import (
+    CommandModel,
+    LegacyToolCallReference,
+    ToolDescriptor,
+    argument_fingerprint,
+)
 from ..domain.understanding import ControlDirective
 
 
@@ -139,6 +142,13 @@ class WorkflowPolicy:
             )
         intent = Intent(raw_intent)
 
+        # Do not collect addresses/weight for a capability that cannot execute.
+        descriptor = self._descriptors.get(intent)
+        if descriptor is None:
+            return WorkflowDecision(
+                action=HandoffAction(reason_code="capability_not_available")
+            )
+
         missing_slots = list(state.get("missing_slots", []))
         if missing_slots:
             conflict_slots = {
@@ -163,12 +173,6 @@ class WorkflowPolicy:
                 )
             )
 
-        descriptor = self._descriptors.get(intent)
-        if descriptor is None:
-            return WorkflowDecision(
-                action=HandoffAction(reason_code="capability_not_available")
-            )
-
         try:
             command = self._build_command(intent, state.get("slots"))
         except (TypeError, ValueError):
@@ -178,12 +182,32 @@ class WorkflowPolicy:
                 "已收集参数不能生成有效命令",
             )
         fingerprint = argument_fingerprint(command)
+        try:
+            query_id = UUID(str(state.get("query_id", "")))
+            call_id = uuid5(
+                query_id,
+                f"{state.get('conversation_id', '')}:{descriptor.tool_name}:{fingerprint}",
+            )
+            legacy_raw = state.get("legacy_tool_call")
+            if legacy_raw is not None:
+                legacy = LegacyToolCallReference.model_validate(legacy_raw)
+                if (
+                    legacy.tool_name == descriptor.tool_name
+                    and legacy.argument_fingerprint == fingerprint
+                ):
+                    call_id = legacy.tool_call_id
+        except (TypeError, ValueError):
+            return self._failure(
+                FailureCategory.STATE_SCHEMA_INCOMPATIBLE,
+                "query_execution_scope_invalid",
+                "Workflow 缺少有效的逻辑查询身份",
+            )
         prior_calls = [
             ToolCallRecord.model_validate(item)
             for item in state.get("tool_calls", [])
         ]
         same_logical_call = any(
-            item.argument_fingerprint == fingerprint
+            item.tool_call_id == call_id
             for item in prior_calls
         )
         if (
@@ -217,10 +241,7 @@ class WorkflowPolicy:
             action = InvokeToolAction(
                 tool_name=descriptor.tool_name,
                 command=command,
-                tool_call_id=uuid5(
-                    NAMESPACE_URL,
-                    f"{conversation_id}:{fingerprint}",
-                ),
+                tool_call_id=call_id,
                 argument_fingerprint=fingerprint,
                 attempt=attempt,
                 deadline_at=datetime.fromisoformat(deadline_at),
@@ -384,13 +405,3 @@ class WorkflowPolicy:
             action=RespondAction(),
             failure=failure,
         )
-
-
-def argument_fingerprint(command: CommandModel) -> str:
-    payload = json.dumps(
-        command.model_dump(mode="json"),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"

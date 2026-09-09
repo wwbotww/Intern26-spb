@@ -1,0 +1,43 @@
+{
+  "uid": "agent-trace",
+  "title": "Agent Trace — Node Timeline",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "tags": ["agent", "phase5e", "synthetic"],
+  "timezone": "browser",
+  "time": {"from": "now-15m", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "trace_id",
+        "label": "Trace ID",
+        "type": "textbox",
+        "query": "00000000000000000000000000000000",
+        "current": {"text": "00000000000000000000000000000000", "value": "00000000000000000000000000000000"}
+      }
+    ]
+  },
+  "links": [{"title": "Workflow dashboard", "url": "/d/agent-workflow", "type": "link"}],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Read-only Trace detail",
+      "type": "text",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
+      "options": {
+        "mode": "markdown",
+        "content": "Open a Trace ID from the Workflow dashboard. This viewer uses the **read-only trace panel**, without requiring Editor/Explore permissions. Each resume is a separate root; no input, slots or tool payloads are recorded."
+      }
+    },
+    {
+      "id": 2,
+      "title": "Workflow and actual Node spans",
+      "type": "traces",
+      "datasource": {"type": "tempo", "uid": "agent-tempo"},
+      "gridPos": {"x": 0, "y": 3, "w": 24, "h": 18},
+      "targets": [{"refId": "A", "queryType": "traceql", "query": "${trace_id}"}],
+      "options": {}
+    }
+  ]
+}

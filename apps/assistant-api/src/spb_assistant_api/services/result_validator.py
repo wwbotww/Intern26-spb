@@ -147,6 +147,18 @@ class AgentResultValidator:
                     "tracking_mail_number_mismatch",
                     "轨迹结果邮件号与请求不一致",
                 )
+            if not result.data.current_status.strip():
+                raise _violation(
+                    "tracking_status_missing", "轨迹结果缺少状态标签"
+                )
+            if not result.data.events:
+                raise _violation(
+                    "tracking_events_missing", "有事实的轨迹结果必须包含节点"
+                )
+            if any(not item.description.strip() for item in result.data.events):
+                raise _violation(
+                    "tracking_event_description_missing", "轨迹节点缺少描述"
+                )
             occurred_at = [item.occurred_at for item in result.data.events]
             if any(not _is_aware(value) for value in occurred_at):
                 raise _violation(
@@ -162,6 +174,15 @@ class AgentResultValidator:
                 raise _violation(
                     "tracking_query_time_without_timezone",
                     "轨迹查询时间必须包含时区",
+                )
+            if any(
+                source.queried_at is None
+                or not _is_aware(source.queried_at)
+                or source.queried_at != result.data.queried_at
+                for source in result.provenance
+            ):
+                raise _violation(
+                    "tracking_source_time_mismatch", "轨迹来源与数据查询时间不一致"
                 )
 
     @staticmethod

@@ -1,0 +1,85 @@
+# Isolated, synthetic local demo. Does not replace the production V1 stack.
+name: intern26-agent-observability
+
+services:
+  agent-demo:
+    build:
+      context: ../..
+      dockerfile: apps/assistant-api/Dockerfile
+    image: intern26-spb-assistant-agent-demo:0.3.6
+    command: ["/app/.venv/bin/spb-assistant-agent-demo"]
+    environment:
+      ASSISTANT_AGENT_DEMO_DB: /tmp/agent-demo.db
+      ASSISTANT_QUERY_MODEL_ENABLED: "false"
+      ASSISTANT_OTEL_ENABLED: "true"
+      ASSISTANT_OTEL_ENDPOINT: http://tempo:4318/v1/traces
+      ASSISTANT_OTEL_SAMPLE_RATIO: "1"
+    ports:
+      - "127.0.0.1:18081:8081"
+    depends_on:
+      - tempo
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=1d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    tmpfs:
+      - /prometheus:size=128m,mode=1777
+    ports:
+      - "127.0.0.1:19091:9090"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  tempo:
+    image: grafana/tempo:2.10.3
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./tempo.yml:/etc/tempo.yml:ro
+    tmpfs:
+      - /var/tempo:size=256m,mode=1777
+      - /tmp:size=32m,mode=1777
+    ports:
+      - "127.0.0.1:13200:3200"
+      - "127.0.0.1:14318:4318"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  grafana:
+    image: grafana/grafana:12.4.8
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+    tmpfs:
+      - /var/lib/grafana:size=128m,mode=1777
+      - /var/log/grafana:size=32m,mode=1777
+      - /tmp:size=32m,mode=1777
+    ports:
+      - "127.0.0.1:13001:3000"
+    depends_on:
+      - prometheus
+      - tempo
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

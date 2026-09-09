@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from uuid import NAMESPACE_URL, uuid5
+
 from ...domain.agent_events import AgentEventType
 from ...domain.agent_actions import AgentMessageInput
 from ..node_utils import agent_event
+from ..migrations import CURRENT_AGENT_STATE_SCHEMA
 from ..state import AgentState
 
 
@@ -14,7 +17,13 @@ def ingest_agent_input(state: AgentState) -> dict[str, object]:
         raise ValueError("Agent 输入缺少 conversation_id 或 turn_id")
 
     return {
-        "schema_version": "2",
+        "schema_version": CURRENT_AGENT_STATE_SCHEMA,
+        # The initial turn seeds a query identity once; resumes change turn_id
+        # but retain query_id. Deterministic ingest is safe to checkpoint-replay.
+        "query_id": str(
+            uuid5(NAMESPACE_URL, f"agent-query-v3:{conversation_id}:{turn_id}")
+        ),
+        "legacy_tool_call": None,
         "latest_message": payload.message,
         "message": "",
         "phase": "understanding",

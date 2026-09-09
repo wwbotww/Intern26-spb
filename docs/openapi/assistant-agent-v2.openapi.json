@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "China Post Assistant Agent API",
-    "version": "0.3.0-phase4d",
-    "description": "Phase 4D V2 JSON/SSE contract with operational readiness and compatibility-adapted V1 policy/device tools. Routes remain behind explicit Agent dependency injection while real logistics adapters and production composition are completed.",
+    "version": "0.3.1-phase3b-t3",
+    "description": "Opt-in V2 JSON/SSE contract with allowlisted tracking observation provenance, operational readiness and reused V1 policy/device tools. Defaults remain V1-only; provider interoperability is pending T4.",
     "x-document-status": "partially-implemented"
   },
   "security": [
@@ -345,6 +345,35 @@
           }
         }
       },
+      "AgentSourceResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_type", "source_name"],
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": ["fake_gateway", "external_api", "unknown"]
+          },
+          "source_name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{1,128}$"
+          },
+          "source_profile": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]{0,128}$",
+            "default": ""
+          },
+          "queried_at": {
+            "anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}],
+            "default": null
+          },
+          "history_completeness": {
+            "type": "string",
+            "enum": ["complete", "partial", "unknown"],
+            "default": "unknown"
+          }
+        }
+      },
       "AgentResult": {
         "type": "object",
         "additionalProperties": false,
@@ -382,6 +411,12 @@
           "reason_code": {
             "type": "string",
             "default": ""
+          },
+          "provenance": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/AgentSourceResponse"},
+            "default": [],
+            "description": "Allowlisted tracking sources, including no_match. Empty for historical responses and other capabilities. Configuration declarations, not provider authentication or freshness guarantees."
           }
         }
       },

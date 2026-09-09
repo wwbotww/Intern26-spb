@@ -14,7 +14,7 @@ from spb_assistant_api.api.agent_contracts import AgentApiDependencies
 from spb_assistant_api.api.app import create_app
 from spb_assistant_api.domain.agent_errors import AgentOperationError
 from spb_assistant_api.domain.failures import AgentFailure, FailureCategory
-from spb_assistant_api.domain.results import TrackingData
+from spb_assistant_api.domain.results import TrackingData, TrackingEvent
 from spb_assistant_api.settings import AssistantSettings
 from spb_assistant_api.workflow.composition import create_persistent_agent
 
@@ -52,6 +52,7 @@ def test_sse_projects_stable_public_events_without_graph_internals(
                 MAIL_NO: TrackingData(
                     mail_no=MAIL_NO,
                     current_status="运输中",
+                    events=[TrackingEvent(description="合成运输节点", occurred_at=NOW)],
                     queried_at=NOW,
                 )
             }

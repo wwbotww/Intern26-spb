@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from .telemetry import current_trace_fields
+
 if TYPE_CHECKING:
     from ..workflow.tracing import AgentWorkflowTrace
 
@@ -71,6 +73,7 @@ def log_agent_workflow_trace(trace: "AgentWorkflowTrace") -> None:
         extra={
             "trace_schema_version": "1",
             "trace_type": "agent_workflow",
+            **current_trace_fields(),
             "conversation_ref": _opaque_ref(trace.conversation_id),
             "turn_ref": _opaque_ref(trace.turn_id),
             "outcome": trace.outcome,

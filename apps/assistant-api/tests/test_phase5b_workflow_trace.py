@@ -15,7 +15,7 @@ from spb_assistant_api.adapters.in_memory_receipts import (
     InMemoryToolExecutionRepository,
 )
 from spb_assistant_api.domain.failures import AgentFailure, FailureCategory
-from spb_assistant_api.domain.results import TrackingData
+from spb_assistant_api.domain.results import TrackingData, TrackingEvent
 from spb_assistant_api.observability.agent_trace import (
     log_agent_workflow_trace,
 )
@@ -34,6 +34,7 @@ def _tracking_data(*, mail_no: str = MAIL_NO) -> TrackingData:
     return TrackingData(
         mail_no=mail_no,
         current_status="运输中",
+        events=[TrackingEvent(description="合成运输节点", occurred_at=NOW)],
         queried_at=NOW,
     )
 

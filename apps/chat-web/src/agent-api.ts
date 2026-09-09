@@ -6,6 +6,7 @@ import type {
   AgentPhase,
   AgentResponse,
   AgentResult,
+  AgentSourceResponse,
   AgentStreamDeltaEvent,
   AgentStreamDoneEvent,
   AgentStreamErrorEvent,
@@ -23,6 +24,7 @@ export type {
   AgentMessageRequest,
   AgentResponse,
   AgentResult,
+  AgentSourceResponse,
   PublicIntent,
   RequiredInput,
 } from './generated/agent-api'
@@ -225,7 +227,7 @@ function agentFailure(value: unknown): AgentFailure | null {
   }
 }
 
-function agentResult(value: unknown): AgentResult | null {
+export function validateAgentResult(value: unknown): AgentResult | null {
   if (value === null || value === undefined) return null
   const item = record(value, 'result')
   const status = stringValue(item.status, 'result.status') as AgentResult['status']
@@ -237,6 +239,7 @@ function agentResult(value: unknown): AgentResult | null {
   return {
     type: publicIntentValue(item.type, 'result.type'),
     status,
+    provenance: agentSources(item.provenance),
     data: data === undefined ? null : (data as Record<string, unknown> | null),
     reason_code:
       item.reason_code === undefined
@@ -245,10 +248,45 @@ function agentResult(value: unknown): AgentResult | null {
   }
 }
 
+function agentSources(value: unknown): AgentSourceResponse[] {
+  // Historical responses/session snapshots predate the additive source field.
+  if (value === undefined) return []
+  if (!Array.isArray(value)) return invalidContract('result.provenance 必须是数组。')
+  return value.map((raw) => {
+    const source = record(raw, 'source')
+    const sourceType = stringValue(source.source_type, 'source.source_type')
+    if (!['fake_gateway', 'external_api', 'unknown'].includes(sourceType)) {
+      return invalidContract('source.source_type 不受支持。')
+    }
+    const sourceName = stringValue(source.source_name, 'source.source_name')
+    const profile = source.source_profile === undefined
+      ? '' : stringValue(source.source_profile, 'source.source_profile')
+    if (!/^[A-Za-z0-9_.-]{1,128}$/.test(sourceName) || !/^[A-Za-z0-9_.-]{0,128}$/.test(profile)) {
+      return invalidContract('来源标识不符合契约。')
+    }
+    const queriedAt = nullableString(source.queried_at, 'source.queried_at')
+    if (queriedAt !== null && (
+      !/(?:Z|[+-]\d{2}:\d{2})$/.test(queriedAt) || !Number.isFinite(Date.parse(queriedAt))
+    )) return invalidContract('来源查询时间必须包含时区。')
+    const completeness = source.history_completeness === undefined
+      ? 'unknown' : stringValue(source.history_completeness, 'source.history_completeness')
+    if (!['complete', 'partial', 'unknown'].includes(completeness)) {
+      return invalidContract('历史完整性不受支持。')
+    }
+    return {
+      source_type: sourceType as AgentSourceResponse['source_type'],
+      source_name: sourceName,
+      source_profile: profile,
+      queried_at: queriedAt,
+      history_completeness: completeness as AgentSourceResponse['history_completeness'],
+    }
+  })
+}
+
 export function validateAgentResponse(value: unknown): AgentResponse {
   const item = record(value, 'response')
   const rawIntent = nullableString(item.intent, 'intent')
-  const result = agentResult(item.result)
+  const result = validateAgentResult(item.result)
   const response: AgentResponse = {
     request_id: stringValue(item.request_id, 'request_id'),
     conversation_id: stringValue(item.conversation_id, 'conversation_id'),
@@ -366,7 +404,7 @@ export function validateAgentStreamEvent(
       type: 'result',
       data: {
         ...common,
-        result: agentResult(item.result),
+        result: validateAgentResult(item.result),
         failure: agentFailure(item.failure),
         warnings: stringList(item.warnings, 'result.warnings'),
       },

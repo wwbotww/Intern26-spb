@@ -17,7 +17,7 @@ from spb_assistant_api.api.agent_contracts import AgentApiDependencies
 from spb_assistant_api.api.app import create_app
 from spb_assistant_api.domain.agent_errors import AgentOperationError
 from spb_assistant_api.domain.failures import AgentFailure, FailureCategory
-from spb_assistant_api.domain.results import TrackingData
+from spb_assistant_api.domain.results import TrackingData, TrackingEvent
 from spb_assistant_api.observability.metrics import ServiceMetrics
 from spb_assistant_api.services.agent_operations import AgentJanitorScheduler
 from spb_assistant_api.settings import AssistantSettings
@@ -48,6 +48,7 @@ def _dependency_factory(database_path: Path):
                 MAIL_NO: TrackingData(
                     mail_no=MAIL_NO,
                     current_status="运输中",
+                    events=[TrackingEvent(description="合成运输节点", occurred_at=NOW)],
                     queried_at=NOW,
                 )
             }

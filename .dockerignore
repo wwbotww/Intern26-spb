@@ -9,6 +9,8 @@
 **/.env
 .env
 data
+eval/reports
+eval/datasets/private
 htmlcov
 .coverage
 docs

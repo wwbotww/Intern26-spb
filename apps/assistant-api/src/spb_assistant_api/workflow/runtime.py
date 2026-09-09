@@ -19,6 +19,7 @@ from ..domain.agent_errors import AgentOperationError
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.intents import Intent
 from ..domain.tooling import ToolDescriptor
+from ..observability.telemetry import WorkflowTelemetry
 from .tracing import (
     WorkflowTraceSink,
     build_agent_workflow_trace,
@@ -107,6 +108,7 @@ class StatefulAgentRuntime:
         capability_descriptors: Mapping[Intent, ToolDescriptor] | None = None,
         clock: Callable[[], datetime] | None = None,
         workflow_trace_sink: WorkflowTraceSink | None = None,
+        telemetry: WorkflowTelemetry | None = None,
     ) -> None:
         for name, value in {
             "recursion_limit": recursion_limit,
@@ -129,6 +131,7 @@ class StatefulAgentRuntime:
         )
         self._clock = clock or (lambda: datetime.now(UTC))
         self._workflow_trace_sink = workflow_trace_sink
+        self._telemetry = telemetry
 
     @property
     def graph(self) -> CompiledStateGraph:
@@ -235,6 +238,21 @@ class StatefulAgentRuntime:
         )
 
     async def _invoke(
+        self,
+        payload: object,
+        *,
+        config: dict[str, Any],
+    ) -> Mapping[str, Any]:
+        if self._telemetry is None:
+            return await self._invoke_with_trace(payload, config=config)
+        with self._telemetry.measure(
+            resumed=isinstance(payload, Command)
+        ) as observation:
+            result = await self._invoke_with_trace(payload, config=config)
+            observation.outcome = str(result.get("phase", "unknown"))
+            return result
+
+    async def _invoke_with_trace(
         self,
         payload: object,
         *,

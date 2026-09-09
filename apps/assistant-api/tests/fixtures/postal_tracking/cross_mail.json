@@ -1,0 +1,26 @@
+{
+  "receiveID": "SYNTHETIC",
+  "responseState": true,
+  "responseItems": [
+    {
+      "traceNo": "1234567890123",
+      "opTime": "2026-09-09 08:00:00",
+      "opCode": "10",
+      "opName": "收寄",
+      "opDesc": "本次查询的合成邮件",
+      "opOrgCity": "测试市",
+      "opOrgCode": "SYNTH-N1",
+      "opOrgName": "合成测试收寄点"
+    },
+    {
+      "traceNo": "0000000000001",
+      "opTime": "2026-09-09 09:00:00",
+      "opCode": "20",
+      "opName": "运输",
+      "opDesc": "不应展示的另一封合成邮件",
+      "opOrgCity": "测试市",
+      "opOrgCode": "SYNTH-N2",
+      "opOrgName": "合成测试处理中心"
+    }
+  ]
+}

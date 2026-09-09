@@ -7,13 +7,16 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from ..domain.ports import QueryUnderstander
+from ..observability.telemetry import WorkflowTelemetry
 from ..services.agent_tools import ToolExecutor
 from ..services.result_validator import AgentResultValidator
+from .instrumentation import instrument_node
+from .migrations import migrate_node_state
 from .nodes import (
     clarify_agent_input,
     clarify_tracking_number,
-    compose_agent_response,
     complete_spike,
+    compose_agent_response,
     create_decide_node,
     create_execute_tool_node,
     create_recover_node,
@@ -80,35 +83,27 @@ def build_agent_graph(
     *,
     checkpointer: BaseCheckpointSaver[str],
     dependencies: AgentGraphDependencies,
+    telemetry: WorkflowTelemetry | None = None,
 ) -> CompiledStateGraph:
     builder = StateGraph(
         AgentState,
         input_schema=AgentInputState,
         output_schema=AgentOutputState,
     )
-    builder.add_node("ingest", ingest_agent_input)
-    builder.add_node(
-        "understand",
-        create_understand_node(dependencies.understander),
-    )
-    builder.add_node(
-        "decide_next",
-        create_decide_node(dependencies.policy),
-    )
-    builder.add_node("clarify", clarify_agent_input)
-    builder.add_node(
-        "execute_tool",
-        create_execute_tool_node(dependencies.executor),
-    )
-    builder.add_node(
-        "validate_result",
-        create_validate_result_node(dependencies.validator),
-    )
-    builder.add_node(
-        "recover",
-        create_recover_node(dependencies.policy),
-    )
-    builder.add_node("compose_response", compose_agent_response)
+    nodes = {
+        "ingest": ingest_agent_input,
+        "understand": create_understand_node(dependencies.understander),
+        "decide_next": create_decide_node(dependencies.policy),
+        "clarify": clarify_agent_input,
+        "execute_tool": create_execute_tool_node(dependencies.executor),
+        "validate_result": create_validate_result_node(dependencies.validator),
+        "recover": create_recover_node(dependencies.policy),
+        "compose_response": compose_agent_response,
+    }
+    for name, node in nodes.items():
+        builder.add_node(
+            name, instrument_node(name, migrate_node_state(node), telemetry)
+        )
 
     builder.add_edge(START, "ingest")
     builder.add_edge("ingest", "understand")

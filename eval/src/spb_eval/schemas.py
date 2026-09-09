@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import (
     BaseModel,
+    AwareDatetime,
     ConfigDict,
     Field,
     StringConstraints,
@@ -438,6 +439,22 @@ class AgentRequiredInputObservation(BaseModel):
     choices: list[str] = Field(default_factory=list)
 
 
+class AgentSourceObservation(BaseModel):
+    """Independent mirror of the T3 public allowlist, not server domain imports."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: Literal["fake_gateway", "external_api", "unknown"]
+    source_name: Annotated[
+        str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
+    ]
+    source_profile: Annotated[
+        str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{0,128}$")
+    ] = ""
+    queried_at: AwareDatetime | None = None
+    history_completeness: Literal["complete", "partial", "unknown"] = "unknown"
+
+
 class AgentResultObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -445,6 +462,7 @@ class AgentResultObservation(BaseModel):
     status: AgentResultStatus
     data: dict[str, Any] | None = None
     reason_code: str = ""
+    provenance: list[AgentSourceObservation] = Field(default_factory=list)
 
 
 class AgentFailureObservation(BaseModel):

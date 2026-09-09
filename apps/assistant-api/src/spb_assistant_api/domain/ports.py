@@ -20,8 +20,8 @@ from .results import (
     AgentResult,
     DeliveryTimeData,
     PostageData,
-    TrackingData,
 )
+from .tracking import TrackingQueryResult
 from .tooling import CommandModel, ToolDescriptor, ToolExecutionReceipt
 from .understanding import QueryUnderstandingResult
 
@@ -63,7 +63,7 @@ class PolicyKnowledgeSource(Protocol):
 
 
 class TrackingGateway(Protocol):
-    async def query(self, command: TrackingCommand) -> TrackingData | None: ...
+    async def query(self, command: TrackingCommand) -> TrackingQueryResult: ...
 
 
 class DeliveryTimeGateway(Protocol):
@@ -110,7 +110,7 @@ class ToolExecutionRepository(Protocol):
         self,
         *,
         conversation_id: str,
-        argument_fingerprint: str,
+        tool_call_id: UUID,
     ) -> ToolExecutionReceipt | None: ...
 
     async def save(self, receipt: ToolExecutionReceipt) -> None: ...
@@ -178,6 +178,7 @@ class ConversationMetadataRepository(Protocol):
         conversation_id: UUID,
         expires_at: datetime,
         updated_at: datetime,
+        state_schema_version: str | None = None,
     ) -> None: ...
 
     async def set_status(

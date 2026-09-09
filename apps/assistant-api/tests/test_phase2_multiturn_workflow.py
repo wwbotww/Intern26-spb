@@ -7,6 +7,7 @@ from spb_assistant_api.adapters.checkpointer_factory import (
     create_in_memory_checkpointer,
 )
 from spb_assistant_api.adapters.fake_tracking import FakeTrackingGateway
+from spb_assistant_api.adapters.fake_shipping import FakeDeliveryTimeGateway, FakePostageGateway
 from spb_assistant_api.adapters.in_memory_receipts import (
     InMemoryToolExecutionRepository,
 )
@@ -14,7 +15,7 @@ from spb_assistant_api.domain.agent_actions import (
     IntentClarificationRequest,
 )
 from spb_assistant_api.domain.intents import Intent
-from spb_assistant_api.domain.results import TrackingData
+from spb_assistant_api.domain.results import TrackingData, TrackingEvent
 from spb_assistant_api.services.agent_tools import (
     AgentCommandDispatcher,
     AgentToolRegistry,
@@ -25,6 +26,8 @@ from spb_assistant_api.services.query_understanding import (
 )
 from spb_assistant_api.services.result_validator import AgentResultValidator
 from spb_assistant_api.tools.tracking import TrackingTool
+from spb_assistant_api.tools.delivery_time import DeliveryTimeTool
+from spb_assistant_api.tools.postage import PostageTool
 from spb_assistant_api.workflow.graph import (
     TrackingAgentGraphDependencies,
     build_tracking_agent_graph,
@@ -37,18 +40,22 @@ NOW = datetime(2026, 9, 3, tzinfo=UTC)
 MAIL_NO = "1234567890123"
 
 
-def _runtime() -> tuple[TrackingAgentRuntime, FakeTrackingGateway]:
+def _runtime(*, shipping=False) -> tuple[TrackingAgentRuntime, FakeTrackingGateway]:
     gateway = FakeTrackingGateway(
         {
             MAIL_NO: TrackingData(
                 mail_no=MAIL_NO,
                 current_status="运输中",
+                events=[TrackingEvent(description="合成运输节点", occurred_at=NOW)],
                 queried_at=NOW,
             )
         }
     )
     registry = AgentToolRegistry(
-        [TrackingTool(gateway)],
+        [TrackingTool(gateway)] + (
+            [DeliveryTimeTool(FakeDeliveryTimeGateway()), PostageTool(FakePostageGateway())]
+            if shipping else []
+        ),
         required_intents=frozenset({Intent.TRACKING}),
     )
     graph = build_tracking_agent_graph(
@@ -153,41 +160,21 @@ def test_cancel_during_slot_collection_is_a_safe_terminal_control() -> None:
     assert gateway.commands == []
 
 
-def test_non_integrated_intent_can_collect_slots_before_safe_handoff() -> None:
+def test_non_integrated_intent_hands_off_without_collecting_unused_slots() -> None:
     runtime, gateway = _runtime()
     thread_id = "phase2-postage-slots"
 
     waiting = asyncio.run(
         runtime.start(thread_id=thread_id, message="帮我算邮费")
     )
-    assert waiting["phase"] == "waiting_user"
-    assert {
-        item["name"] for item in waiting["required_inputs"]
-    } == {"origin", "destination", "weight"}
-
-    result = asyncio.run(
-        runtime.resume(
-            thread_id=thread_id,
-            message="从北京寄到上海 2.5 公斤",
-        )
-    )
-
-    assert result["phase"] == "handoff"
-    assert result["active_intent"] == "postage"
-    snapshot = asyncio.run(
-        runtime.graph.aget_state(runtime.config(thread_id))
-    )
-    assert snapshot.values["slots"]["origin"]["canonical_name"] == "北京市"
-    assert snapshot.values["slots"]["destination"]["canonical_name"] == "上海市"
-    assert snapshot.values["slots"]["weight"] == {
-        "value": "2.5",
-        "unit": "kg",
-    }
+    assert waiting["phase"] == "handoff"
+    assert waiting["required_inputs"] == []
+    assert waiting["active_intent"] == "postage"
     assert gateway.commands == []
 
 
 def test_slot_only_replies_are_merged_against_expected_fields() -> None:
-    delivery_runtime, _ = _runtime()
+    delivery_runtime, _ = _runtime(shipping=True)
     delivery_thread = "phase2-single-region"
     waiting_region = asyncio.run(
         delivery_runtime.start(
@@ -204,7 +191,7 @@ def test_slot_only_replies_are_merged_against_expected_fields() -> None:
             message="上海",
         )
     )
-    assert delivery["phase"] == "handoff"
+    assert delivery["phase"] == "completed"
     delivery_state = asyncio.run(
         delivery_runtime.graph.aget_state(
             delivery_runtime.config(delivery_thread)
@@ -217,7 +204,7 @@ def test_slot_only_replies_are_merged_against_expected_fields() -> None:
         "canonical_name"
     ] == "上海市"
 
-    postage_runtime, _ = _runtime()
+    postage_runtime, _ = _runtime(shipping=True)
     postage_thread = "phase2-weight-only"
     waiting_weight = asyncio.run(
         postage_runtime.start(
@@ -234,7 +221,7 @@ def test_slot_only_replies_are_merged_against_expected_fields() -> None:
             message="2 公斤",
         )
     )
-    assert postage["phase"] == "handoff"
+    assert postage["phase"] == "completed"
     postage_state = asyncio.run(
         postage_runtime.graph.aget_state(
             postage_runtime.config(postage_thread)
@@ -246,7 +233,7 @@ def test_slot_only_replies_are_merged_against_expected_fields() -> None:
     }
     assert postage_state.values["missing_slots"] == []
 
-    partial_runtime, _ = _runtime()
+    partial_runtime, _ = _runtime(shipping=True)
     partial_thread = "phase2-destination-before-weight"
     partial = asyncio.run(
         partial_runtime.start(
@@ -279,7 +266,7 @@ def test_slot_only_replies_are_merged_against_expected_fields() -> None:
         "canonical_name"
     ] == "上海市"
 
-    ambiguous_runtime, _ = _runtime()
+    ambiguous_runtime, _ = _runtime(shipping=True)
     ambiguous_thread = "phase2-resolve-ambiguous-region"
     ambiguous = asyncio.run(
         ambiguous_runtime.start(
@@ -296,7 +283,7 @@ def test_slot_only_replies_are_merged_against_expected_fields() -> None:
             message="北京朝阳",
         )
     )
-    assert resolved["phase"] == "handoff"
+    assert resolved["phase"] == "completed"
     resolved_state = asyncio.run(
         ambiguous_runtime.graph.aget_state(
             ambiguous_runtime.config(ambiguous_thread)
@@ -308,7 +295,7 @@ def test_slot_only_replies_are_merged_against_expected_fields() -> None:
 
 
 def test_conflicting_slot_is_preserved_until_confirmed_correction() -> None:
-    runtime, _ = _runtime()
+    runtime, _ = _runtime(shipping=True)
     thread_id = "phase2-correction"
     first = asyncio.run(
         runtime.start(
@@ -346,7 +333,7 @@ def test_conflicting_slot_is_preserved_until_confirmed_correction() -> None:
             confirm_overwrite=True,
         )
     )
-    assert corrected["phase"] == "handoff"
+    assert corrected["phase"] == "completed"
     snapshot = asyncio.run(
         runtime.graph.aget_state(runtime.config(thread_id))
     )

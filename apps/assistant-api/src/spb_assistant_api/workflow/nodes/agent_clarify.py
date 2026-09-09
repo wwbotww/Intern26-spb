@@ -17,6 +17,7 @@ from ...domain.agent_actions import (
 from ...domain.agent_events import AgentEventType
 from ...domain.intents import Intent
 from ..node_utils import agent_event
+from ..migrations import CURRENT_AGENT_STATE_SCHEMA
 from ..state import AgentState
 
 
@@ -130,7 +131,7 @@ def _resume_update(
             )
         )
     update: dict[str, object] = {
-        "schema_version": "2",
+        "schema_version": CURRENT_AGENT_STATE_SCHEMA,
         "latest_message": message,
         "explicit_intent": (
             explicit_intent.value if explicit_intent is not None else None

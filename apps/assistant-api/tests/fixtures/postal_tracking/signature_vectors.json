@@ -1,0 +1,12 @@
+[
+  {
+    "message_body": "{\"traceNo\":\"1234567890123\"}",
+    "signing_system_id": "synthetic-system",
+    "expected_digest": "AqD+kvbrUSBXKeqVTP8D3A=="
+  },
+  {
+    "message_body": "{\"note\":\"北京 + &=/%\",\"traceNo\":\"EA123456789CN\"}",
+    "signing_system_id": "synthetic-系统",
+    "expected_digest": "AKMPgi6kZzVfRbh06cOXuQ=="
+  }
+]

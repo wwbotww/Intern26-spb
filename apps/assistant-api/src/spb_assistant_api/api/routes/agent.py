@@ -683,6 +683,7 @@ async def list_agent_capabilities(request: Request) -> list[AgentCapability]:
 async def agent_ready(request: Request) -> AgentHealthResponse | Response:
     dependencies = _dependencies(request)
     checks = {"agent_api": "ready"}
+    probed: Mapping[str, object] = {}
     probe = dependencies.readiness_probe
     if probe is None:
         checks.update(
@@ -729,9 +730,10 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
         checks["janitor"] = scheduler.readiness
 
     for intent in _DISPLAY_NAMES:
-        checks[f"capability.{intent.value}"] = (
-            "ready" if intent in dependencies.capabilities else "disabled"
-        )
+        key = f"capability.{intent.value}"
+        checks[key] = (
+            _readiness_state(probed[key]) if key in probed else "ready"
+        ) if intent in dependencies.capabilities else "disabled"
 
     critical_ready = (
         checks["agent_api"] == "ready"
@@ -754,7 +756,10 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
             ready=checks[f"capability.{intent.value}"] == "ready",
         )
 
-    degraded = checks["janitor"] in {"degraded", "starting"}
+    degraded = checks["janitor"] in {"degraded", "starting"} or any(
+        checks[f"capability.{intent.value}"] != "ready"
+        for intent in dependencies.capabilities
+    )
     response = AgentHealthResponse(
         status=(
             "not_ready"

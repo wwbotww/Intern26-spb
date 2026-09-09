@@ -15,5 +15,8 @@
 | [0008](0008-agent-evaluation-gates.md) | Accepted / Phase 5A local baseline verified | 以公开多轮黑盒行为建立 Agent 质量门禁 |
 | [0009](0009-semantic-workflow-trace-and-agent-comparison.md) | Accepted / Phase 5B local reliability verified | 用脱敏语义 Trace 与同样本 Agent 对比定位回归 |
 | [0010](0010-understanding-component-evaluation.md) | Accepted / Phase 5C implemented | 将 Understanding 文件契约评测与 V2 Workflow 黑盒验收分层；补充 0008 |
+| [0011](0011-node-telemetry.md) | Accepted / Phase 5E local verified | 语义 Trace 与真实 Node wall-clock 分层；组合根管理采样/导出，不把遥测写入 State |
+| [0012](0012-query-scoped-tool-receipts.md) | Accepted / T2 local verified | 执行收据按逻辑查询隔离；参数指纹用于完整性，重放保护不等于业务缓存 |
+| [0013](0013-controlled-tracking-composition.md) | Accepted / T3 local verified | 默认关闭的受控物流装配；单次语义熔断、生命周期归属和公开来源白名单 |
 
 修改已接受决策时新增 ADR 并标记旧记录为 `Superseded`，不要静默重写历史理由。

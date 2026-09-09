@@ -18,7 +18,8 @@ from spb_assistant_api.domain.conversations import (
     ConversationStatus,
     IdempotencyClaimStatus,
 )
-from spb_assistant_api.domain.results import TrackingData
+from spb_assistant_api.domain.results import TrackingData, TrackingEvent
+from spb_assistant_api.domain.tracking import TrackingQueryResult
 from spb_assistant_api.workflow.composition import (
     create_persistent_tracking_agent,
 )
@@ -45,6 +46,7 @@ def _tracking_data() -> TrackingData:
     return TrackingData(
         mail_no=MAIL_NO,
         current_status="运输中",
+        events=[TrackingEvent(description="合成运输节点", occurred_at=NOW)],
         queried_at=NOW,
     )
 
@@ -159,7 +161,8 @@ def test_interrupted_graph_resumes_after_sqlite_restart_without_duplicate_tool(
                 message=f"查邮件 {MAIL_NO}",
             )
             assert replayed_tool_result["phase"] == "completed"
-            assert replay_gateway.commands == []
+            # A new query is not a replay of the completed logical execution.
+            assert len(replay_gateway.commands) == 1
 
     asyncio.run(scenario())
 
@@ -173,11 +176,11 @@ class BlockingTrackingGateway:
     async def query(
         self,
         command: TrackingCommand,
-    ) -> TrackingData | None:
+    ) -> TrackingQueryResult:
         self.commands.append(command)
         self.started.set()
         await self.release.wait()
-        return _tracking_data()
+        return await FakeTrackingGateway({MAIL_NO: _tracking_data()}).query(command)
 
 
 def test_concurrent_resume_is_rejected_before_second_tool_call(
@@ -332,7 +335,7 @@ def test_state_schema_migration_is_additive_and_rejects_future_version() -> None
     )
 
     assert migrated.changed
-    assert migrated.state["schema_version"] == "2"
+    assert migrated.state["schema_version"] == "3"
     assert migrated.state["slot_provenance"] == []
     assert migrated.state["multi_intent"] is False
 

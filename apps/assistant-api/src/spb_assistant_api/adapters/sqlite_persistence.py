@@ -72,9 +72,124 @@ CREATE TABLE IF NOT EXISTS agent_tool_execution_receipts (
     PRIMARY KEY (conversation_id, argument_fingerprint)
 );
 
+CREATE TABLE IF NOT EXISTS agent_tool_execution_receipts_v2 (
+    conversation_id TEXT NOT NULL,
+    tool_call_id TEXT NOT NULL,
+    argument_fingerprint TEXT NOT NULL,
+    receipt_json TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    PRIMARY KEY (conversation_id, tool_call_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_persistence_migrations (
+    migration_id TEXT PRIMARY KEY
+);
+
 CREATE INDEX IF NOT EXISTS idx_agent_conversations_expiry
     ON agent_conversations(status, expires_at);
 """
+
+_RECEIPT_SCOPE_MIGRATION = "tool-execution-scope-v2"
+
+
+async def _has_scoped_receipt_schema(connection: aiosqlite.Connection) -> bool:
+    cursor = await connection.execute(
+        "PRAGMA table_info(agent_tool_execution_receipts_v2)"
+    )
+    columns = await cursor.fetchall()
+    expected = {
+        "conversation_id": 1,
+        "tool_call_id": 2,
+        "argument_fingerprint": 0,
+        "receipt_json": 0,
+        "completed_at": 0,
+    }
+    return len(columns) == len(expected) and all(
+        row["name"] in expected
+        and row["pk"] == expected[row["name"]]
+        and row["type"].upper() == "TEXT"
+        and row["notnull"] == 1
+        for row in columns
+    )
+
+
+async def _migrate_tool_receipts(connection: aiosqlite.Connection) -> None:
+    """Copy legacy receipts atomically, retaining their exact execution IDs.
+
+    The old table is retained, not used as a runtime lookup fallback. Both are
+    deleted by TTL/user deletion. Do not run old and new binaries concurrently.
+    """
+    await connection.execute("BEGIN IMMEDIATE")
+    try:
+        if not await _has_scoped_receipt_schema(connection):
+            raise ValueError("scoped receipt schema is incompatible")
+        marker = await connection.execute(
+            "SELECT 1 FROM agent_persistence_migrations WHERE migration_id = ?",
+            (_RECEIPT_SCOPE_MIGRATION,),
+        )
+        if await marker.fetchone() is not None:
+            await connection.commit()
+            return
+        rows = await connection.execute(
+            "SELECT * FROM agent_tool_execution_receipts"
+        )
+        while batch := await rows.fetchmany(128):
+            for row in batch:
+                receipt = ToolExecutionReceipt.model_validate_json(
+                    row["receipt_json"]
+                )
+                if (
+                    receipt.conversation_id != row["conversation_id"]
+                    or receipt.argument_fingerprint != row["argument_fingerprint"]
+                    or _iso(receipt.completed_at) != row["completed_at"]
+                ):
+                    raise ValueError("legacy receipt columns disagree with payload")
+                existing_cursor = await connection.execute(
+                    """
+                    SELECT receipt_json FROM agent_tool_execution_receipts_v2
+                    WHERE conversation_id = ? AND tool_call_id = ?
+                    """,
+                    (receipt.conversation_id, str(receipt.tool_call_id)),
+                )
+                existing = await existing_cursor.fetchone()
+                if existing is not None:
+                    saved = ToolExecutionReceipt.model_validate_json(
+                        existing["receipt_json"]
+                    )
+                    if saved != receipt:
+                        raise ValueError("scoped receipt migration conflict")
+                    continue
+                await connection.execute(
+                    """
+                    INSERT INTO agent_tool_execution_receipts_v2 (
+                        conversation_id, tool_call_id, argument_fingerprint,
+                        receipt_json, completed_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        receipt.conversation_id,
+                        str(receipt.tool_call_id),
+                        receipt.argument_fingerprint,
+                        row["receipt_json"],
+                        row["completed_at"],
+                    ),
+                )
+        await connection.execute(
+            "INSERT INTO agent_persistence_migrations (migration_id) VALUES (?)",
+            (_RECEIPT_SCOPE_MIGRATION,),
+        )
+        await connection.commit()
+    except BaseException as error:
+        await connection.rollback()
+        if isinstance(error, Exception):
+            raise AgentOperationError(
+                AgentFailure(
+                    category=FailureCategory.PERSISTENCE_UNAVAILABLE,
+                    code="tool_receipt_migration_failed",
+                    message="执行收据迁移未通过校验，原数据已保留",
+                )
+            ) from None
+        raise
 
 
 class SqliteConversationMetadataRepository:
@@ -409,19 +524,26 @@ class SqliteConversationMetadataRepository:
         conversation_id: UUID,
         expires_at: datetime,
         updated_at: datetime,
+        state_schema_version: str | None = None,
     ) -> None:
         _require_aware(expires_at, "expires_at")
         _require_aware(updated_at, "updated_at")
+        if state_schema_version is not None and (
+            not state_schema_version.strip() or len(state_schema_version) > 16
+        ):
+            raise ValueError("state_schema_version 必须为 1..16 个字符")
         async with self._lock:
             cursor = await self._connection.execute(
                 """
                 UPDATE agent_conversations
-                SET expires_at = ?, updated_at = ?
+                SET expires_at = ?, updated_at = ?,
+                    state_schema_version = COALESCE(?, state_schema_version)
                 WHERE conversation_id = ? AND status = ?
                 """,
                 (
                     _iso(expires_at),
                     _iso(updated_at),
+                    state_schema_version,
                     str(conversation_id),
                     ConversationStatus.ACTIVE.value,
                 ),
@@ -546,15 +668,15 @@ class SqliteToolExecutionRepository:
         self,
         *,
         conversation_id: str,
-        argument_fingerprint: str,
+        tool_call_id: UUID,
     ) -> ToolExecutionReceipt | None:
         async with self._lock:
             cursor = await self._connection.execute(
                 """
-                SELECT receipt_json FROM agent_tool_execution_receipts
-                WHERE conversation_id = ? AND argument_fingerprint = ?
+                SELECT receipt_json FROM agent_tool_execution_receipts_v2
+                WHERE conversation_id = ? AND tool_call_id = ?
                 """,
-                (conversation_id, argument_fingerprint),
+                (conversation_id, str(tool_call_id)),
             )
             row = await cursor.fetchone()
             if row is None:
@@ -570,12 +692,12 @@ class SqliteToolExecutionRepository:
             try:
                 cursor = await self._connection.execute(
                     """
-                    SELECT receipt_json FROM agent_tool_execution_receipts
-                    WHERE conversation_id = ? AND argument_fingerprint = ?
+                    SELECT receipt_json FROM agent_tool_execution_receipts_v2
+                    WHERE conversation_id = ? AND tool_call_id = ?
                     """,
                     (
                         receipt.conversation_id,
-                        receipt.argument_fingerprint,
+                        str(receipt.tool_call_id),
                     ),
                 )
                 row = await cursor.fetchone()
@@ -586,19 +708,20 @@ class SqliteToolExecutionRepository:
                     if existing != receipt:
                         raise _conflict(
                             "tool_receipt_conflict",
-                            "相同参数指纹已存在不同的执行收据",
+                            "相同执行身份已存在不同的执行收据",
                         )
                     await self._connection.commit()
                     return
                 await self._connection.execute(
                     """
-                    INSERT INTO agent_tool_execution_receipts (
-                        conversation_id, argument_fingerprint,
+                    INSERT INTO agent_tool_execution_receipts_v2 (
+                        conversation_id, tool_call_id, argument_fingerprint,
                         receipt_json, completed_at
-                    ) VALUES (?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?)
                     """,
                     (
                         receipt.conversation_id,
+                        str(receipt.tool_call_id),
                         receipt.argument_fingerprint,
                         encoded,
                         _iso(receipt.completed_at),
@@ -611,15 +734,22 @@ class SqliteToolExecutionRepository:
 
     async def delete_conversation(self, conversation_id: str) -> int:
         async with self._lock:
-            cursor = await self._connection.execute(
-                """
-                DELETE FROM agent_tool_execution_receipts
-                WHERE conversation_id = ?
-                """,
-                (conversation_id,),
-            )
-            await self._connection.commit()
-            return max(cursor.rowcount, 0)
+            await self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await self._connection.execute(
+                    "DELETE FROM agent_tool_execution_receipts_v2 WHERE conversation_id = ?",
+                    (conversation_id,),
+                )
+                count = max(cursor.rowcount, 0)
+                await self._connection.execute(
+                    "DELETE FROM agent_tool_execution_receipts WHERE conversation_id = ?",
+                    (conversation_id,),
+                )
+                await self._connection.commit()
+                return count
+            except BaseException:
+                await self._connection.rollback()
+                raise
 
 
 class SqliteAgentReadinessProbe:
@@ -631,6 +761,8 @@ class SqliteAgentReadinessProbe:
             "agent_idempotency_receipts",
             "agent_conversation_creation_receipts",
             "agent_tool_execution_receipts",
+            "agent_tool_execution_receipts_v2",
+            "agent_persistence_migrations",
         }
     )
     _CHECKPOINT_TABLES = frozenset({"checkpoints", "writes"})
@@ -656,13 +788,25 @@ class SqliteAgentReadinessProbe:
                     tuple(sorted(required)),
                 )
                 rows = await cursor.fetchall()
+                marker = await self._connection.execute(
+                    "SELECT 1 FROM agent_persistence_migrations WHERE migration_id = ?",
+                    (_RECEIPT_SCOPE_MIGRATION,),
+                )
+                migrated = await marker.fetchone() is not None
+                scoped_schema_ready = await _has_scoped_receipt_schema(
+                    self._connection
+                )
         except aiosqlite.Error:
             return {"persistence": "not_ready", "checkpoint": "not_ready"}
         present = {str(row["name"]) for row in rows}
         return {
             "persistence": (
                 "ready"
-                if self._PERSISTENCE_TABLES <= present
+                if (
+                    self._PERSISTENCE_TABLES <= present
+                    and migrated
+                    and scoped_schema_ready
+                )
                 else "not_ready"
             ),
             "checkpoint": (
@@ -689,6 +833,7 @@ async def create_sqlite_agent_repositories(
         connection.row_factory = aiosqlite.Row
         await connection.executescript(_SCHEMA)
         await connection.commit()
+        await _migrate_tool_receipts(connection)
         lock = asyncio.Lock()
         yield SqliteAgentRepositories(
             metadata=SqliteConversationMetadataRepository(connection, lock),

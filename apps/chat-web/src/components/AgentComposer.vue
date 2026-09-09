@@ -54,8 +54,8 @@ function handleKeydown(event: KeyboardEvent): void {
           v-if="pending"
           type="button"
           class="send-button send-button--stop"
-          aria-label="停止本轮 Agent 执行"
-          title="停止"
+          aria-label="停止读取本轮响应"
+          title="停止读取（不保证取消服务端执行）"
           @click="emit('stop')"
         >
           ■

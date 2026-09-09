@@ -15,7 +15,9 @@ from ..domain.tooling import (
     CommandModel,
     ToolDescriptor,
     ToolExecutionReceipt,
+    argument_fingerprint,
 )
+from .result_validator import AgentResultValidator
 
 
 def _contract_failure(code: str, message: str) -> AgentOperationError:
@@ -136,6 +138,7 @@ class ToolExecutor:
         self._dispatcher = dispatcher
         self._receipts = receipts
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._validator = AgentResultValidator()
 
     async def execute(
         self,
@@ -143,19 +146,28 @@ class ToolExecutor:
         conversation_id: str,
         action: InvokeToolAction,
     ) -> ToolExecutionOutcome:
+        if action.argument_fingerprint != argument_fingerprint(action.command):
+            raise _contract_failure(
+                "action_argument_fingerprint_mismatch",
+                "执行参数与参数指纹不一致",
+            )
         existing = await self._receipts.find(
             conversation_id=conversation_id,
-            argument_fingerprint=action.argument_fingerprint,
+            tool_call_id=action.tool_call_id,
         )
         if existing is not None:
             if (
                 existing.tool_name != action.tool_name
                 or existing.tool_call_id != action.tool_call_id
+                or existing.conversation_id != conversation_id
+                or existing.argument_fingerprint != action.argument_fingerprint
+                or existing.result.tool != action.tool_name
             ):
                 raise _contract_failure(
                     "receipt_identity_mismatch",
                     "执行收据与当前工具调用身份不一致",
                 )
+            self._validator.validate(command=action.command, result=existing.result)
             return ToolExecutionOutcome(result=existing.result, reused=True)
 
         now = self._clock()
@@ -176,6 +188,9 @@ class ToolExecutor:
             tool_name=action.tool_name,
             command=action.command,
         )
+        # Never persist invalid facts. The graph validation node remains a
+        # second boundary for restored state and public projection.
+        self._validator.validate(command=action.command, result=result)
         if result.status is not AgentResultStatus.FAILED:
             await self._receipts.save(
                 ToolExecutionReceipt(

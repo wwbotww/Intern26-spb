@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import re
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
     BaseModel,
+    AwareDatetime,
     ConfigDict,
     Field,
     StringConstraints,
@@ -16,7 +18,7 @@ from pydantic import (
 from ..domain.agent_actions import RequiredInput
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.intents import Intent
-from ..domain.results import AgentResult, AgentResultStatus
+from ..domain.results import AgentResult, AgentResultStatus, SourceReference
 
 
 MessageText = Annotated[
@@ -88,6 +90,38 @@ class RequiredInputResponse(BaseModel):
         return cls.model_validate(value.model_dump(mode="json"))
 
 
+class AgentSourceResponse(BaseModel):
+    """Allowlisted tracking observation, not raw domain/wire provenance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: Literal["fake_gateway", "external_api", "unknown"]
+    source_name: Annotated[
+        str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
+    ]
+    source_profile: Annotated[
+        str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{0,128}$")
+    ] = ""
+    queried_at: AwareDatetime | None = None
+    history_completeness: Literal["complete", "partial", "unknown"] = "unknown"
+
+    @classmethod
+    def from_tracking_source(cls, source: SourceReference) -> "AgentSourceResponse":
+        known = source.source_type in {"fake_gateway", "external_api"} and bool(
+            re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", source.source_name)
+        )
+        observed = source.queried_at
+        if observed is not None and observed.utcoffset() is None:
+            observed = None
+        return cls(
+            source_type=source.source_type if known else "unknown",
+            source_name=source.source_name if known else "legacy-unknown",
+            source_profile=source.source_profile if known else "",
+            queried_at=observed,
+            history_completeness=source.history_completeness if known else "unknown",
+        )
+
+
 class AgentResultResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -95,6 +129,7 @@ class AgentResultResponse(BaseModel):
     status: AgentResultStatus
     data: dict[str, Any] | None = None
     reason_code: str = ""
+    provenance: list[AgentSourceResponse] = Field(default_factory=list)
 
     @classmethod
     def from_domain(cls, value: AgentResult) -> "AgentResultResponse":
@@ -109,6 +144,10 @@ class AgentResultResponse(BaseModel):
                 else None
             ),
             reason_code=value.reason_code,
+            provenance=[
+                AgentSourceResponse.from_tracking_source(source)
+                for source in value.provenance
+            ] if value.intent is Intent.TRACKING else [],
         )
 
 

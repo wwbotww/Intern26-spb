@@ -16,13 +16,15 @@ def create_execute_tool_node(executor: ToolExecutor):
     async def execute_tool(state: AgentState) -> dict[str, object]:
         action = InvokeToolAction.model_validate(state.get("pending_action"))
         conversation_id = state.get("conversation_id", "")
-        prior_fingerprints = {
-            ToolCallRecord.model_validate(item).argument_fingerprint
+        prior_call_ids = {
+            ToolCallRecord.model_validate(item).tool_call_id
             for item in state.get("tool_calls", [])
         }
         logical_call_count = int(state.get("tool_call_count", 0))
-        if action.argument_fingerprint not in prior_fingerprints:
+        if action.tool_call_id not in prior_call_ids:
             logical_call_count += 1
+        else:
+            logical_call_count = max(logical_call_count, 1)
 
         started = ToolCallRecord(
             tool_call_id=action.tool_call_id,

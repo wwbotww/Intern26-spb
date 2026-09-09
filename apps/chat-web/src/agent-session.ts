@@ -1,3 +1,4 @@
+import { validateAgentResult } from './agent-api'
 import type {
   AgentSessionSnapshot,
   AgentUiMessage,
@@ -58,6 +59,11 @@ export function loadAgentSession(
       return null
     }
     if (value.messages.length > MAX_MESSAGES) return null
+    for (const message of value.messages) {
+      if (message.result !== undefined) {
+        message.result = validateAgentResult(message.result)
+      }
+    }
     if (value.pendingRequest !== null && !validPending(value.pendingRequest)) {
       return null
     }

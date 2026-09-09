@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from ..domain.agent_errors import AgentOperationError
 from ..domain.conversations import (
@@ -22,7 +22,7 @@ from ..domain.ports import (
     ConversationMetadataRepository,
     ToolExecutionRepository,
 )
-from .migrations import AgentStateMigrator
+from .migrations import AgentStateMigrator, CURRENT_AGENT_STATE_SCHEMA
 from .runtime import StatefulAgentRuntime
 
 
@@ -165,7 +165,7 @@ class StatefulAgentService:
             "confirm_overwrite": confirm_overwrite,
         }
 
-        async def run() -> Mapping[str, Any]:
+        async def run(turn_id: UUID) -> Mapping[str, Any]:
             snapshot = await self._runtime.graph.aget_state(
                 self._runtime.config(str(conversation_id))
             )
@@ -175,6 +175,7 @@ class StatefulAgentService:
                     message=message,
                     selected_intent=explicit_intent,
                     confirm_overwrite=confirm_overwrite,
+                    turn_id=turn_id,
                 )
             if message is None:
                 raise AgentOperationError(
@@ -188,6 +189,7 @@ class StatefulAgentService:
                 thread_id=str(conversation_id),
                 message=message,
                 explicit_intent=explicit_intent,
+                turn_id=turn_id,
             )
 
         return await self._run_idempotently(
@@ -220,10 +222,11 @@ class StatefulAgentService:
             owner_id=owner_id,
             idempotency_key=idempotency_key,
             request_hash=request_fingerprint(payload),
-            operation=lambda: self._runtime.start(
+            operation=lambda turn_id: self._runtime.start(
                 thread_id=str(conversation_id),
                 message=message,
                 explicit_intent=explicit_intent,
+                turn_id=turn_id,
             ),
             validate_checkpoint=False,
         )
@@ -251,11 +254,12 @@ class StatefulAgentService:
             owner_id=owner_id,
             idempotency_key=idempotency_key,
             request_hash=request_fingerprint(payload),
-            operation=lambda: self._runtime.resume(
+            operation=lambda turn_id: self._runtime.resume(
                 thread_id=str(conversation_id),
                 message=message,
                 selected_intent=selected_intent,
                 confirm_overwrite=confirm_overwrite,
+                turn_id=turn_id,
             ),
             validate_checkpoint=True,
         )
@@ -318,7 +322,7 @@ class StatefulAgentService:
         owner_id: str,
         idempotency_key: str,
         request_hash: str,
-        operation: Callable[[], Awaitable[Mapping[str, Any]]],
+        operation: Callable[[UUID], Awaitable[Mapping[str, Any]]],
         validate_checkpoint: bool,
     ) -> Mapping[str, Any]:
         async with self._coordinator.claim(conversation_id):
@@ -349,13 +353,31 @@ class StatefulAgentService:
                 )
 
             try:
-                if validate_checkpoint:
-                    snapshot = await self._runtime.graph.aget_state(
-                        self._runtime.config(str(conversation_id))
-                    )
-                    if snapshot.values:
-                        self._migrator.migrate(snapshot.values)
-                result = await operation()
+                # Bind retryable API execution to a stable message identity.
+                # The key is never written into graph state or telemetry.
+                turn_id = uuid5(
+                    conversation_id,
+                    f"agent-message-v3:{claim.receipt.key}:{request_hash}",
+                )
+                snapshot = await self._runtime.graph.aget_state(
+                    self._runtime.config(str(conversation_id))
+                )
+                if validate_checkpoint and snapshot.values:
+                    self._migrator.migrate(snapshot.values)
+                phase = snapshot.values.get("phase")
+                stopped = (
+                    not snapshot.next
+                    and phase in {"completed", "failed", "handoff"}
+                ) or (
+                    phase == "waiting_user"
+                    and any(task.interrupts for task in snapshot.tasks)
+                )
+                if snapshot.values.get("turn_id") == str(turn_id) and stopped:
+                    # Repair a failed API-receipt write after a durable stop.
+                    # This is not a claim of cross-system exactly-once billing.
+                    result = snapshot.values
+                else:
+                    result = await operation(turn_id)
                 public_result = project_agent_output(result)
                 await self._metadata.complete_idempotency(
                     conversation_id=conversation_id,
@@ -369,6 +391,7 @@ class StatefulAgentService:
                     conversation_id=conversation_id,
                     expires_at=refreshed + self._ttl,
                     updated_at=refreshed,
+                    state_schema_version=CURRENT_AGENT_STATE_SCHEMA,
                 )
                 return public_result
             except BaseException:

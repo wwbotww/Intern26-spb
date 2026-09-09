@@ -26,10 +26,12 @@ class JsonHttpResponse:
 
 
 class AgentJsonHttpClient:
-    """Shared single-attempt transport for future read-only Agent gateways.
+    """Single-attempt transport for JSON responses and JSON/form requests.
 
     The LangGraph workflow owns the retry budget. Keeping this layer to one
     network attempt prevents transport retries from multiplying graph retries.
+    manage_circuit_breaker=False is only for an outer adapter that accounts for
+    transport AND semantic validation as one attempt; it is not a retry switch.
     """
 
     def __init__(
@@ -42,6 +44,7 @@ class AgentJsonHttpClient:
         default_headers: Mapping[str, str] | None = None,
         max_response_bytes: int = 1_048_576,
         circuit_breaker: CapabilityCircuitBreaker | None = None,
+        manage_circuit_breaker: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         normalized_url = _validate_base_url(base_url)
@@ -52,8 +55,14 @@ class AgentJsonHttpClient:
         if max_response_bytes < 1:
             raise ValueError("max_response_bytes 必须大于 0")
         self._default_headers = dict(default_headers or {})
+        self._timeout_seconds = timeout_seconds
         self._max_response_bytes = max_response_bytes
-        self._breaker = circuit_breaker or CapabilityCircuitBreaker()
+        if not manage_circuit_breaker and circuit_breaker is not None:
+            raise ValueError("外层拥有熔断时不能同时注入传输层熔断器")
+        self._breaker = (
+            circuit_breaker or CapabilityCircuitBreaker()
+            if manage_circuit_breaker else None
+        )
         self._client = httpx.AsyncClient(
             base_url=f"{normalized_url.rstrip('/')}/",
             timeout=httpx.Timeout(
@@ -62,6 +71,7 @@ class AgentJsonHttpClient:
             ),
             verify=verify_tls,
             follow_redirects=False,
+            trust_env=False,
             limits=httpx.Limits(
                 max_connections=max_connections,
                 max_keepalive_connections=max_connections,
@@ -77,25 +87,56 @@ class AgentJsonHttpClient:
         path: str,
         expected_statuses: frozenset[int] = frozenset({200}),
         json_body: Mapping[str, Any] | None = None,
+        form_body: Mapping[str, str] | None = None,
         params: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> JsonHttpResponse:
         if method not in {"GET", "POST"}:
             raise ValueError("method 只允许 GET 或 POST")
+        if json_body is not None and form_body is not None:
+            raise ValueError("json_body 与 form_body 不能同时提供")
+        request_headers = self._headers(headers)
+        if form_body is not None:
+            if method != "POST":
+                raise ValueError("表单正文只允许用于 POST")
+            if any(
+                not isinstance(key, str) or not isinstance(value, str)
+                for key, value in form_body.items()
+            ):
+                raise ValueError("表单键和值必须是字符串")
+            normalized_headers = httpx.Headers(request_headers)
+            content_type = normalized_headers.get("Content-Type", "")
+            if content_type.lower().replace(" ", "") not in {
+                "",
+                "application/x-www-form-urlencoded",
+                "application/x-www-form-urlencoded;charset=utf-8",
+            }:
+                raise ValueError("表单正文必须使用 UTF-8 form Content-Type")
+            normalized_headers["Content-Type"] = (
+                "application/x-www-form-urlencoded; charset=UTF-8"
+            )
+            request_headers = dict(normalized_headers)
         normalized_path = _validate_relative_path(path)
         if not expected_statuses or any(
             status < 100 or status > 599 for status in expected_statuses
         ):
             raise ValueError("expected_statuses 必须是有效 HTTP 状态集合")
+        admitted = False
         try:
-            await self._breaker.before_call(capability)
-            async with self._client.stream(
-                method,
-                normalized_path,
-                json=dict(json_body) if json_body is not None else None,
-                params=dict(params) if params is not None else None,
-                headers=self._headers(headers),
-            ) as response:
+            if self._breaker is not None:
+                await self._breaker.before_call(capability)
+            admitted = True
+            async with (
+                asyncio.timeout(self._timeout_seconds),
+                self._client.stream(
+                    method,
+                    normalized_path,
+                    json=dict(json_body) if json_body is not None else None,
+                    data=dict(form_body) if form_body is not None else None,
+                    params=dict(params) if params is not None else None,
+                    headers=request_headers,
+                ) as response,
+            ):
                 await self._validate_status(
                     capability,
                     response,
@@ -115,11 +156,10 @@ class AgentJsonHttpClient:
                         )
                     content.extend(chunk)
         except asyncio.CancelledError:
-            await asyncio.shield(
-                self._breaker.record_aborted(capability)
-            )
+            if self._breaker is not None and admitted:
+                await asyncio.shield(self._breaker.record_aborted(capability))
             raise
-        except httpx.TimeoutException as exc:
+        except (httpx.TimeoutException, TimeoutError) as exc:
             await self._fail(
                 capability,
                 AgentFailure(
@@ -146,8 +186,12 @@ class AgentJsonHttpClient:
             payload: Any = None
         else:
             try:
-                payload = json.loads(content)
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                payload = json.loads(
+                    content,
+                    object_pairs_hook=_unique_json_object,
+                    parse_constant=_reject_json_constant,
+                )
+            except (UnicodeDecodeError, ValueError, RecursionError):
                 await self._fail(
                     capability,
                     AgentFailure(
@@ -155,9 +199,9 @@ class AgentJsonHttpClient:
                         code="upstream_json_invalid",
                         message="上游响应不是有效 JSON",
                     ),
-                    cause=exc,
                 )
-        await self._breaker.record_success(capability)
+        if self._breaker is not None:
+            await self._breaker.record_success(capability)
         return JsonHttpResponse(
             status_code=status_code,
             payload=payload,
@@ -241,10 +285,11 @@ class AgentJsonHttpClient:
         *,
         cause: BaseException | None = None,
     ) -> NoReturn:
-        await self._breaker.record_failure(capability)
+        if self._breaker is not None:
+            await self._breaker.record_failure(capability)
         error = AgentOperationError(failure)
         if cause is None:
-            raise error
+            raise error from None
         raise error from cause
 
     async def close(self) -> None:
@@ -297,3 +342,17 @@ def _retry_after_seconds(headers: Mapping[str, str]) -> float | None:
     if not math.isfinite(value) or value < 0:
         return None
     return min(value, 3600.0)
+
+
+def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> NoReturn:
+    del value
+    raise ValueError("non-finite JSON number")

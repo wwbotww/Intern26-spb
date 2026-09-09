@@ -1,0 +1,30 @@
+{
+  "receiveID": "SYNTHETIC",
+  "responseState": true,
+  "errorDesc": "",
+  "responseItems": [
+    {
+      "traceNo": "1234567890123",
+      "opTime": "2026-09-09 09:00:00",
+      "opCode": "20",
+      "opName": "运输",
+      "opDesc": "邮件已离开合成测试处理中心",
+      "opOrgProvName": "测试省",
+      "opOrgCity": "测试市",
+      "opOrgCode": "SYNTH-N2",
+      "opOrgName": "合成测试处理中心"
+    },
+    {
+      "traceNo": "1234567890123",
+      "opTime": "2026-09-08 08:00:00",
+      "opCode": "203",
+      "opName": "收寄",
+      "opDesc": "邮件已在合成测试收寄点收寄",
+      "opOrgCity": "测试市",
+      "opOrgCode": "SYNTH-N1",
+      "opOrgName": "合成测试收寄点",
+      "operatorNo": "SYNTH-STAFF-1",
+      "operatorName": "合成员工甲"
+    }
+  ]
+}

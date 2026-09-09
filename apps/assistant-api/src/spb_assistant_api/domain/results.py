@@ -40,6 +40,10 @@ class SourceReference(BaseModel):
 
     source_type: str
     source_name: str
+    source_profile: Annotated[
+        str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{0,128}$")
+    ] = ""
+    history_completeness: Literal["complete", "partial", "unknown"] = "unknown"
     record_id: str = ""
     source_url: str = ""
     queried_at: datetime | None = None

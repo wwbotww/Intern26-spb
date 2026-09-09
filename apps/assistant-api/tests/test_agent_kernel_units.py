@@ -69,6 +69,7 @@ def _registry(
 def _ready_state(**updates: object) -> dict[str, object]:
     state: dict[str, object] = {
         "conversation_id": "conversation-1",
+        "query_id": "22222222-2222-4222-8222-222222222222",
         "active_intent": "tracking",
         "slots": {"intent": "tracking", "mail_no": MAIL_NO},
         "missing_slots": [],
