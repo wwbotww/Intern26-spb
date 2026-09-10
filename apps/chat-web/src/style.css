@@ -1054,10 +1054,94 @@ button {
   font-size: 10px;
 }
 
-.agent-banner {
+.agent-notice-region {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 100;
+  width: min(560px, calc(100% - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.agent-notice {
   display: flex;
   align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 16px;
+  border: 1px solid #cfe5dc;
+  border-radius: 14px;
+  color: #315f52;
+  background: #f2fcf8;
+  box-shadow: 0 8px 30px rgba(29, 73, 59, 0.18);
+  font-size: 13px;
+  line-height: 1.6;
+  pointer-events: auto;
+}
+
+.agent-notice__icon {
+  display: grid;
+  flex: 0 0 22px;
+  place-items: center;
+  height: 22px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-weight: 700;
+}
+
+.agent-notice__text {
+  flex: 1;
+  min-width: 0;
+  max-height: 30dvh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.agent-notice button {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 8px;
+  color: #315f52;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.agent-notice button:hover {
+  background: #e0f2ea;
+}
+
+.agent-notice button:focus-visible {
+  outline: 2px solid #147d5a;
+  outline-offset: 2px;
+}
+
+.agent-notice-enter-active,
+.agent-notice-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.agent-notice-enter-from,
+.agent-notice-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-notice-enter-active,
+  .agent-notice-leave-active {
+    transition: none;
+  }
+}
+
+.agent-identity-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
+  gap: 8px;
   width: min(920px, calc(100% - 32px));
   margin: 18px auto 0;
   padding: 11px 14px;
@@ -1068,7 +1152,7 @@ button {
   font-size: 12px;
 }
 
-.agent-banner button {
+.agent-identity-notice button {
   border: 0;
   color: #69817a;
   background: transparent;

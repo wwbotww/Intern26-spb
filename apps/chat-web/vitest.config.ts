@@ -10,10 +10,28 @@ export default defineConfig({
     'import.meta.env.VITE_AGENT_BROWSER_SESSION': JSON.stringify('false'),
   },
   test: {
-    include: ['src/**/*.test.ts'],
     environment: 'node',
     watch: false,
     api: false,
     passWithNoTests: false,
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'contracts',
+          include: ['src/**/*.test.ts'],
+          exclude: ['src/agent-home.test.ts'],
+          environment: 'node',
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'homepage',
+          include: ['src/agent-home.test.ts'],
+          environment: './vue-client-environment.ts',
+        },
+      },
+    ],
   },
 })

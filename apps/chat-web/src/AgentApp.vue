@@ -19,6 +19,7 @@ import type {
   RequiredInput,
 } from './agent-api'
 import { AGENT_SESSION_KEY, clearAgentSession, loadAgentSession, saveAgentSession } from './agent-session'
+import { availableAgentExamples, type AgentExample } from './agent-examples'
 import type {
   AgentMessageState,
   AgentUiMessage,
@@ -26,14 +27,15 @@ import type {
 } from './agent-ui-model'
 import AgentComposer from './components/AgentComposer.vue'
 import AgentMessage from './components/AgentMessage.vue'
+import AgentNotice from './components/AgentNotice.vue'
 import AgentSlotForm from './components/AgentSlotForm.vue'
 import { createId } from './id'
+import { useTransientNotice } from './use-transient-notice'
 
 
 interface CapabilityPresentation {
   icon: string
   description: string
-  example: string
 }
 
 
@@ -48,27 +50,22 @@ const presentation: Record<PublicIntent, CapabilityPresentation> = {
   tracking: {
     icon: '轨',
     description: '识别或补充 13 位邮件号，查询轨迹节点与本次数据来源。',
-    example: '帮我查一下邮件 1234567890123',
   },
   delivery_time: {
     icon: '时',
     description: '采集寄件地与收件地，查询预计寄递时长。',
-    example: '北京寄到上海一般需要多久？',
   },
   postage: {
     icon: '费',
     description: '补齐地区、产品和重量，确认询价范围后查看报价依据。',
-    example: '北京寄到上海 1.25 公斤要多少钱？',
   },
   policy: {
     icon: '政',
     description: '复用现有 RAG 能力，查询政策、材料与办理流程。',
-    example: '快件丢失理赔通常需要哪些材料？',
   },
   device_price: {
     icon: '价',
     description: '复用设备价格查询，核对型号、规格与参考价格。',
-    example: '查询 iPhone 16 Pro 256GB 的参考价格',
   },
 }
 const fallbackNames: Record<PublicIntent, string> = {
@@ -96,9 +93,9 @@ const draft = ref('')
 const pending = ref(false)
 const clearing = ref(false)
 const capabilityLoading = ref(true)
-const banner = ref(
-  restored?.conversationId ? '已从本机恢复可继续的 Agent 会话。' : '',
-)
+const notice = useTransientNotice()
+const noticeMessage = notice.message
+const identityStatus = ref('')
 const messageList = ref<HTMLElement | null>(null)
 let activeController: AbortController | null = null
 let capabilityController: AbortController | null = null
@@ -120,6 +117,7 @@ if (pendingRequest.value) {
 const capabilityMap = computed(
   () => new Map(capabilities.value.map((item) => [item.intent, item])),
 )
+const examples = computed(() => availableAgentExamples(capabilities.value))
 const selectedCapability = computed(() =>
   selectedIntent.value
     ? capabilityMap.value.get(selectedIntent.value) ?? null
@@ -239,7 +237,7 @@ function applyEvent(
     ) {
       conversationId.value = null
       pendingRequest.value = null
-      banner.value = '原会话已失效，请重新描述需求开始新会话。'
+      notice.show('原会话已失效，请重新描述需求开始新会话。')
     }
   }
   persist()
@@ -414,11 +412,11 @@ function selectCapability(intent: PublicIntent): void {
 }
 
 
-function useExample(intent: PublicIntent): void {
-  const capability = capabilityMap.value.get(intent)
-  if (!capability?.available || pending.value) return
-  selectedIntent.value = intent
-  draft.value = presentation[intent].example
+function useExample(example: AgentExample): void {
+  const capability = capabilityMap.value.get(example.intent)
+  if (!capability?.available || pending.value || !identityReady.value || waitingForInput.value) return
+  selectedIntent.value = example.intent
+  draft.value = example.message
   submitText()
 }
 
@@ -441,7 +439,7 @@ function discardSession(): void {
   messages.value = []
   selectedIntent.value = null
   draft.value = ''
-  banner.value = ''
+  notice.dismiss()
   clearAgentSession()
 }
 
@@ -462,10 +460,11 @@ async function startOver(): Promise<void> {
     if (error instanceof AgentApiError && error.status === 404) {
       discardSession()
     } else {
-      banner.value =
+      notice.show(
         error instanceof AgentApiError
           ? `暂时无法清理服务端会话：${error.message}`
-          : '暂时无法清理服务端会话，请稍后重试。'
+          : '暂时无法清理服务端会话，请稍后重试。',
+      )
     }
   } finally {
     clearing.value = false
@@ -490,7 +489,9 @@ function suspendIdentity(message: string, removeSaved = false): void {
   selectedIntent.value = null
   draft.value = ''
   capabilities.value = []
-  banner.value = message
+  // Required identity actions remain visible until verification succeeds.
+  identityStatus.value = message
+  notice.dismiss()
   if (removeSaved) clearAgentSession()
   if (!disposed) queueScroll()
 }
@@ -533,9 +534,10 @@ async function initialize(reset = false): Promise<void> {
         interrupted.state = 'error'
         interrupted.error = '身份已核验，可使用原幂等键安全重试未完成请求。'
       }
-      banner.value = snapshot ? '访客身份已核验，已恢复本机聊天记录。'
+      identityStatus.value = ''
+      notice.show(snapshot ? '访客身份已核验，已恢复本机聊天记录。'
         : reset ? '已重建访客身份，旧会话不可在新身份下恢复；旧服务端数据仍按 TTL 清理。'
-          : '已建立匿名访客会话；这不是登录身份，请勿在共享设备留下敏感内容。'
+          : '已建立匿名访客会话；这不是登录身份，请勿在共享设备留下敏感内容。')
       expiryTimer = setTimeout(() => suspendIdentity('访客身份已到期，请重新核验；不会自动重发业务请求。'),
         Math.max(0, Date.parse(identity.expires_at) - Date.now()))
       persist()
@@ -545,10 +547,12 @@ async function initialize(reset = false): Promise<void> {
   } catch (error) {
     if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return
     if (handleIdentityError(error)) return
-    banner.value =
+    const message =
       error instanceof AgentApiError
         ? `能力目录加载失败：${error.message}`
         : '能力目录加载失败，请确认 V2 Agent 服务已启用。'
+    if (browserMode && !identityReady.value) identityStatus.value = message
+    else notice.show(message)
   } finally {
     capabilityLoading.value = false
     identityChecking.value = false
@@ -573,6 +577,7 @@ function onSessionStorage(event: StorageEvent): void {
 }
 
 onMounted(() => {
+  if (restored?.conversationId) notice.show('已从本机恢复可继续的 Agent 会话。')
   document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('storage', onSessionStorage)
   void initialize()
@@ -622,23 +627,26 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
+    <AgentNotice
+      :message="noticeMessage"
+      @dismiss="notice.dismiss"
+      @pause="notice.pause"
+      @resume="notice.resume"
+    />
+
     <main ref="messageList" class="message-list" aria-live="polite">
-      <section v-if="browserMode && !identityReady" class="agent-banner" role="status">
-        <span>核验前不会展示本地历史或发送业务请求。</span>
+      <section v-if="browserMode && !identityReady" class="agent-identity-notice" role="status">
+        <span>{{ identityStatus }} 核验前不会展示本地历史或发送业务请求。</span>
         <button type="button" :disabled="identityChecking" @click="initialize()">{{ identityChecking ? '核验中…' : '重新核验' }}</button>
         <button type="button" title="丢弃本机旧记录；旧服务端会话仍按 TTL 清理"
           :disabled="identityChecking" @click="initialize(true)">重建访客身份</button>
       </section>
-      <div v-if="banner" class="agent-banner" role="status">
-        <span>{{ banner }}</span>
-        <button type="button" aria-label="关闭提示" @click="banner = ''">×</button>
-      </div>
 
       <section v-if="!messages.length" class="agent-welcome">
         <p class="welcome__eyebrow">STATEFUL CLAIMS WORKFLOW</p>
         <h2>描述需求，或选择一个 Agent 能力</h2>
         <p class="welcome__description">
-          可自由输入让 Query Understanding 自动路由，也可显式选择能力；缺少字段时工作流会暂停补槽。
+          自由输入让意图识别路由，或显式选择能力；缺少字段时工作流会暂停补槽。
         </p>
 
         <div class="agent-capability-grid" :aria-busy="capabilityLoading">
@@ -667,15 +675,16 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div class="agent-examples">
+        <div v-if="examples.length" class="agent-examples">
           <span>快速体验</span>
           <button
-            v-for="intent in intentOrder.filter((item) => capabilityMap.get(item)?.available)"
-            :key="intent"
+            v-for="example in examples"
+            :key="example.id"
             type="button"
-            @click="useExample(intent)"
+            :disabled="pending || !identityReady"
+            @click="useExample(example)"
           >
-            {{ presentation[intent].example }}
+            {{ example.message }}
           </button>
         </div>
       </section>

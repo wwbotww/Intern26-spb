@@ -81,7 +81,9 @@
 > 不等待三项物流接口或多副本；policy / device_price 复用原数据，三项物流正常 unavailable。
 > 已增 33 项 HTTP / 两核心能力、10 项旧主机兼容及 1 项 Debian Web 回归，全量本地 1089 Python / 70 Web 通过。
 > 旧主机只增加 clone3 / ENOSYS 拒绝过滤器，不关闭 Docker seccomp；同版 Debian Web、
-> 远程 CI 与服务器正式 HTTP 黑盒验收通过，已保留旧版回退。浏览器人工验收与空价格库数据另列缺口。
+> 远程 CI 与服务器正式 HTTP 黑盒验收通过，已保留旧版回退。后续[首页修复与示例复查](agent-homepage-quality.md)
+> 已完成悬浮通知、19 项新增 Web 回归及真实政策 / 价格示例验证；本机浏览器验证通知布局与自动关闭。
+> 价格库已非空，当前关注历史型号和政策知识覆盖，不能沿用发布时的空库结论。
 > 未确认项保留 provisional 标记；文档到达、离线实现、供应商互通分别验收。
 
 ## 1. 建设目标
@@ -197,7 +199,8 @@ Docker 独立三卷、UID 10001、只读根文件系统和无网络演练通过�
 | 6A-2 | Local complete | 受控目录 / 整库租约、8 表停服快照 / 新目录恢复；44 项新增回归覆盖权限、互斥、WAL、拒绝半成品 / 篡改、owner / 幂等 / 继续 / TTL / 删除；独立 Docker 三卷演练 seed / resume / replay 为 1 / 1 / 0 次 Fake 调用 |
 | 6A-3 | Local / synthetic / remote CI complete | 无 dotenv 的独立入口 / Compose / managed 卷、注册表 digest 验证、HTTPS / Host / 路由 / 代理角色；`d28c87c` 两个 GitHub job 通过，包含离线 Eval、双 Web 构建与恢复 / 回退；目标部署另验 |
 | 6A-3 收口 | Local complete | Vitest 4.1.11 / npm audit 0、独立默认单测配置、CI 全 dev / moderate 门禁、严格 Node 合同和构建内测试；新增 3 项合同回归，全量 1044 Python / 70 Web，Node 22 双构建通过 |
-| 6A-4 | Released / scoped acceptance | 44 项新增回归，1089 Python / 70 Web；`580908c` 远程 CI 成功。原 HTTP 已切换，真实模型与 RAG、价格 no_match、澄清 / SSE / 身份隔离验收通过；原 RAG 未改，旧版和停服快照保留。浏览器自动操作未验收，价格库为空 |
+| 6A-4 | Released / scoped acceptance | 44 项新增回归，1089 Python / 70 Web；`580908c` 远程 CI 成功。原 HTTP 已切换，真实模型与 RAG、价格 no_match、澄清 / SSE / 身份隔离验收通过；原 RAG 未改，旧版和停服快照保留。当时浏览器自动操作未验收、价格库为空；后续复查见下一行 |
+| 首页体验与示例 | Local / live API verified | 悬浮通知、6 秒关闭、必要操作保留、经数据验证的示例目录；1089 Python / 89 Web，本机浏览器通知验证及正式政策 / 价格正例通过。价格库已非空；详见首页质量文档 |
 
 6A-3 已依次完成配置 / 镜像 / 存储合同、HTTPS 公共边界、实际 CI 文件和新卷恢复 /
 V1 回退演练，见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)。合成路径不读取真实
@@ -207,7 +210,8 @@ V1 回退演练，见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)。�
 完整 npm audit 为 0；默认测试不读 dotenv，Node 22 / 本机的 Web 与双构建通过。
 远程 CI 两个 job 已成功；分支保护、长期报告留存与自动镜像发布仍单独记录。
 Python / OS 扫描仍未覆盖，npm 公告库结果不是供应链全面合格证明。
-6A-4 已完成批准的内网单实例切换；先补浏览器人工验收、确认空价格库来源，再在资料 / 授权齐备后执行 T4 / P4、
+6A-4 已完成批准的内网单实例切换；后续已修复首页提示并验证新示例，价格库已非空。
+继续完善页面验收、理赔材料知识与历史型号覆盖，再在资料 / 授权齐备后执行 T4 / P4、
 人工审核 holdout，最后完整阶段 6。旧库迁移、异地加密 / 保留策略、备份外删除账本和
 多副本协调保持独立缺口，见 [6A-2 第 7 节](agent-kernel-phase6a2-sqlite-recovery.md#7-未完成项及恢复操作注意事项)。
 
