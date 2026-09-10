@@ -1,5 +1,5 @@
 # Fixed upstream manifest; intentionally separate from all previously built Demo images.
-ARG UV_BASE=ghcr.io/astral-sh/uv@sha256:75ea3c232096d6d25e4cc2f4aa827b32e0e075fff9ef9b79bc966765a0906ab2
+ARG UV_BASE=ghcr.io/astral-sh/uv@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
 FROM ${UV_BASE} AS builder
 ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/app/.venv UV_PYTHON_DOWNLOADS=never
 WORKDIR /app

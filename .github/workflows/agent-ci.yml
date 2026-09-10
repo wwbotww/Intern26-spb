@@ -63,6 +63,8 @@ jobs:
           "$RUNNER_TEMP/uv-tools/bin/pip" install uv==0.11.28
           "$RUNNER_TEMP/uv-tools/bin/uv" sync --frozen --package spb-assistant-api --no-dev --python 3.12
       - name: Local HTTPS, identity, new-volume recovery and V1 rollback
-        run: .venv/bin/python deploy/agent/smoke.py --build
+        run: |
+          .venv/bin/python deploy/agent/verify_base_images.py
+          .venv/bin/python deploy/agent/smoke.py --build
       # Smoke uses a unique local project, no secrets, no registry push or deployment host.
       # Its finally block stops the stack without deleting any volumes.
