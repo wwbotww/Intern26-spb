@@ -333,7 +333,7 @@ P1 新增 86 项后 Python `727 passed`；随后 [P2](agent-kernel-phase3b-posta
 [工具链收口](agent-kernel-phase6a3-ci-closeout.md)又完成 Vitest 4.1.11、默认测试隔离与
 moderate 门禁；新增 3 项后当前 Python `1044 passed`、Web `70 passed`，完整 npm audit 为 0。
 随后修复 Python 基础镜像引用、增加注册表验证，`d28c87c` 两个远程 CI job 成功。
-6A-4 已补 33 项内网 HTTP 回归，全量本地 1078 Python / 70 Web；目标更新单独验收。
+6A-4 已补 33 项内网 HTTP 与 10 项旧主机兼容回归，全量本地 1088 Python / 70 Web；目标更新单独验收。
 详细实施基线见
 [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
@@ -920,6 +920,14 @@ origin、独立 Cookie、owner 隔离与路由门禁复用，文档明确 HTTP �
 两核心能力继续复用原服务，三项未可用物流不额外补槽、不暴露开发状态；用 33 项回归
 覆盖这条交付路径，完整本地 1078 Python / 70 Web 通过。发现原价格表为空时，区分
 连接正常与业务数据存在，不用 Fake 让验收“看起来成功”；服务器最终发布证据另补。
+
+另一个真实部署边界是“CI 通过 ≠ 旧宿主机可运行”：旧 Docker 的 seccomp 将 clone3
+拒绝为 EPERM，导致 glibc 不回退、aiosqlite 无法启动线程。先排除线程配额和数据库问题，
+再用独立入口叠加仅返回 ENOSYS 的拒绝过滤器，保留原过滤器、非 root、只读根文件系统
+和 no-new-privileges，而非照搬旧容器的 unconfined。目标原生主机已通过线程 / 存储探针；
+10 项新回归验证 ABI、单一 syscall 边界及失败关闭，全量增至 1088。Mac 模拟器不支持
+同等 seccomp 检查，因此将完整兼容演练显式交给原生 Linux CI，不把绕过检查算作通过。
+这是平台兼容与安全约束之间可解释、可测的窄例外，不代表旧 OS 已获得长期安全支持。
 
 面试可追问：为何正常入口不能自动注入 Fake？为什么 TLS 之外还要检查 Host / Origin？
 代理为什么不能自动 retry Agent POST？恢复库后为什么还要保留密钥和原幂等请求？API/UI

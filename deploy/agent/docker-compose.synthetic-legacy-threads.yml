@@ -1,0 +1,6 @@
+# Native Linux amd64 only: exercise the explicit old-Docker compatibility entry.
+# QEMU/Rosetta may not expose prctl/seccomp; never bypass the parent-filter check.
+services:
+  assistant-api:
+    environment:
+      AGENT_DEMO_LEGACY_THREADS: "true"

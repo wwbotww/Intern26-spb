@@ -79,7 +79,8 @@
 > 6A-1～6A-3 本地装配 / 合成演练、测试依赖安全与远程 CI 收口完成；当前进入
 > [6A-4 内网单实例更新](agent-kernel-phase6a4-intranet-release.md)。用户明确保留原 HTTP，
 > 不等待三项物流接口或多副本；policy / device_price 复用原数据，三项物流正常 unavailable。
-> 已增 33 项 HTTP / 两核心能力回归，全量本地 1078 Python / 70 Web 通过。服务器切换单独验收。
+> 已增 33 项 HTTP / 两核心能力及 10 项旧主机兼容回归，全量本地 1088 Python / 70 Web 通过。
+> 旧主机只增加 clone3 / ENOSYS 拒绝过滤器，不关闭 Docker seccomp；服务器切换单独验收。
 > 未确认项保留 provisional 标记；文档到达、离线实现、供应商互通分别验收。
 
 ## 1. 建设目标
@@ -195,7 +196,7 @@ Docker 独立三卷、UID 10001、只读根文件系统和无网络演练通过�
 | 6A-2 | Local complete | 受控目录 / 整库租约、8 表停服快照 / 新目录恢复；44 项新增回归覆盖权限、互斥、WAL、拒绝半成品 / 篡改、owner / 幂等 / 继续 / TTL / 删除；独立 Docker 三卷演练 seed / resume / replay 为 1 / 1 / 0 次 Fake 调用 |
 | 6A-3 | Local / synthetic / remote CI complete | 无 dotenv 的独立入口 / Compose / managed 卷、注册表 digest 验证、HTTPS / Host / 路由 / 代理角色；`d28c87c` 两个 GitHub job 通过，包含离线 Eval、双 Web 构建与恢复 / 回退；目标部署另验 |
 | 6A-3 收口 | Local complete | Vitest 4.1.11 / npm audit 0、独立默认单测配置、CI 全 dev / moderate 门禁、严格 Node 合同和构建内测试；新增 3 项合同回归，全量 1044 Python / 70 Web，Node 22 双构建通过 |
-| 6A-4 | In progress | 保留批准的内网 HTTP 入口，显式 private-http 配置不改变默认 HTTPS；复用原 RAG / 价格库，三项物流 unavailable，单实例 managed SQLite；33 项新增回归通过，目标切换 / 新版远程 CI 待验 |
+| 6A-4 | In progress | 保留批准的内网 HTTP 入口，显式 private-http 配置不改变默认 HTTPS；复用原 RAG / 价格库，三项物流 unavailable，单实例 managed SQLite；43 项新增回归与旧主机原生线程 / 存储探针通过，目标切换 / 新版远程 CI 待验 |
 
 6A-3 已依次完成配置 / 镜像 / 存储合同、HTTPS 公共边界、实际 CI 文件和新卷恢复 /
 V1 回退演练，见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)。合成路径不读取真实

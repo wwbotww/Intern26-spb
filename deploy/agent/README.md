@@ -134,3 +134,9 @@ Secure Cookie。HTTP 无传输加密，保留 origin / 签名 / 代理身份校�
 ```
 
 它沿用原四段恢复 / 回退烟测，业务调用为 0；默认 HTTPS 的烟测仍独立执行。
+
+旧 Docker 的 Linux amd64 主机可使用显式生产入口
+`python -m spb_assistant_api.legacy_deployed_app`，只叠加 clone3 / ENOSYS 拒绝过滤器，
+要求原有 seccomp 和 no-new-privileges；详见 6A-4 第 3.1 节。正常入口不自动启用它。
+原生 Linux CI 以 `smoke.py --transport private-http --legacy-threads` 验证完整恢复 / 回退；
+Mac 跨架构模拟器不支持的检查不应跳过，更不能以 unconfined 替代验收。

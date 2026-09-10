@@ -125,4 +125,8 @@ def build_app():
 
 
 if __name__ == "__main__":
+    if os.environ.get("AGENT_DEMO_LEGACY_THREADS") == "true":
+        from .security.legacy_threads import install_thread_compatibility_filter
+
+        install_thread_compatibility_filter()
     uvicorn.run(build_app(), host="0.0.0.0", port=8081, workers=1, proxy_headers=False, access_log=False)

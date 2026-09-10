@@ -39,7 +39,7 @@ def ci_error(error):
 
 
 class Drill:
-    def __init__(self, *, port=0, transport_mode="https"):
+    def __init__(self, *, port=0, transport_mode="https", legacy_threads=False):
         require(transport_mode in {"https", "private-http"}, "explicit transport mode")
         self.transport_mode = transport_mode
         endpoint = os.environ.get("DOCKER_HOST")
@@ -84,7 +84,9 @@ class Drill:
         self.files = ["docker-compose.yml", "docker-compose.synthetic.yml"]
         if transport_mode == "private-http":
             self.files.append("docker-compose.synthetic-private-http.yml")
-        self.report = {"project": self.project, "origin": self.origin, "business_network_calls": 0, "checks": []}
+        if legacy_threads:
+            self.files.append("docker-compose.synthetic-legacy-threads.yml")
+        self.report = {"project": self.project, "origin": self.origin, "legacy_threads": legacy_threads, "business_network_calls": 0, "checks": []}
 
     def inventory(self, *args):
         return subprocess.run(
@@ -244,9 +246,10 @@ if __name__ == "__main__":
     parser.add_argument("--build", action="store_true")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--transport", choices=("https", "private-http"), default="https")
+    parser.add_argument("--legacy-threads", action="store_true", help="Test compatibility on native Linux amd64 (not emulation)")
     args = parser.parse_args()
     try:
-        Drill(port=args.port, transport_mode=args.transport).run(build=args.build)
+        Drill(port=args.port, transport_mode=args.transport, legacy_threads=args.legacy_threads).run(build=args.build)
     except Exception as error:
         ci_error(error)
         raise  # Diagnostics never turn a failed gate into success.

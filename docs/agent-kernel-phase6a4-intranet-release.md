@@ -59,11 +59,32 @@ RAG 及原业务数据库不重建、不清库、不重新索引；只新增 Age
 （最多 120 秒），配套 `AGENT_READ_TIMEOUT_SECONDS`（允许 40–135 秒，通常 130）。
 仍不自动重试代理 POST，也不延长模型、物流的单次请求预算。
 
+### 3.1 旧 Docker 的线程兼容入口
+
+目标主机的旧默认 seccomp 对 `clone3` 返回 EPERM，glibc 因而不回退到 `clone`，导致
+aiosqlite / LangGraph 创建线程失败。不是存储损坏，也不是线程数超限。没有继承旧容器的
+`seccomp=unconfined`，没有升级共享宿主机，也没有放松默认运行入口。
+
+仅在已核验的 Linux amd64 旧主机使用 `python -m spb_assistant_api.legacy_deployed_app`：
+在导入应用、创建线程之前，要求已有 seccomp filter 与 no-new-privileges，叠加六条 BPF
+指令，仅对 amd64 的 `clone3` 返回 ENOSYS，使 glibc 回退到父过滤器已允许的线程调用。
+其他调用继续受父过滤器约束；不满足前置条件或安装失败时拒绝启动，不自动使用 unconfined。
+叠加过滤器不能放行父过滤器拒绝的调用，errno 行为依据
+[Linux 内核 seccomp 文档](https://docs.kernel.org/userspace-api/seccomp_filter.html)；
+clone3 兼容问题参见 [Moby 修复](https://github.com/moby/moby/pull/42681)。
+
+目标主机在非 root、只读根文件系统、drop ALL capabilities、无业务网络的探针中，已实际
+通过线程创建与持久化 LangGraph / SQLite 打开。Mac 跨架构模拟器不能通过 seccomp 前置
+检查，这不算验收通过，也不绕过校验：完整兼容演练放在原生 Linux amd64 CI，
+`smoke.py --transport private-http --legacy-threads`；普通 HTTPS / HTTP 演练仍可在本机运行。
+Alpine 替代路线已因锁定的 sqlite-vec 缺少 musllinux wheel 而放弃；未改依赖锁或删减功能。
+
 ## 4. 验证顺序与证据
 
 1. 33 项新增回归：私有 origin 正反例、完整 opt-in、默认安全边界、两核心能力 / 三项
    unavailable、双 owner、同源拒绝、核心响应与免调用重放；无真实业务网络。
-2. 全量 Python **1078 passed**、Web **70 passed**、生成 API 类型一致（本地验证）。
+2. 另有 10 项旧主机兼容回归覆盖 ABI / syscall 边界、安装顺序及失败关闭。
+   全量 Python **1088 passed**、Web **70 passed**、生成 API 类型一致（本地验证）。
 3. 同一 Docker smoke 已分别通过默认 HTTPS 与显式 `--transport private-http`，各四组 PASS：
    路由 / 身份、停服备份、新卷恢复、SSE 与 V1 回退；只连接回环、合成数据，保留演练卷。
    本地报告分别为临时目录 `spb-agent-6a3-t4nag3oo/report.json` 与
@@ -75,6 +96,8 @@ RAG 及原业务数据库不重建、不清库、不重新索引；只新增 Age
 npm --prefix apps/chat-web test
 .venv/bin/python deploy/agent/smoke.py --build
 .venv/bin/python deploy/agent/smoke.py --transport private-http
+# 原生 Linux amd64；不可通过关闭 seccomp 在模拟器上强行运行
+.venv/bin/python deploy/agent/smoke.py --transport private-http --legacy-threads
 ```
 
 ## 5. 后续独立事项
