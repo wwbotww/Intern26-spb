@@ -19,7 +19,7 @@
 API；Vue Web 提供 SSE 交互；独立 Eval 包从调用方视角评测召回、拒答、引用、事实
 覆盖、路由和延迟。
 
-当前已发布的 Assistant `/v1` 是确定性的单轮、单工具 Dispatcher。仓库中的隔离
+保留的 Assistant `/v1` 是确定性的单轮、单工具 Dispatcher。仓库中的独立
 Agent Runtime 已基于 LangGraph 实现五意图理解、状态化补槽、受限 Loop、SQLite
 恢复、五类白名单 Tool，以及 HTTP/退避/能力级熔断基础；Phase 4A/4B 已增加显式
 装配的 V2 JSON/SSE 用户链路、三层幂等、owner 隔离、会话清理、OpenAPI 类型生成和
@@ -35,7 +35,9 @@ development 样本上量化 Rules/Hybrid 增益及调用成本。代表性语义
 Phase 5D 已补跨数据集审核冻结工具和对应 13 场景／28 Turn 的 V2 Mock 集成回归。
 Phase 5E 又把“为什么走这条路径”的语义日志与真实 Node wall-clock 分开，通过 OTel
 采样/异步导出、全量指标和只读 Grafana Trace 下钻形成可定位的本地观测链路。
-默认服务仍未发布 V2，也没有接入真实物流接口。
+6A-4 已通过独立受控入口发布内网单实例 V2，复用原 RAG / 价格源，完成真实模型与政策
+请求、澄清 / SSE / 身份隔离和服务器停服快照验收；默认入口仍须 opt-in。三项真实物流
+未接入，原价格库为空；浏览器自动操作连接超时，没有把 HTTP 黑盒通过说成浏览器 UI 验收。
 这个边界需要在面试中主动说明。
 
 ## 2. 当前技术需求与负责范围
@@ -192,10 +194,10 @@ Phase 5C 另以无 Gold 输入／脱敏 observation 文件测量 Understanding �
 | 岗位能力 | 当前项目证据 | 表述边界 |
 | --- | --- | --- |
 | RAG / Grounding | 混合检索、重排、证据判断、引用和拒答 | 可描述为已实现 |
-| Tool abstraction | Agent 五类 Command/Tool；Policy/Device 通过 Port Adapter 复用 V1，三类物流使用 Gateway | 物流能力仍是 Fake Gateway |
+| Tool abstraction | Agent 五类 Command/Tool；Policy/Device 通过 Port Adapter 复用 V1，物流使用隔离 Gateway | 物流仅离线 Fake/Mock；实际发布不装配，正常 unavailable |
 | Query Understanding | 五意图 Hybrid、硬实体、schema gate；DeepSeek Adapter 与 Phase 5C Rules/Hybrid 组件对照 | 48 条 development 已测，人工审核 holdout 待验 |
 | Routing | V1 显式路由；Agent 由确定性 Policy + Descriptor 白名单路由 | 不允许模型提交任意工具名 |
-| Stateful workflow | LangGraph interrupt/resume、SQLite checkpoint、TTL、三层幂等、V2 JSON/SSE、Web 刷新恢复与删除 | 仅本地单进程，默认服务未发布 V2 |
+| Stateful workflow | LangGraph interrupt/resume、SQLite checkpoint、TTL、三层幂等、V2 JSON/SSE、Web 刷新恢复与删除 | 已内网单实例发布，非多副本；浏览器实机验收另补 |
 | Failure handling | 分类、有限重试、结果拒绝、受限 Retry-After、能力级熔断；Phase 5B 本地故障矩阵 | 真实接口故障注入仍待完成 |
 | Evaluation | Phase 5A/B 多轮 V2 HTTP 与逐 Turn 回归；Phase 5C 组件 F1、成本与失败分母 | fixture／development 不能替代代表性端到端数据 |
 | Data governance | Phase 5D 跨文件污染检查、pending 审核、SHA 绑定、排除记录和数据冻结 | 语义近重复需人工审核，身份声明不是认证 |
@@ -257,12 +259,12 @@ Adapter、逐 Node 分布式耗时 span 或多副本能力。
 
 - 这是技术 Demo，不代表已理解或覆盖某个真实业务的完整角色、流程和决策规则。
 - 当前场景标签、示例问题和数据源用于验证模块，后续可能随需求调整。
-- 当前已挂载的 Assistant `/v1` 只支持显式模式、单轮和单工具调用；隔离的 Agent
+- 保留的 Assistant `/v1` 只支持显式模式、单轮和单工具调用；独立的 Agent
   Runtime 已实现自动意图理解、受限 Loop、本地持久化和可注入 V2 JSON/SSE + Web，
   Phase 4C 已补运行级 readiness/metrics/脱敏 Trace，Phase 4D 已补五能力本地闭环，
   Phase 5A 已补多轮 HTTP Eval 与本地质量门禁，Phase 5B 已补 node/edge 语义 Trace、
-  本地故障矩阵和报告对比；但默认 production composition root 尚未发布 V2，也没有
-  逐 Node 分布式耗时 span、真实 Gateway 故障报告或多副本语义。
+  本地故障矩阵和报告对比；Phase 5E 已实现逐 Node span，但没有跨服务分布式追踪结论。
+  6A-4 已单实例内网发布；真实 Gateway 故障报告、多副本语义和生产 SLO 仍未验收。
 - OCR 和旧 Word 转换依赖 macOS，迁移 Linux 时需要替换适配器。
 - Milvus 增量同步只插入缺失 chunk，旧版本回收仍需独立版本策略。
 - 历史评测集规模有限；当前版本仍需补充困难负例和回归运行。
@@ -331,9 +333,10 @@ P1 新增 86 项后 Python `727 passed`；随后 [P2](agent-kernel-phase3b-posta
 [6A-3](agent-kernel-phase6a3-controlled-deployment.md) 又补独立受控入口、冻结镜像、HTTPS /
 公共路由和新卷恢复 / V1 回退，新增 21 项后当时 Python `1041 passed`、Web `70 passed`。
 [工具链收口](agent-kernel-phase6a3-ci-closeout.md)又完成 Vitest 4.1.11、默认测试隔离与
-moderate 门禁；新增 3 项后当前 Python `1044 passed`、Web `70 passed`，完整 npm audit 为 0。
+moderate 门禁；新增 3 项后当时 Python `1044 passed`、Web `70 passed`，完整 npm audit 为 0。
 随后修复 Python 基础镜像引用、增加注册表验证，`d28c87c` 两个远程 CI job 成功。
-6A-4 已补 33 项内网 HTTP、10 项旧主机兼容与 1 项 Debian Web 回归，全量本地 1089 Python / 70 Web；目标更新单独验收。
+6A-4 已补 33 项内网 HTTP、10 项旧主机兼容与 1 项 Debian Web 回归，全量 1089 Python / 70 Web；
+`580908c` 远程 CI 与原 HTTP 正式入口黑盒验收通过，目标单实例已更新，旧版和停服快照保留。
 详细实施基线见
 [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
@@ -919,7 +922,8 @@ HTTPS 恢复 / 回退；全量 Python 1044、Web 70、npm audit 0。最终运行
 origin、独立 Cookie、owner 隔离与路由门禁复用，文档明确 HTTP 不抗链路窃听 / 篡改。
 两核心能力继续复用原服务，三项未可用物流不额外补槽、不暴露开发状态；用 33 项回归
 覆盖这条交付路径，完整本地 1078 Python / 70 Web 通过。发现原价格表为空时，区分
-连接正常与业务数据存在，不用 Fake 让验收“看起来成功”；服务器最终发布证据另补。
+连接正常与业务数据存在，不用 Fake 让验收“看起来成功”；服务器发布证据见
+[6A-4](agent-kernel-phase6a4-intranet-release.md#5-发布结果保留资源与回退)。
 
 另一个真实部署边界是“CI 通过 ≠ 旧宿主机可运行”：旧 Docker 的 seccomp 将 clone3
 拒绝为 EPERM，导致 glibc 不回退、aiosqlite 无法启动线程。先排除线程配额和数据库问题，
@@ -934,6 +938,13 @@ Web 的实际旁路验收还发现同版 Alpine Nginx 的 PID 写入兼容错误
 重新验证 HTTPS / HTTP、Agent / V1 与恢复 / 回退，完整回归增至 1089 Python / 70 Web。
 这也说明应该分别验收 API 和反向代理的目标平台兼容性，不能把一个健康探针外推到整套部署。
 
+最后以“旁路依赖验收 → 停服快照校验 → 恢复健康 → 原端口切换 → 外部 HTTP 复验”完成
+单实例发布；原 RAG 容器 / 镜像 / 启动时间未变，新旧依赖配置在服务器内存中比较一致。
+一次真实模型回退由 Trace 确认 source=model，物流 Tool 调用为 0；一次政策 RAG 返回
+success，价格空库返回 no_match，澄清 / 继续 / SSE 重放 / 双访客隔离均实际验证。
+保留旧 Web、旧 API 和受保护的回退脚本，不删除旧库或将代码回退等同 schema 回滚。
+浏览器控制连接超时被单列为未验项目，没有以静态页面 200 代替 UI 证据。
+
 面试可追问：为何正常入口不能自动注入 Fake？为什么 TLS 之外还要检查 Host / Origin？
 代理为什么不能自动 retry Agent POST？恢复库后为什么还要保留密钥和原幂等请求？API/UI
 回退和 schema 回滚有何区别？如何证明 CI 不误用本地凭据？证据见
@@ -942,9 +953,14 @@ Web 的实际旁路验收还发现同版 Alpine Nginx 的 PID 写入兼容错误
 
 ### 11.6 简历 bullet 模板
 
-当前可以使用、但必须明确 `Phase 3B-T T3 / Phase 3B-P P1–P3 / Phase 5E / Phase 6A-1–3 / Fake 或 Mock Gateway / fixture 或 development / local SQLite / opt-in V2`
+当前可以使用、但必须明确 `Phase 3B-T T3 / Phase 3B-P P1–P3 / Phase 5E / Phase 6A-1–4 / Fake 或 Mock Gateway / fixture 或 development / single-instance SQLite / opt-in V2`
 范围的工程表述：
 
+- 将 LangGraph Agent 交付到既有内网单实例环境，复用原 RAG / MySQL，建立显式 HTTP
+  例外、访客隔离和真实不可用能力门禁；在保留 seccomp / 非 root 约束下解决旧平台
+  兼容问题，完成 1089 Python / 70 Web、远程 CI、旁路验收、停服快照与原端口切换。
+  实测模型回退、政策查询、空库 no_match、SSE 幂等与 owner 隔离，保留可核验回退路径
+  （非多副本 SLA；浏览器人工验收与物流供应商互通仍待补）。
 - 为 LangGraph Agent 构建独立受控部署与离线 CI 工作流，分层实现 HTTPS / 代理身份 /
   路由白名单和单实例持久卷，新增 21 项回归；通过真实 Nginx / Docker 合成演练验证双
   访客隔离、新卷恢复、SSE 幂等回放与 V1 回退，并通过两个远程 GitHub CI job（真实业务发布另验）。
@@ -1162,8 +1178,10 @@ Phase 5A 数字是本地 fixture，Phase 5C 是 synthetic development，均不�
   HTTPS 新卷恢复 / SSE / V1 回退重跑通过；当时无真实业务调用，远程 CI 尚待授权后验证。
 - 完成 6A-3 远程收尾：从失败注释定位 Python 镜像引用错误，增加官方注册表 manifest
   校验；`d28c87c` 两个 GitHub job 成功，质量门禁、双 Web 构建与恢复 / 回退通过。
-- 进入 6A-4 内网单实例发布：显式 HTTP 例外不更改默认 HTTPS，复用原 RAG / MySQL，
-  三项物流正常 unavailable；33 项新增回归，本地 1078 Python / 70 Web 通过，目标验收另补。
+- 完成 6A-4 批准范围内的内网单实例发布：显式 HTTP 例外不更改默认 HTTPS，复用原
+  RAG / MySQL，三项物流正常 unavailable；共 44 项新增回归，全量 1089 Python / 70 Web，
+  `580908c` 两个远程 CI job 成功。真实模型 / RAG、价格 no_match、多轮 / SSE / 双访客
+  黑盒与服务器停服快照验收通过；旧版保留，浏览器实机操作和原价格数据缺口未冒充完成。
 
 当前不能表述：
 

@@ -1,7 +1,8 @@
 # Phase 6A-4：既有内网服务的单实例更新
 
-> 状态：In progress，2026-09-10。6A-3 的远程 CI 已验收；本阶段按用户明确要求保留
-> 原内网 HTTP 入口，复用既有 RAG 与设备价格库。此文不记录实际主机、账号、密钥或私有目录。
+> 状态：已发布，2026-09-10（限定批准的内网单实例范围）。保留原 HTTP 入口，
+> 复用既有 RAG 与设备价格库；远程 CI、旁路与正式 HTTP 黑盒验收通过。
+> 浏览器自动操作未验收，详见第 5 节。此文不记录实际主机、账号、密钥或私有目录。
 
 ## 1. 本次发布的 Definition of Done
 
@@ -100,7 +101,11 @@ API 就绪后，旁路 Nginx 1.31.3 / Alpine 3.24 在写 PID 时仍返回 `pwrit
    最新 Debian 版本报告为临时目录 `spb-agent-6a3-5ao8joyo/report.json`（HTTPS）与
    `spb-agent-6a3-lo4uiuwj/report.json`（HTTP），两者 `status=passed`、`containers_removed=true`。
 4. `6a7a79a` 的[远程 CI](https://github.com/wwbotww/Intern26-spb/actions/runs/34444339412)已全绿，
-   包括原生 Linux 完整线程兼容演练；Debian Web 后续提交与正式入口切换单独验收。
+   包括原生 Linux 完整线程兼容演练；最终部署代码 `580908c` 的
+   [远程 CI](https://github.com/wwbotww/Intern26-spb/actions/runs/34451105696)也已完成且成功，
+   覆盖 Debian Agent / V1 Web、1089 Python / 70 Web、离线 Eval 和两种传输模式。
+5. 目标服务器先通过旁路真实依赖验收，创建并校验停服快照，恢复后再切换旧入口；
+   从部署机器外部再次通过实际 HTTP 地址完成黑盒验收，两个新版容器均 healthy。
 
 ```bash
 .venv/bin/pytest
@@ -111,9 +116,40 @@ npm --prefix apps/chat-web test
 .venv/bin/python deploy/agent/smoke.py --transport private-http --legacy-threads
 ```
 
-## 5. 后续独立事项
+## 5. 发布结果、保留资源与回退
+
+| 检查项 | 实际结果 | 表述边界 |
+| --- | --- | --- |
+| 原依赖复用 | 新旧 RAG URL / Key、MySQL DSN 在服务器内存中逐项比较一致；原 RAG 容器 ID、镜像和启动时间未变 | 不导出凭据，不迁移业务库 |
+| 政策 RAG | 按服务实际解析配置读集合统计：12163 条；一次公开政策问题经 Agent SSE 返回 success，约 11.86 秒 | 单次通路烟测，不是延迟分位数或质量评测 |
+| 设备价格 | product / sku / price_current 均为 0；真实查询返回 no_match，无假报价 | 通路正常，真实价格数据仍为空 |
+| 语义理解 | 一次纯规则为 unknown 的合成输入，经真实模型识别为 tracking；Trace 明确 source=model，物流 Tool 调用 0 | 小样本接入验证，不替代 holdout |
+| 三项物流 | 能力列表 unavailable，命中后正常提示服务暂不可用，无补槽、无 Fake、无真实物流网络请求 | 供应商互通仍未完成 |
+| 状态与身份 | 双意图澄清 / 选择后恢复、继续查询、JSON/SSE、同 Key 同 Turn 重放、双访客越权 404、刷新保留与重建隔离通过 | 非登录系统；HTTP 仍无链路加密 |
+| 发布边界 | 只将 Web 绑定批准的内网地址 / 原端口；API 无 host port；非 root、只读、drop ALL、no-new-privileges | 仅已测旧主机兼容，不承诺旧 OS 长期安全支持 |
+| 存储保护 | 新状态目录 0700 / 数据库 0600；服务器停服 backup / verify 成功；配置 0600 root，独立签名与代理 Key | 备份在本机，非异地灾备 |
+
+API 复用 `6a7a79a` 已验收产物；该提交到 `580908c` 的 API / Web 应用源码未变，
+后者只调整 Web 基础镜像、健康检查及对应测试 / 文档。实际镜像 config digest：
+
+- API：`sha256:d4f86766deb8ee33745862ffa2a63fc25c31222d11bd243d849ef485fcd73be2`。
+- Web：`sha256:3e1234c2299d52a49732b43554a889411266bf11a91f999fd05ed3ec8c269281`。
+
+完整操作记录留在服务器私有部署目录：`active-release.json`、`acceptance-580908c.json`、
+旧容器配置快照、发布归档、切换前状态快照，以及 root-only 的 `rollback-to-v1.sh`。
+该脚本先核对新旧镜像，再停止新版 Web、启动保留的旧 Web；旧 API 和 RAG 继续运行，
+不删除 Agent 库、快照、镜像或容器，不做 schema 降级。此次没有实际回退正式入口；
+恢复 / V1 回退的完整演练证据来自本地与远程合成流程。后续变更须先核对 active manifest，
+不能将此脚本直接套用于其他版本。成功后旁路 Web 已停止，旧容器仍保留。
+
+浏览器自动操作两次连接超时；本次已验证 HTTP 文档 / 静态资产 / Cookie / API 边界，
+**不声称完成真实浏览器渲染、点击或刷新 UI 验收**。人工检查仍需确认首页、两核心入口、
+三项禁用标签、澄清选择、流式结果、引用卡片和新会话操作；不将该缺口写成开发未完成的公开提示。
+
+## 6. 后续独立事项
 
 - 空价格库的数据恢复 / 导入需原数据来源和单独授权。
+- 完成上述浏览器人工验收；供应商接口不可达期间继续保持三项正常 unavailable。
 - 更换受支持的主机 OS / Docker、TLS 网关、真实备份保留策略另行安排，不在共享主机上
   自动执行平台升级；本次验收只承诺已测单实例兼容路径。
 - T4 / P4 / 时限文档、代表性 holdout、登录 / RBAC、多副本协调沿用原计划。

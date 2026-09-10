@@ -538,10 +538,10 @@ uv run pytest packages/contracts/tests
   P95 延迟测试；
 - `assistant-api` 已接入政策 HTTP 工具和设备价格只读工具；Web 已切换为统一入口，
   并启用政策/设备价格二选一、单轮请求和分类证据展示；
-- 当前已发布的 Assistant `/v1` 不做自动意图识别、不保存服务端会话，也不执行多工具
-  循环；隔离的 Agent 路径已具备自动理解、状态化受限循环、五类本地查询能力和
-  可注入的 V2 JSON/SSE 路由与 Agent Web，但默认服务尚未发布 V2，也没有接入真实
-  物流接口；
+- Assistant `/v1` 保留为确定性单轮 / 单工具基线；[6A-4](docs/agent-kernel-phase6a4-intranet-release.md)
+  已通过独立受控入口发布内网单实例 V2 Agent Web，具备 Hybrid 理解、状态化受限循环、
+  持久化与 JSON/SSE。复用真实 RAG / 价格库，三个物流能力正常 unavailable；
+  未接入真实物流接口，不改变仓库默认入口的 opt-in 边界；
 - 邮政轨迹已据单份文档完成 provisional 表单、兼容签名及 Gateway 离线实现；默认
   关闭，T2 已验证来源 / 查询新鲜度和兼容迁移；T3 已完成受控 V2 装配、来源契约 /
   Web 展示与语义级熔断，Python 全量 `641 passed`、Web `29 passed`。实际环境未开启，
@@ -562,9 +562,10 @@ uv run pytest packages/contracts/tests
   不把本地单实例快照视为生产多副本或异地灾备；
 - [6A-3](docs/agent-kernel-phase6a3-controlled-deployment.md) 已完成独立受控入口 / 冻结镜像、
   HTTPS / Host / 公开路由及 Docker 新卷恢复 / SSE / V1 回退；[工具链收口](docs/agent-kernel-phase6a3-ci-closeout.md)
-  又完成 Vitest 4.1.11、独立默认测试及 moderate 门禁，完整 npm audit 为 0；当前 Python
-  `1044 passed`、Web `70 passed`。下一步授权提交推送后验证远程 CI；目标环境 / 真实接口 /
-  holdout 仍待独立验收；
+  又完成 Vitest 4.1.11、独立默认测试及 moderate 门禁，完整 npm audit 为 0；随后 6A-4
+  完成旧主机兼容、原 HTTP 切换与远程 CI，当前 Python `1089 passed`、Web `70 passed`。
+  真实模型 / RAG、价格 no_match、多轮 / SSE / 身份隔离已验；浏览器自动操作连接超时，
+  原价格库为空，人工页面验收 / 数据来源 / 真实物流接口 / holdout 保留为独立缺口；
 - 设备价格匹配已加入品牌、系列、型号和容量等硬约束，但阈值与展示上限仍需用
   更大的代表性数据集持续校准；
 - 问答结果用于政策信息辅助检索，涉及行政决定或法律结论时仍应核验主管部门

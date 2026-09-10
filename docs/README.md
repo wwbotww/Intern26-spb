@@ -33,8 +33,8 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
   模型 Adapter、真实烟测及 development 对照已完成；3B-T 的 T0～T3 契约 / Adapter、
   来源 / 新鲜度 / 迁移、受控 V2 / Web 已本地验证并收尾；接口不可达，T4 暂缓。
   3B-P 的 P0～P3、6A-1～6A-3 本地 / 合成通路完成，包含访客隔离、整库恢复、独立
-  HTTPS 部署与 V1 回退；工具链收口后当前 Python 1044 项、Web 70 项，完整 npm audit 0。
-  CI 文件及 moderate 门禁已实现，下一步获授权提交推送后验证远程执行；P4、holdout 和完整阶段 6 未完成。
+  HTTPS 部署与 V1 回退；随后完成 6A-4 内网单实例更新与远程 CI，当前 Python 1089 项、Web 70 项，完整 npm audit 0。
+  原 HTTP 入口已发布，真实模型 / RAG 与价格无匹配通路已验；浏览器人工验收、价格数据、P4、holdout 和完整阶段 6 单列缺口。
 - [Phase 1 Agent Kernel 与 Fake Tracking](agent-kernel-phase1.md)：已实现的状态图、模块
   边界、预算、执行收据、Failure 路径、测试证据和未实现范围。
 - [Phase 2 Hybrid Understanding 与 SQLite 持久化](agent-kernel-phase2.md)：五意图规则、
@@ -72,7 +72,7 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 - [6A-3 工具链安全收口](agent-kernel-phase6a3-ci-closeout.md)：Vitest 4.1.11、默认单测与
   dotenv / 开发代理分离、CI 全依赖 moderate 门禁、Node 22 构建内测试；3 项新增合同回归。
 - [6A-4 内网单实例更新](agent-kernel-phase6a4-intranet-release.md)：保留明确批准的 HTTP，
-  显式例外 / 私有 origin / 双访客隔离、原 RAG / 价格库复用与三项物流 unavailable。
+  已通过远程 CI、目标主机兼容和正式 HTTP 黑盒验收；原 RAG / 价格库复用、三项物流 unavailable、快照与旧版回退。
 - [Phase 4A Stateful Agent V2 JSON API](agent-kernel-phase4a.md)：显式装配的 V2 JSON、
   interrupt 投影、三层幂等、owner 隔离、外层 timeout、会话删除和 API 集成证据。
 - [Phase 4B Versioned SSE 与 Stateful Agent Web](agent-kernel-phase4b.md)：稳定 SSE 投影、

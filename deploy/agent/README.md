@@ -117,8 +117,8 @@ agent_compose -f deploy/agent/docker-compose.restored.yml up -d --wait --wait-ti
 - 远程 CI 的 `d28c87c` 两个 job 已成功，见[收尾证据](../../docs/agent-kernel-phase6a3-ci-closeout.md#6-远程执行揭示的问题与修复)；不代表自动发布或分支保护。
 - [工具链收口](../../docs/agent-kernel-phase6a3-ci-closeout.md)已升级 Vitest 4.1.11，默认
   `npm test` 不加载 dotenv，CI 显式包含 dev / 拦截 moderate，固定 Node 22 构建内测试通过。
-  当前 npm audit 为 0，Python / OS 扫描仍待补。下一步为批准的内网单实例更新，
-  再按资料 / 业务授权推进真实接口与 holdout。
+  当前 npm audit 为 0，Python / OS 扫描仍待补。6A-4 已完成批准的内网单实例更新和正式 HTTP
+  黑盒验收；浏览器人工验收、原空价格库数据，以及真实物流接口 / holdout 单独推进。
 
 ## 6. 明确批准的内网 HTTP 例外
 
@@ -140,3 +140,7 @@ Secure Cookie。HTTP 无传输加密，保留 origin / 签名 / 代理身份校�
 要求原有 seccomp 和 no-new-privileges；详见 6A-4 第 3.1 节。正常入口不自动启用它。
 原生 Linux CI 以 `smoke.py --transport private-http --legacy-threads` 验证完整恢复 / 回退；
 Mac 跨架构模拟器不支持的检查不应跳过，更不能以 unconfined 替代验收。
+
+目标旧主机使用同版 Nginx 1.31.3 的官方 Debian 变体及 `curl` 健康检查，避免 Alpine 3.24
+的 PID 写入兼容问题。最终代码 `580908c` 的远程 CI 已通过；发布结果、私有运维文件、
+镜像 config digest、保留旧 Web / API 的回退顺序和未验项目见 6A-4 第 5 节。
