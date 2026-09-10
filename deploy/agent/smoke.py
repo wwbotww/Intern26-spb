@@ -28,6 +28,16 @@ def require(condition, label):
         raise RuntimeError("Synthetic deployment check failed: " + label)
 
 
+def ci_error(error):
+    """Expose bounded synthetic-only failures in the public CI annotations."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        return
+    message = str(error)[-6000:]
+    for value, replacement in (("%", "%25"), ("\r", "%0D"), ("\n", "%0A")):
+        message = message.replace(value, replacement)
+    print("::error title=Synthetic deployment failed::" + message, flush=True)
+
+
 class Drill:
     def __init__(self, *, port=0):
         endpoint = os.environ.get("DOCKER_HOST")
@@ -225,4 +235,8 @@ if __name__ == "__main__":
     parser.add_argument("--build", action="store_true")
     parser.add_argument("--port", type=int, default=0)
     args = parser.parse_args()
-    Drill(port=args.port).run(build=args.build)
+    try:
+        Drill(port=args.port).run(build=args.build)
+    except Exception as error:
+        ci_error(error)
+        raise  # Diagnostics never turn a failed gate into success.

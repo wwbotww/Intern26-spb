@@ -1,12 +1,28 @@
 """Read-only toolchain / workflow contracts; no npm, Docker or business network."""
 
 import json
+import runpy
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 WEB = ROOT / "apps/chat-web"
+
+
+def test_synthetic_ci_failure_annotation_is_bounded_escaped_and_ci_only(monkeypatch, capsys):
+    report = runpy.run_path(str(ROOT / "deploy/agent/smoke.py"))["ci_error"]
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    report(RuntimeError("local failure"))
+    assert capsys.readouterr().out == ""
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    report(RuntimeError("first%\r\n::warning::not a second annotation"))
+    assert capsys.readouterr().out == (
+        "::error title=Synthetic deployment failed::"
+        "first%25%0D%0A::warning::not a second annotation\n"
+    )
+    report(RuntimeError("x" * 10000))
+    assert capsys.readouterr().out.endswith("x" * 6000 + "\n")
 
 
 def test_vitest_family_uses_one_patched_locked_major_and_explicit_node_contract():
