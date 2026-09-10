@@ -332,8 +332,9 @@ P1 新增 86 项后 Python `727 passed`；随后 [P2](agent-kernel-phase3b-posta
 公共路由和新卷恢复 / V1 回退，新增 21 项后当时 Python `1041 passed`、Web `70 passed`。
 [工具链收口](agent-kernel-phase6a3-ci-closeout.md)又完成 Vitest 4.1.11、默认测试隔离与
 moderate 门禁；新增 3 项后当前 Python `1044 passed`、Web `70 passed`，完整 npm audit 为 0。
-CI 自动工作流已实现但远程未运行；下一步授权提交推送后验证 CI，完整部署
-验收仍未完成。详细实施基线见
+随后修复 Python 基础镜像引用、增加注册表验证，`d28c87c` 两个远程 CI job 成功。
+6A-4 已补 33 项内网 HTTP 回归，全量本地 1078 Python / 70 Web；目标更新单独验收。
+详细实施基线见
 [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
 ### 11.1 设计问题与目标
@@ -907,7 +908,18 @@ Domain / 前置策略管能否执行和报价条件；框架并不能替代合�
 moderate 门禁，补 3 项合同回归。固定 Node 22 构建内先测试再生成两种 UI，最后再跑公开
 HTTPS 恢复 / 回退；全量 Python 1044、Web 70、npm audit 0。最终运行镜像 ID 未变化，
 因为升级的测试工具未进入运行镜像；锁文件 / 构建日志与运行产物是不同层次的证据。
-该结果仍不覆盖 Python / OS 安全扫描或远程 CI。详见[工具链收口](agent-kernel-phase6a3-ci-closeout.md)。
+该本地结果不覆盖 Python / OS 安全扫描。随后远程 CI 暴露 Python 基础镜像引用问题：
+本机缓存中可运行的 image ID 并不一定是注册表可拉取的 manifest digest。通过有界错误
+注释定位后，修正官方摘要并增加无本地缓存依赖的注册表校验，不自动跟随可变标签。
+`d28c87c` 的两个远程 job 全绿，完成真正干净环境的质量与部署回归。详见
+[工具链收口](agent-kernel-phase6a3-ci-closeout.md#6-远程执行揭示的问题与修复)。
+
+后续 6A-4 又区分“代码就绪、依赖连接、实际数据、部署访问条件”四种状态：用户要求保留
+内网 HTTP，因此新增显式例外模式，而不是关闭默认 HTTPS 的校验。RFC1918 / 回环精确
+origin、独立 Cookie、owner 隔离与路由门禁复用，文档明确 HTTP 不抗链路窃听 / 篡改。
+两核心能力继续复用原服务，三项未可用物流不额外补槽、不暴露开发状态；用 33 项回归
+覆盖这条交付路径，完整本地 1078 Python / 70 Web 通过。发现原价格表为空时，区分
+连接正常与业务数据存在，不用 Fake 让验收“看起来成功”；服务器最终发布证据另补。
 
 面试可追问：为何正常入口不能自动注入 Fake？为什么 TLS 之外还要检查 Host / Origin？
 代理为什么不能自动 retry Agent POST？恢复库后为什么还要保留密钥和原幂等请求？API/UI
@@ -922,7 +934,7 @@ HTTPS 恢复 / 回退；全量 Python 1044、Web 70、npm audit 0。最终运行
 
 - 为 LangGraph Agent 构建独立受控部署与离线 CI 工作流，分层实现 HTTPS / 代理身份 /
   路由白名单和单实例持久卷，新增 21 项回归；通过真实 Nginx / Docker 合成演练验证双
-  访客隔离、新卷恢复、SSE 幂等回放与 V1 回退（本地验收，远程 CI / 生产发布待验证）。
+  访客隔离、新卷恢复、SSE 幂等回放与 V1 回退，并通过两个远程 GitHub CI job（真实业务发布另验）。
 - 将 Agent Web 测试入口与真实运行配置分离，完成 Vitest 安全大版本迁移及全开发依赖
   moderate 门禁；保持原 70 项用例 / 运行时依赖不变，验证 Node 22 构建内测试与两种
   UI 构建，npm 已知漏洞报告归零（限定当时锁文件 / npm 公告库，非整体安全认证）。
@@ -1134,14 +1146,18 @@ Phase 5A 数字是本地 fixture，Phase 5C 是 synthetic development，均不�
 - 完成 6A-3 工具链收口：Vitest / mocker 4.1.11，完整 npm audit 为 0；默认单测不读
   dotenv / 开发代理，CI 包含 dev / 拦截 moderate / 严格 Node 合同，Docker 构建先执行
   测试。新增 3 项合同回归后全量 `1044 passed` / Web `70 passed`，Node 22 双构建及
-  HTTPS 新卷恢复 / SSE / V1 回退重跑通过；无真实业务调用，远程 CI 尚待授权后验证。
+  HTTPS 新卷恢复 / SSE / V1 回退重跑通过；当时无真实业务调用，远程 CI 尚待授权后验证。
+- 完成 6A-3 远程收尾：从失败注释定位 Python 镜像引用错误，增加官方注册表 manifest
+  校验；`d28c87c` 两个 GitHub job 成功，质量门禁、双 Web 构建与恢复 / 回退通过。
+- 进入 6A-4 内网单实例发布：显式 HTTP 例外不更改默认 HTTPS，复用原 RAG / MySQL，
+  三项物流正常 unavailable；33 项新增回归，本地 1078 Python / 70 Web 通过，目标验收另补。
 
 当前不能表述：
 
 - 已完成代表性 Structured LLM 质量评测或生产 SLA 验证；当前完成工程接入、Mock、
   真实烟测和 development 对照，未审核小样本不能替代独立 holdout 或生产长尾统计；
-- 已完成 GitHub CI 远程绿灯 / 分支保护、镜像不可变发布、公网 HTTPS / 秘密托管或所有
-  依赖安全审计；当前是自动工作流代码、本地测试与受控合成 Docker 证据；
+- 已完成分支保护、自动镜像发布、公网 HTTPS / 秘密托管或所有依赖安全审计；
+  已有两个 GitHub CI job 成功，但不能推断这些独立发布治理事项已经完成；
 - 已实现生产级多副本 LangGraph Agent 或允许多个进程协调推进会话；6A-2 的整库合作
   进程租约拒绝第二个实例，不是分布式会话锁，持久化结论仍只适用于本地单实例 SQLite；
 - 已实现加密异地灾备、任意 crash repair、备份外删除账本或数据库 RTO / RPO SLA；当前只有

@@ -4,6 +4,10 @@
 >
 > 本文只描述仓库当前的通用部署方式，不记录具体客户、主机、内网地址或密钥。
 
+> Agent 更新入口：默认安全部署见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)，
+> 已批准的既有内网 HTTP 单实例更新见 [6A-4](agent-kernel-phase6a4-intranet-release.md)。
+> 下文是 V1 部署基线，不应据此将新版 Agent 的端口、身份和持久化配置退回 V1。
+
 ## 1. 运行拓扑
 
 ```text

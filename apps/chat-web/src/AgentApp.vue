@@ -661,7 +661,7 @@ onBeforeUnmount(() => {
               <strong>{{ capabilityMap.get(intent)?.display_name || fallbackNames[intent] }}</strong>
               <small>{{ presentation[intent].description }}</small>
               <em v-if="capabilityLoading">读取能力目录…</em>
-              <em v-else-if="!capabilityMap.get(intent)?.available">当前未装配</em>
+              <em v-else-if="!capabilityMap.get(intent)?.available">暂不可用</em>
               <em v-else>{{ selectedIntent === intent ? '已作为显式意图' : '选择此能力' }}</em>
             </span>
           </button>

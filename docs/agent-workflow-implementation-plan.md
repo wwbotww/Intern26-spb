@@ -33,7 +33,8 @@
 > 6A-2 再完成受控目录 / 整库租约、停服快照 / 新目录恢复、44 项新增回归及断网 Docker
 > 命名卷演练；恢复后继续和免调用重放通过，不接管原库，不承诺跨系统 exactly-once。
 > 6A-3 又完成独立受控部署入口 / 冻结镜像、HTTPS 公共边界、实际 CI 工作流及合成
-> 新卷恢复 / SSE / V1 回退演练；工作流尚未提交推送，远程执行仍待验证。
+> 新卷恢复 / SSE / V1 回退演练；`d28c87c` 的两个 GitHub job 已通过，见
+> [远程 CI](https://github.com/wwbotww/Intern26-spb/actions/runs/34440603018)。
 > 随后工具链收口升级 Vitest 4.1.11、隔离默认测试配置、CI 全依赖 moderate 门禁，npm
 > audit 为 0，新增 3 项合同回归。当前完整 Python 工作区 `1044 passed`，Web `70 passed`，类型检查和 Agent / V1 隔离构建
 > 通过；T3 已本地收尾，接口暂不可访问，T4 真实互通暂缓。实现证据见
@@ -75,8 +76,10 @@
 > 签名、时间和错误口径等冲突仍待确认，真实接口未调用。2026-09-09 又收到资费文档，
 > 已完成 [Phase 3B-P 分析](agent-kernel-phase3b-postage-analysis.md)、P1 领域 / 工作流及 P2 协议离线切片。
 > 资费 P3 公开集成本地完成，但仍仅限 MockTransport；时限文档未提供。真实联调暂缓，
-> 6A-1～6A-3 本地装配 / 合成演练及测试依赖安全收口完成；下一步获 Git 授权后验证
-> 远程 CI。目标环境、真实接口与完整阶段 6 仍分开验收。
+> 6A-1～6A-3 本地装配 / 合成演练、测试依赖安全与远程 CI 收口完成；当前进入
+> [6A-4 内网单实例更新](agent-kernel-phase6a4-intranet-release.md)。用户明确保留原 HTTP，
+> 不等待三项物流接口或多副本；policy / device_price 复用原数据，三项物流正常 unavailable。
+> 已增 33 项 HTTP / 两核心能力回归，全量本地 1078 Python / 70 Web 通过。服务器切换单独验收。
 > 未确认项保留 provisional 标记；文档到达、离线实现、供应商互通分别验收。
 
 ## 1. 建设目标
@@ -154,8 +157,8 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 | 3 | 阶段 5 | 逐 Node wall-clock span、采样、OpenTelemetry exporter 与 Dashboard | Phase 5E 本地闭环已完成；有界导出与隐私测试、Docker/Prometheus/Tempo/Grafana 验证通过，不代表 holdout 已验收 |
 | 4 | 阶段 3B-T | 轨迹单能力本地收尾 | T0～T3 本地 / Mock 完成，641 Python / 29 Web 回归通过；T4 因接口不可达暂缓，恢复后仍需合同确认与调用授权 |
 | 5 | 阶段 3B-P | 资费合同分析及离线切片 | P0～P3 本地完成；P3 新增 35 Python / 26 Web 后全量 922 / 55，13 场景 / 28 Turn Eval 通过；P4 真实联调暂缓 |
-| 6 | 阶段 4 收口 / 6A | 正式 V2 装配、Web/Compose 开关、身份隔离、持久化卷、CI 和回退 | 6A-1～6A-3 本地及工具链安全收口完成；独立 HTTPS / Compose / CI 文件 / 新卷恢复 / V1 回退通过。下一步授权提交推送后验证远程 CI；目标环境和完整真实五能力仍待授权 / 合同 / 联调 |
-| 7 | 阶段 6 | 生产持久化、多副本协调、升级回滚、标准演示和真实指标回填 | 最后完整验收，不能默认省略多副本要求 |
+| 6 | 阶段 4 收口 / 6A | 正式 V2 装配、Web/Compose 开关、身份隔离、持久化卷、CI 和回退 | 6A-1～6A-3 与远程 CI 已收尾；6A-4 更新既有内网 HTTP，复用两核心能力、三项物流 unavailable，单实例发布不等待真实五能力 |
+| 7 | 阶段 6 | 生产持久化、多副本协调、升级回滚、标准演示和真实指标回填 | 后续完整生产验收；多副本要求继续保留，但不阻挡用户已批准的当前单实例发布 |
 
 模型凭据已在本地配置，不进入 Git。已看过的烟测样本归入 development，不当作未见
 holdout；Phase 5C 已分别统计正常 unknown、模型失败回退、未知用量、预算跳过和缺失行。
@@ -190,8 +193,9 @@ Docker 独立三卷、UID 10001、只读根文件系统和无网络演练通过�
 | --- | --- | --- |
 | 6A-1 | Local complete | 签名 Cookie / 精确 Origin / session_ref、双访客 JSON/SSE/删除隔离、刷新/重启/轮换、共享限流、多标签页重建回归；54 Python / 15 Web 新增 |
 | 6A-2 | Local complete | 受控目录 / 整库租约、8 表停服快照 / 新目录恢复；44 项新增回归覆盖权限、互斥、WAL、拒绝半成品 / 篡改、owner / 幂等 / 继续 / TTL / 删除；独立 Docker 三卷演练 seed / resume / replay 为 1 / 1 / 0 次 Fake 调用 |
-| 6A-3 | Local / synthetic complete；remote CI pending | 无 dotenv 的独立入口 / Compose / managed 卷、digest 冻结构建、HTTPS / Host / 路由 / 代理角色、CI 自动工作流；21 项新增回归、13 场景 / 28 Turn Eval 和 Docker 新卷恢复 / SSE / V1 回退通过。远程 CI、目标部署与多架构资格尚未验收 |
+| 6A-3 | Local / synthetic / remote CI complete | 无 dotenv 的独立入口 / Compose / managed 卷、注册表 digest 验证、HTTPS / Host / 路由 / 代理角色；`d28c87c` 两个 GitHub job 通过，包含离线 Eval、双 Web 构建与恢复 / 回退；目标部署另验 |
 | 6A-3 收口 | Local complete | Vitest 4.1.11 / npm audit 0、独立默认单测配置、CI 全 dev / moderate 门禁、严格 Node 合同和构建内测试；新增 3 项合同回归，全量 1044 Python / 70 Web，Node 22 双构建通过 |
+| 6A-4 | In progress | 保留批准的内网 HTTP 入口，显式 private-http 配置不改变默认 HTTPS；复用原 RAG / 价格库，三项物流 unavailable，单实例 managed SQLite；33 项新增回归通过，目标切换 / 新版远程 CI 待验 |
 
 6A-3 已依次完成配置 / 镜像 / 存储合同、HTTPS 公共边界、实际 CI 文件和新卷恢复 /
 V1 回退演练，见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)。合成路径不读取真实
@@ -199,16 +203,17 @@ V1 回退演练，见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)。�
 
 [6A-3 工具链收口](agent-kernel-phase6a3-ci-closeout.md)已完成：Vitest / mocker 4.1.11，
 完整 npm audit 为 0；默认测试不读 dotenv，Node 22 / 本机的 Web 与双构建通过。
-下一步在用户授权提交 / 推送后验证远程 CI 两个 job，补报告留存与不可变发布版本。
+远程 CI 两个 job 已成功；分支保护、长期报告留存与自动镜像发布仍单独记录。
 Python / OS 扫描仍未覆盖，npm 公告库结果不是供应链全面合格证明。
-之后才根据目标环境与业务访问许可验证受控单实例依赖；资料 / 授权齐备后执行 T4 / P4、
+下一步按 6A-4 验证既有内网单实例依赖并切换入口；资料 / 授权齐备后执行 T4 / P4、
 人工审核 holdout，最后完整阶段 6。旧库迁移、异地加密 / 保留策略、备份外删除账本和
 多副本协调保持独立缺口，见 [6A-2 第 7 节](agent-kernel-phase6a2-sqlite-recovery.md#7-未完成项及恢复操作注意事项)。
 
 尚无可装配、通过验收 Adapter 的能力
 继续标为 unavailable，不把独立监控 Demo 的 Fake Tool 当作生产依赖。
-若最终只交付单副本 Demo，需要显式调整 Definition of Done。当前已有 CLI 失败退出码
-及 `.github/workflows/agent-ci.yml`，但没有远程执行 / 分支保护 / 自动发布完成的证据。
+用户已明确调整本次发布的 Definition of Done：单副本、两核心能力、三项物流 unavailable，
+不等待多副本或供应商接口。该范围与完整生产 DoD 分开，不取消默认安全门禁；内网 HTTP
+例外及风险见 6A-4。已有远程 CI 成功证据，不据此推断分支保护或自动发布已经完成。
 
 ## 2. 范围与非目标
 
@@ -1764,8 +1769,8 @@ Phase 5E 本地可观测性切片已完成：
 
 目标：形成可部署、可复盘、可在面试中现场解释的完整项目版本。
 
-前置切片 6A 的当前拆分见 1.3 节。6A-1～6A-3 已本地 / 合成验收，远程 CI 与目标部署
-仍待完成；以下完整阶段 6 的生产、多副本和版本回滚条件没有因单实例合成演练而降低。
+前置切片 6A 的当前拆分见 1.3 节。6A-1～6A-3 已本地 / 合成及远程 CI 验收，6A-4
+负责当前批准的内网单实例发布；以下面向完整生产 / 多副本的事项仍保留，但不是本次上线门禁。
 
 工作内容：
 

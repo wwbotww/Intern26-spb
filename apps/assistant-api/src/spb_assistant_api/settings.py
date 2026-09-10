@@ -52,6 +52,7 @@ class AssistantSettings(BaseSettings):
     agent_browser_previous_signing_key: SecretStr = SecretStr("")
     agent_browser_public_origin: str = ""
     agent_browser_cookie_secure: bool = True
+    agent_browser_private_http_enabled: bool = False
     agent_browser_session_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
 
     tracking_enabled: bool = False
@@ -198,6 +199,7 @@ class AssistantSettings(BaseSettings):
             signing_key=self.agent_browser_signing_key.get_secret_value(),
             previous_signing_key=self.agent_browser_previous_signing_key.get_secret_value(),
             secure=self.agent_browser_cookie_secure,
+            private_http_enabled=self.agent_browser_private_http_enabled,
             ttl_seconds=self.agent_browser_session_ttl_seconds,
         )
 

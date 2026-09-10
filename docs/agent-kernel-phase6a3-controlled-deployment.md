@@ -1,7 +1,9 @@
 # Phase 6A-3：独立受控部署、离线 CI 与回退演练
 
-> 状态：Local / synthetic verified，2026-09-10。GitHub Actions 工作流已落地，但尚未提交、
-> 推送或在远程执行。不是生产发布或完整阶段 6 验收；真实 `.env` 与已有数据库未读取、未迁移。
+> 状态：Local / synthetic / remote CI verified，2026-09-10。`d28c87c` 的两个远程 job
+> [均成功](https://github.com/wwbotww/Intern26-spb/actions/runs/34440603018)，镜像引用修复见
+> [收尾证据](agent-kernel-phase6a3-ci-closeout.md#6-远程执行揭示的问题与修复)。本文保留首次合成演练范围；
+> 目标服务器更新另由 [6A-4](agent-kernel-phase6a4-intranet-release.md) 验收，不等于完整阶段 6。
 > 后续[工具链收口](agent-kernel-phase6a3-ci-closeout.md)已升级 Vitest 4.1.11，完整 npm audit
 > 为 0，Python 1044 / Web 70 通过；下文初次演练的 1041 项与镜像证据保留为历史基线。
 
@@ -17,7 +19,7 @@ Web / API / 持久卷部署，并用真实 Nginx、HTTPS 和容器重建验证�
 | 独立 API / Agent Web / V1 Web 镜像 | 基础镜像 digest 固定，`uv.lock` / npm lock 冻结构建，前端模式与代理模式绑定 | 应用 tag 不可变、全平台验证、OS 漏洞扫描通过 |
 | HTTPS 公共边界 | Host / Origin 拒绝、精确路由与方法、服务端注入 Key、Cookie 与双访客隔离 | 登录 / RBAC、互联网暴露批准、完整企业网关 |
 | 停服备份 → 新卷恢复 → V1 → V2 | 完成响应免调用回放、暂停补槽经 SSE 继续、V1 JSON/SSE 与切回 V2 | 跨版本数据库降级、任意 crash repair、多副本或业务 exactly-once |
-| `.github/workflows/agent-ci.yml` | 构建 / 测试 / 类型 / 13 场景 Eval / Docker 演练自动工作流已实现，本地对应检查通过 | GitHub 远程绿灯、分支保护或自动部署已开启 |
+| `.github/workflows/agent-ci.yml` | 构建 / 测试 / 类型 / 13 场景 Eval / Docker 演练已在 GitHub 两个 job 通过 | 分支保护、自动部署、长期报告留存已开启 |
 
 实施范围未改变 Domain、LangGraph Node、公开 API 或 OpenAPI 合同。运维与信任边界留在
 入口 / Nginx / Compose / CI，继续复用既有 Graph、Tool、身份中间件和存储 CLI。
@@ -171,14 +173,14 @@ healthy。收尾删除本次短生命周期容器 / 网络，保留合成卷与�
 
 | ID | 状态 / 缺口 | 下一动作与验收 |
 | --- | --- | --- |
-| D01 | CI remote pending | 用户授权提交 / 推送后，观察远程两项 job；补不可变版本、镜像来源与报告留存，不能用本地结果宣称远程绿灯 |
+| D01 | remote CI verified / release operations separate | `d28c87c` 两个 job 成功，注册表镜像校验已落地；分支保护、长期报告留存、自动镜像发布另验 |
 | D02 | npm closed / broader scanning pending | Vitest / mocker 已升至 4.1.11，完整 npm audit 0；默认测试隔离、moderate 门禁和 Node 22 / 本机回归已完成，见[工具链收口](agent-kernel-phase6a3-ci-closeout.md)。Python / 容器 OS 扫描与补丁策略仍待补 |
 | D03 | controlled dependencies pending | 明确目标主机、现有 RAG / SQL 接口和批准网络，逐一验 readiness；禁止启用 Fake 来伪造真实能力 |
 | D04 | public release pending | 公共证书 / TLS 挂载与续期、Host / Origin、可信上级代理、HSTS 策略、秘密托管和日志审查需目标环境验证；当前只发布回环 |
 | D05 | storage / identity partial | 未覆盖旧库接管、跨版本迁移、加密异地 / 保留、备份外删除账本、个体撤销 / 登录、业务授权、多副本锁 / 配额 / 熔断；沿用完整阶段 6 DoD |
 | D06 | business / quality pending | T4 / P4 合同确认与受控真实调用需资料及单独授权；时限文档未到；代表性 holdout 需人工审核、冻结与新增预算，不消耗历史授权 |
 
-测试依赖安全与默认离线门禁已收口。下一步在取得 **Git 提交 / 推送授权后验证远程 CI**，
-再安排已批准目标环境单实例验收；不自动扩展业务网络。接口和数据条件齐备后分别执行 T4 /
+测试依赖安全、默认离线门禁与远程 CI 已收口。下一步为已批准的 [6A-4 单实例更新](agent-kernel-phase6a4-intranet-release.md)，
+不因物流接口未就绪或多副本未完成阻挡这次内网发布；不自动扩展业务网络。接口和数据条件齐备后分别执行 T4 /
 P4、holdout，最后验收完整阶段 6。核心取舍见
 [ADR 0019](adr/0019-controlled-deployment-and-offline-ci.md)与[复盘故事 U](project-retrospective.md)。

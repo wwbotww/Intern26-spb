@@ -39,7 +39,9 @@ def ci_error(error):
 
 
 class Drill:
-    def __init__(self, *, port=0):
+    def __init__(self, *, port=0, transport_mode="https"):
+        require(transport_mode in {"https", "private-http"}, "explicit transport mode")
+        self.transport_mode = transport_mode
         endpoint = os.environ.get("DOCKER_HOST")
         if not endpoint:
             endpoint = subprocess.run(
@@ -57,7 +59,8 @@ class Drill:
         require(1024 <= port <= 65535, "loopback port")
         self.directory = Path(tempfile.mkdtemp(prefix="spb-agent-6a3-")).resolve()
         self.project = "spb-agent-6a3-" + uuid4().hex[:12]
-        self.origin = f"https://127.0.0.1:{port}"
+        scheme = "https" if transport_mode == "https" else "http"
+        self.origin = f"{scheme}://127.0.0.1:{port}"
         tls = self.directory / "tls"
         tls.mkdir(mode=0o700)
         cert = tls / "server.crt"
@@ -79,6 +82,8 @@ class Drill:
         self.env.pop("DOCKER_CONTEXT", None)
         self.base = [*self.docker, "compose", "--env-file", "/dev/null", "--project-name", self.project]
         self.files = ["docker-compose.yml", "docker-compose.synthetic.yml"]
+        if transport_mode == "private-http":
+            self.files.append("docker-compose.synthetic-private-http.yml")
         self.report = {"project": self.project, "origin": self.origin, "business_network_calls": 0, "checks": []}
 
     def inventory(self, *args):
@@ -154,11 +159,15 @@ class Drill:
                 require(all(first.get(path).status_code == 404 for path in denied), "public route allowlist")
                 require(first.get("/api/v2/agent/messages").status_code == 405, "method allowlist")
                 require(first.post("/api/v2/agent/browser-session", json={}, headers={"Origin": "https://untrusted.invalid"}).status_code == 403, "Origin rejection")
-                self.check("https-host-origin-public-route-boundary")
+                self.check(self.transport_mode + "-host-origin-public-route-boundary")
 
                 identity = self.bootstrap(first)
                 cookie = identity.headers.get("set-cookie", "")
-                require(all(value in cookie for value in ("__Host-spb-agent=", "Secure", "HttpOnly", "SameSite=strict", "Path=/")), "cookie flags")
+                require(all(value in cookie for value in ("HttpOnly", "SameSite=strict", "Path=/")), "cookie flags")
+                if self.transport_mode == "https":
+                    require("__Host-spb-agent=" in cookie and "Secure" in cookie, "HTTPS secure cookie")
+                else:
+                    require("spb-agent-intranet=" in cookie and "Secure" not in cookie and "Domain=" not in cookie, "explicit private HTTP cookie")
                 self.bootstrap(second)
                 require(first.headers["X-Agent-Session"] != second.headers["X-Agent-Session"], "two visitors")
                 for asset in re.findall(r'(?:src|href)="(/assets/[^\"]+)"', page.text):
@@ -173,7 +182,7 @@ class Drill:
                     "X-Agent-Owner": first.headers["X-Agent-Session"], "X-Forwarded-User": first.headers["X-Agent-Session"],
                 })
                 require(spoof.status_code == 404, "cross-owner / forged identity")
-                self.check("secure-cookie-json-two-visitors-and-no-client-secrets")
+                self.check(self.transport_mode + "-cookie-json-two-visitors-and-no-client-secrets")
 
                 busy = self.compose("run", "--rm", "--no-deps", "storage", "-m", "spb_assistant_api.storage_cli", "backup", "--source", "/var/lib/spb-runtime/store", "--destination", "/var/lib/spb-backups/busy", success=False)
                 require(busy.returncode == 2 and '"store_busy"' in busy.stderr, "online backup rejected")
@@ -234,9 +243,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", action="store_true")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--transport", choices=("https", "private-http"), default="https")
     args = parser.parse_args()
     try:
-        Drill(port=args.port).run(build=args.build)
+        Drill(port=args.port, transport_mode=args.transport).run(build=args.build)
     except Exception as error:
         ci_error(error)
         raise  # Diagnostics never turn a failed gate into success.

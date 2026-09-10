@@ -1,7 +1,9 @@
 # 6A-3 收口：Vitest 安全升级与默认离线门禁
 
-> 状态：Local verified，2026-09-10。完成本地 Web 工具链收口；未提交 / 推送，远程 CI
-> 尚未运行。没有修改真实 `.env` 或已有数据库，没有模型 / 物流 / SQL / RAG 业务调用。
+> 状态：Remote CI verified，2026-09-10。已提交并推送 `develop`，修复基础镜像引用后，
+> 提交 `d28c87c54683bdfb26f61ba89f28005c9da2e355` 的两个远程 job 均成功。
+> [实际运行记录](https://github.com/wwbotww/Intern26-spb/actions/runs/34440603018)。
+> 下文本地证据保留为历史基线；本次 CI 不读取业务凭据、不调用真实业务服务。
 
 ## 1. 交付与变更范围
 
@@ -93,12 +95,28 @@ npm --prefix apps/chat-web run check:agent-types
 ## 5. 后续顺序与授权边界
 
 1. 本地测试依赖升级完成；**D02 的 npm 部分关闭**，Python / OS 扫描与补丁更新策略继续记录。
-2. D01：用户明确授权后提交 / 推送当前阶段改动，验证 GitHub 两个 job；远程结果、分支
-   保护、报告留存、不可变镜像发布分别验收。不将有 workflow 文件等同已运行 CI。
-3. 明确受控目标主机与已批准 RAG / SQL 网络后，执行目标环境单实例验收。仍不能靠 Fake
-   让空能力通过 readiness；公网证书 / 秘密托管 / 登录 / 多副本不包含在本切片。
+2. D01 的远程运行部分已关闭：`contracts`、`synthetic-deployment` 均成功；分支保护、
+   长期报告留存与自动镜像发布仍是独立事项，不能由一次绿灯推断完成。
+3. 按用户批准的范围进入 [6A-4 内网单实例更新](agent-kernel-phase6a4-intranet-release.md)：
+   复用旧 RAG / SQL，三项物流查询按 unavailable 处理，不等待真实物流接口或多副本。
 4. T4 / P4 需真实接口条件、合同确认及单独调用授权；holdout 需人工审核 / 冻结与新预算，
    时限仍待文档。本轮不需要 API Key，也没有消耗此前模型请求授权。
 
 总进度见[实施方案](agent-workflow-implementation-plan.md)，部署与缺口见
 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)，核心取舍补入[复盘故事 U](project-retrospective.md)。
+
+## 6. 远程执行揭示的问题与修复
+
+首次 `d257b1d` 的 contracts 成功，部署构建失败；增加有界、转义后的合成错误注释后，
+`76ba4a5` 明确定位到 Python 基础镜像的注册表引用不存在。本地缓存曾把镜像 ID 作为
+可拉取摘要使用，因而本地成功不能证明干净机器可复现。
+
+修复使用官方 `ghcr.io/astral-sh/uv:python3.12-bookworm-slim` 实际返回的 index digest
+`sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58`，保留冻结依赖。
+新增 `verify_base_images.py` 在构建前从注册表核对三项固定引用，不接受本机 image cache
+作为证据；引用失败时只报告白名单来源的候选摘要，**不自动换标签或跳过失败**。
+Node / Nginx 原引用随后也通过远程注册表与实际构建验证，无需修改。
+
+`d28c87c` 的 contracts 于 2026-09-10 05:20:38 UTC 完成，synthetic-deployment 于
+05:22:11 UTC 完成，均为 success。实际完成冻结安装、全量测试、npm 安全门禁、离线 Eval、
+双 Web 构建和 HTTPS / 身份 / 整库恢复 / V1 回退烟测；不是只看 workflow 文件或本地测试。

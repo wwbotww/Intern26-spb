@@ -1,0 +1,8 @@
+# Loopback-only synthetic test overlay, NOT a server deployment profile.
+services:
+  assistant-api:
+    environment:
+      AGENT_DEMO_TRANSPORT_MODE: private-http
+  chat-web:
+    environment:
+      AGENT_TRANSPORT_MODE: private-http

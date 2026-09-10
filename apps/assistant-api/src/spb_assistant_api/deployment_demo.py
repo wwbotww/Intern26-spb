@@ -66,13 +66,16 @@ class _SyntheticLegacyTool:
         return ToolResult(tool=self.name, status=ToolStatus.NO_MATCH, answer="合成部署演练不提供真实设备价格。")
 
 
-def create_deployment_demo(*, database_path: Path, public_origin: str, ui_mode: str = "agent"):
+def create_deployment_demo(*, database_path: Path, public_origin: str, ui_mode: str = "agent", transport_mode: str = "https"):
     parsed = urlsplit(public_origin)
-    if parsed.scheme != "https" or parsed.hostname not in {"localhost", "127.0.0.1"}:
-        raise ValueError("合成部署仅接受本机 HTTPS origin")
+    if transport_mode not in {"https", "private-http"}:
+        raise ValueError("未知的合成传输模式")
+    secure = transport_mode == "https"
+    if parsed.scheme != ("https" if secure else "http") or parsed.hostname not in {"localhost", "127.0.0.1"}:
+        raise ValueError("合成部署仅接受显式模式对应的本机 origin")
     if ui_mode not in {"agent", "legacy"}:
         raise ValueError("未知的合成 UI 模式")
-    BrowserSessionConfig(public_origin=public_origin, proxy_api_key=PROXY_KEY, signing_key=SIGNING_KEY)
+    BrowserSessionConfig(public_origin=public_origin, proxy_api_key=PROXY_KEY, signing_key=SIGNING_KEY, secure=secure, private_http_enabled=not secure)
     enabled = ui_mode == "agent"
     settings = _SyntheticSettings(
         auth_enabled=True, api_keys=PROXY_KEY, rate_limit_requests=600,
@@ -80,6 +83,8 @@ def create_deployment_demo(*, database_path: Path, public_origin: str, ui_mode: 
         agent_database_path=str(database_path),
         agent_browser_session_enabled=enabled,
         agent_browser_public_origin=public_origin,
+        agent_browser_cookie_secure=secure,
+        agent_browser_private_http_enabled=not secure,
         agent_browser_proxy_api_key=PROXY_KEY, agent_browser_signing_key=SIGNING_KEY,
     )
     legacy = {mode: _SyntheticLegacyTool(mode) for mode in QueryMode}
@@ -115,6 +120,7 @@ def build_app():
         database_path=Path(os.environ["AGENT_DEMO_DATABASE_PATH"]),
         public_origin=os.environ["AGENT_DEMO_PUBLIC_ORIGIN"],
         ui_mode=os.environ.get("AGENT_DEMO_UI_MODE", "agent"),
+        transport_mode=os.environ.get("AGENT_DEMO_TRANSPORT_MODE", "https"),
     )
 
 

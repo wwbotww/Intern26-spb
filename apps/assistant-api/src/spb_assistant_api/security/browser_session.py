@@ -13,6 +13,7 @@ import hmac
 import re
 import secrets
 import time
+from ipaddress import IPv4Address, IPv4Network
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -21,6 +22,24 @@ from urllib.parse import urlsplit
 SESSION_PATH = "/v2/agent/browser-session"
 SESSION_REF_HEADER = "x-agent-session"
 _TOKEN = re.compile(r"1\.([0-9]{1,12})\.([0-9]{1,12})\.([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})", re.ASCII)
+
+
+def private_http_origin(origin: str) -> bool:
+    """Explicit IPv4 intranet/loopback allowlist; no DNS or public HTTP."""
+    try:
+        parsed = urlsplit(origin)
+        address = IPv4Address(parsed.hostname or "")
+        port = parsed.port
+        return (
+            parsed.scheme == "http" and not any((parsed.username, parsed.password, parsed.path, parsed.query, parsed.fragment))
+            and origin == f"http://{address}" + (f":{port}" if port is not None else "")
+            and (port is None or 1 <= port <= 65535)
+            and any(address in IPv4Network(network) for network in (
+                "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
+            ))
+        )
+    except ValueError:
+        return False
 
 
 class BrowserSessionError(ValueError):
@@ -37,6 +56,7 @@ class BrowserSessionConfig:
     signing_key: str = field(repr=False)
     previous_signing_key: str = field(default="", repr=False)
     secure: bool = True
+    private_http_enabled: bool = False
     ttl_seconds: int = 1800
 
     def __post_init__(self):
@@ -48,8 +68,11 @@ class BrowserSessionConfig:
             or self.public_origin != f"{parsed.scheme}://{parsed.netloc}"
         ):
             raise ValueError("浏览器公开 origin 必须是无路径、凭据或查询参数的精确 HTTP(S) origin")
-        # HTTP is explicit loopback-only development, never a TLS bypass switch.
-        if not self.secure:
+        # Intranet HTTP is a separate explicit exception, never an inferred downgrade.
+        if self.private_http_enabled:
+            if self.secure or not private_http_origin(self.public_origin):
+                raise ValueError("内网 HTTP 模式只接受明确的私有 IPv4 origin 和非 Secure cookie")
+        elif not self.secure:
             if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
                 raise ValueError("非 Secure cookie 仅允许明确的本机 HTTP origin")
         elif parsed.scheme != "https":
@@ -72,6 +95,8 @@ class BrowserSessionConfig:
 
     @property
     def cookie_name(self) -> str:
+        if self.private_http_enabled:
+            return "spb-agent-intranet"
         return "__Host-spb-agent" if self.secure else "spb-agent-local"
 
 

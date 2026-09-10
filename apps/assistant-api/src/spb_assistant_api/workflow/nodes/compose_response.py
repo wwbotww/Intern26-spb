@@ -171,5 +171,5 @@ def _failure_reply(failure: AgentFailure) -> str:
 
 def _handoff_reply(reason_code: str) -> str:
     if reason_code == "capability_not_available":
-        return "该能力尚未在 Agent 工作流中开放。"
+        return "该查询服务暂不可用，请稍后再试。"
     return "暂时无法确定查询类型，请选择一个支持的查询能力。"

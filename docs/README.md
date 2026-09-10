@@ -68,9 +68,11 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
   含 WAL 的停服快照、新目录恢复、44 项新增回归与独立断网 Docker 三卷演练；不覆盖旧库。
 - [6A-3 受控部署与离线 CI](agent-kernel-phase6a3-controlled-deployment.md)：独立冻结镜像、
   HTTPS / Host / 公开路由、自动门禁文件和新卷恢复 / V1 回退合成演练；21 项新增回归，
-  远程 CI 尚未运行；[部署 runbook](../deploy/agent/README.md) 提供复跑和受控操作步骤。
+  两个远程 CI job 已通过；[部署 runbook](../deploy/agent/README.md) 提供复跑和受控操作步骤。
 - [6A-3 工具链安全收口](agent-kernel-phase6a3-ci-closeout.md)：Vitest 4.1.11、默认单测与
   dotenv / 开发代理分离、CI 全依赖 moderate 门禁、Node 22 构建内测试；3 项新增合同回归。
+- [6A-4 内网单实例更新](agent-kernel-phase6a4-intranet-release.md)：保留明确批准的 HTTP，
+  显式例外 / 私有 origin / 双访客隔离、原 RAG / 价格库复用与三项物流 unavailable。
 - [Phase 4A Stateful Agent V2 JSON API](agent-kernel-phase4a.md)：显式装配的 V2 JSON、
   interrupt 投影、三层幂等、owner 隔离、外层 timeout、会话删除和 API 集成证据。
 - [Phase 4B Versioned SSE 与 Stateful Agent Web](agent-kernel-phase4b.md)：稳定 SSE 投影、

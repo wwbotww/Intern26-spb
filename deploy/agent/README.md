@@ -114,8 +114,23 @@ agent_compose -f deploy/agent/docker-compose.restored.yml up -d --wait --wait-ti
 - 不运行默认项目的 `down -v`，不覆盖旧库或改已有目录权限，也不删除其他阶段的演练卷。
 - 固定 digest 的依赖镜像仍需维护补丁；本地 API 为 amd64、Web 随基础镜像平台构建，
   不能据本机结果宣称多架构与性能合格。应用 tag 可变，报告记录 ID 不等于已发布版本。
-- CI 文件已提供，尚无远程执行证据；Git 操作、业务访问、公开部署必须另有授权。
+- 远程 CI 的 `d28c87c` 两个 job 已成功，见[收尾证据](../../docs/agent-kernel-phase6a3-ci-closeout.md#6-远程执行揭示的问题与修复)；不代表自动发布或分支保护。
 - [工具链收口](../../docs/agent-kernel-phase6a3-ci-closeout.md)已升级 Vitest 4.1.11，默认
   `npm test` 不加载 dotenv，CI 显式包含 dev / 拦截 moderate，固定 Node 22 构建内测试通过。
-  当前 npm audit 为 0，Python / OS 扫描仍待补。下一步授权后提交推送、验证远程 CI，
+  当前 npm audit 为 0，Python / OS 扫描仍待补。下一步为批准的内网单实例更新，
   再按资料 / 业务授权推进真实接口与 holdout。
+
+## 6. 明确批准的内网 HTTP 例外
+
+默认配置仍要求 HTTPS。仅在用户明确限定内网 HTTP 时，按
+[6A-4](../../docs/agent-kernel-phase6a4-intranet-release.md) 成组配置 `private-http`，不能只关闭
+Secure Cookie。HTTP 无传输加密，保留 origin / 签名 / 代理身份校验不等于 TLS 安全性。
+主机无 Compose 时，不自动升级共享 daemon；用相同镜像与 entrypoint 单独验证兼容路径。
+
+`docker-compose.synthetic-private-http.yml` **只用于回环合成回归，不用于服务器**：
+
+```bash
+.venv/bin/python deploy/agent/smoke.py --transport private-http
+```
+
+它沿用原四段恢复 / 回退烟测，业务调用为 0；默认 HTTPS 的烟测仍独立执行。

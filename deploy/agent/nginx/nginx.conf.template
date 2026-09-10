@@ -28,12 +28,9 @@ http {
         location / { return 404; }
     }
     server {
-        listen 8443 ssl default_server;
+        listen 8443 ${AGENT_LISTEN_OPTIONS} default_server;
         server_name _;
-        ssl_certificate /run/tls/server.crt;
-        ssl_certificate_key /run/tls/server.key;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_session_tickets off;
+        include /opt/agent/nginx/transport-${AGENT_TRANSPORT_MODE}.conf;
         if ($allowed_host = 0) { return 421; }
         add_header X-Content-Type-Options nosniff always;
         add_header Referrer-Policy no-referrer always;

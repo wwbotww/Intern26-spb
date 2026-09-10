@@ -122,7 +122,8 @@ def test_nginx_and_image_contracts_keep_authentication_out_of_browser_assets():
     config = (root / "nginx/nginx.conf.template").read_text()
     proxy = (root / "nginx/proxy.conf.template").read_text()
     assert 'location /api { return 404; }' in config
-    assert "return 421" in config and "ssl_protocols TLSv1.2 TLSv1.3" in config
+    assert "return 421" in config
+    assert "ssl_protocols TLSv1.2 TLSv1.3" in (root / "nginx/transport-https.conf").read_text()
     assert "proxy_next_upstream off" in proxy and "proxy_buffering off" in proxy
     for name in ("X-API-Key", "X-Agent-Owner", "X-Forwarded-Host", "Forwarded"):
         assert f'proxy_set_header {name} "";' in proxy
