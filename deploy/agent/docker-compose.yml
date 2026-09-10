@@ -1,0 +1,108 @@
+# Controlled single-instance deployment. Invoke with --env-file EXPLICIT_FILE.
+# This is separate from deploy/docker-compose.yml; no default production migration.
+x-api: &api
+  image: intern26-spb-agent-api:6a3
+  platform: linux/amd64
+  build:
+    context: ../..
+    dockerfile: deploy/agent/Dockerfile.api
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+  pids_limit: 128
+  mem_limit: 512m
+  cpus: 1.0
+
+services:
+  state-init:
+    <<: *api
+    command: [-m, spb_assistant_api.storage_cli, init, --directory, /var/lib/spb-runtime/store, --if-absent]
+    network_mode: none
+    volumes: [runtime-data:/var/lib/spb-runtime]
+  assistant-api:
+    <<: *api
+    command: [-m, spb_assistant_api.deployed_app]
+    environment:
+      ASSISTANT_DEPLOYMENT_UI_MODE: agent
+      ASSISTANT_AUTH_ENABLED: "true"
+      ASSISTANT_API_KEYS: ${AGENT_PROXY_API_KEY:?Explicit proxy key required}
+      ASSISTANT_AGENT_ENABLED: "true"
+      ASSISTANT_AGENT_MANAGED_STORAGE_ENABLED: "true"
+      ASSISTANT_AGENT_DATABASE_PATH: /var/lib/spb-runtime/store/agent.db
+      ASSISTANT_AGENT_BROWSER_SESSION_ENABLED: "true"
+      ASSISTANT_AGENT_BROWSER_PROXY_API_KEY: ${AGENT_PROXY_API_KEY:?Explicit proxy key required}
+      ASSISTANT_AGENT_BROWSER_SIGNING_KEY: ${AGENT_BROWSER_SIGNING_KEY:?Independent signing key required}
+      ASSISTANT_AGENT_BROWSER_PREVIOUS_SIGNING_KEY: ${AGENT_BROWSER_PREVIOUS_SIGNING_KEY:-}
+      ASSISTANT_AGENT_BROWSER_PUBLIC_ORIGIN: ${AGENT_PUBLIC_ORIGIN:?Explicit HTTPS origin required}
+      ASSISTANT_AGENT_BROWSER_COOKIE_SECURE: "true"
+      # No implicit opt-in to any live capability in this deployment slice.
+      ASSISTANT_QUERY_MODEL_ENABLED: "false"
+      ASSISTANT_TRACKING_ENABLED: "false"
+      ASSISTANT_OTEL_ENABLED: "false"
+      # Existing V1 services need explicit operator configuration + an approved network.
+      ASSISTANT_RAG_BASE_URL: ${AGENT_RAG_BASE_URL:-}
+      ASSISTANT_RAG_API_KEY: ${AGENT_RAG_API_KEY:-}
+      ASSISTANT_MYSQL_DSN: ${AGENT_MYSQL_DSN:-}
+    volumes: [runtime-data:/var/lib/spb-runtime]
+    networks: [agent-private]
+    depends_on:
+      state-init: {condition: service_completed_successfully}
+    stop_grace_period: 45s
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/v2/agent/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+  chat-web:
+    image: intern26-spb-agent-web:6a3
+    build:
+      context: ../..
+      dockerfile: deploy/agent/Dockerfile.web
+      args: {AGENT_UI_MODE: agent}
+    environment:
+      AGENT_UI_MODE: agent
+      AGENT_PUBLIC_ORIGIN: ${AGENT_PUBLIC_ORIGIN:?Explicit HTTPS origin required}
+      AGENT_PROXY_API_KEY: ${AGENT_PROXY_API_KEY:?Explicit proxy key required}
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    ports: ["127.0.0.1:${AGENT_HTTPS_PORT:-13443}:8443"]
+    volumes:
+      - type: bind
+        source: ${AGENT_TLS_DIRECTORY:?Explicit TLS directory required}
+        target: /run/tls
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [agent-private, agent-ingress]
+    depends_on:
+      assistant-api: {condition: service_healthy}
+    stop_grace_period: 15s
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  storage:
+    <<: *api
+    profiles: [operations]
+    network_mode: none
+    command: [-m, spb_assistant_api.storage_cli, --help]
+    volumes:
+      - runtime-data:/var/lib/spb-runtime
+      - backup-data:/var/lib/spb-backups
+      - restored-data:/var/lib/spb-restored
+
+networks:
+  agent-private: {internal: true}
+  agent-ingress:
+volumes:
+  runtime-data:
+  backup-data:
+  restored-data:

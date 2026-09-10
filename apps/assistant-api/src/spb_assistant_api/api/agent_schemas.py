@@ -12,6 +12,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    TypeAdapter,
     model_validator,
 )
 
@@ -122,6 +123,56 @@ class AgentSourceResponse(BaseModel):
         )
 
 
+PublicQuoteAmount = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^(0|[1-9][0-9]{0,8})\.[0-9]{2}$")
+]
+_PUBLIC_QUOTE_AMOUNT = TypeAdapter(PublicQuoteAmount)
+_PUBLIC_QUOTE_TIME = TypeAdapter(AwareDatetime)
+
+
+class PostageSourceResponse(BaseModel):
+    """Quotation observation: deliberately no tracking history semantics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: Literal["fake_gateway", "external_api"]
+    source_name: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    source_profile: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    queried_at: AwareDatetime
+
+
+class PostageFeeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[
+        "registration", "insurance", "declared_value", "inspection", "customs",
+        "fuel", "return_receipt", "password_delivery", "printing", "handling",
+    ]
+    amount: PublicQuoteAmount
+    included_in_amount: Literal["yes", "no", "unknown"]
+
+
+class PostageQuoteBasisResponse(BaseModel):
+    """Versioned public allowlist. No pricing identity, hashes or billing IDs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1"] = "1"
+    amount_kind: Literal["total", "standard", "customer"]
+    currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+    product_code: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    scope: Literal["domestic_actual_weight_no_extras"]
+    is_estimate: Literal[True]
+    fees: list[PostageFeeResponse] = Field(default_factory=list)
+    source: PostageSourceResponse
+
+    @model_validator(mode="after")
+    def unique_fees(self) -> "PostageQuoteBasisResponse":
+        if len({fee.kind for fee in self.fees}) != len(self.fees):
+            raise ValueError("报价费用项不能重复")
+        return self
+
+
 class AgentResultResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -130,20 +181,56 @@ class AgentResultResponse(BaseModel):
     data: dict[str, Any] | None = None
     reason_code: str = ""
     provenance: list[AgentSourceResponse] = Field(default_factory=list)
+    quote_basis: PostageQuoteBasisResponse | None = None
+
+    @model_validator(mode="after")
+    def validate_quote_basis(self) -> "AgentResultResponse":
+        basis = self.quote_basis
+        if basis is not None:
+            if self.type != "postage" or self.status != "success" or self.data is None:
+                raise ValueError("报价依据仅能出现在成功资费结果中")
+            if (self.data.get("currency"), self.data.get("product_code")) != (
+                basis.currency, basis.product_code,
+            ):
+                raise ValueError("报价依据必须与资费数据一致")
+            _PUBLIC_QUOTE_AMOUNT.validate_python(self.data.get("amount"))
+            if _PUBLIC_QUOTE_TIME.validate_python(self.data.get("queried_at")) != basis.source.queried_at:
+                raise ValueError("报价依据观察时间必须与数据一致")
+        return self
 
     @classmethod
     def from_domain(cls, value: AgentResult) -> "AgentResultResponse":
         if value.intent is Intent.UNKNOWN:
             raise ValueError("AgentResult 不能使用 unknown 意图")
+        data = value.data.model_dump(mode="json") if value.data is not None else None
+        quote_basis = None
+        if value.intent is Intent.POSTAGE and data is not None:
+            internal_basis = data.pop("quote_basis", None)
+            if internal_basis is not None and value.status is AgentResultStatus.SUCCESS:
+                data["amount"] = format(value.data.amount, ".2f")
+                if len(value.provenance) != 1:
+                    raise ValueError("报价缺少唯一观察来源")
+                context = internal_basis["context"]
+                source = value.provenance[0]
+                quote_basis = PostageQuoteBasisResponse(
+                    amount_kind=context["amount_kind"], currency=context["currency"],
+                    product_code=context["product_code"], scope=context["scope"],
+                    is_estimate=internal_basis["is_estimate"],
+                    fees=[PostageFeeResponse(
+                        kind=fee.kind, amount=format(fee.amount, ".2f"),
+                        included_in_amount=fee.included_in_amount,
+                    ) for fee in value.data.quote_basis.fees],
+                    source=PostageSourceResponse(
+                        source_type=source.source_type, source_name=source.source_name,
+                        source_profile=source.source_profile, queried_at=source.queried_at,
+                    ),
+                )
         return cls(
             type=value.intent.value,
             status=value.status,
-            data=(
-                value.data.model_dump(mode="json")
-                if value.data is not None
-                else None
-            ),
+            data=data,
             reason_code=value.reason_code,
+            quote_basis=quote_basis,
             provenance=[
                 AgentSourceResponse.from_tracking_source(source)
                 for source in value.provenance

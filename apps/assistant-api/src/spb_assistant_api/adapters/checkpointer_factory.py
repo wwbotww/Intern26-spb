@@ -9,6 +9,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
+from ..storage_paths import runtime_store_guard
+
 
 def create_in_memory_checkpointer() -> InMemorySaver:
     """Create the phase-0 checkpointer with strict deserialization.
@@ -25,6 +27,7 @@ def create_in_memory_checkpointer() -> InMemorySaver:
 @asynccontextmanager
 async def create_sqlite_checkpointer(
     database_path: str | Path,
+    *, managed_storage: bool = False,
 ) -> AsyncIterator[AsyncSqliteSaver]:
     """Open the local async checkpoint backend with strict serialization.
 
@@ -36,7 +39,8 @@ async def create_sqlite_checkpointer(
     if not path.strip():
         raise ValueError("checkpoint database path 不能为空")
     serializer = JsonPlusSerializer(allowed_msgpack_modules=None)
-    async with aiosqlite.connect(path) as connection:
-        saver = AsyncSqliteSaver(connection, serde=serializer)
-        await saver.setup()
-        yield saver
+    with runtime_store_guard(database_path, required=managed_storage):
+        async with aiosqlite.connect(path) as connection:
+            saver = AsyncSqliteSaver(connection, serde=serializer)
+            await saver.setup()
+            yield saver

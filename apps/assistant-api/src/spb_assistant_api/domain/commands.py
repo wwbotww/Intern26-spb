@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .primitives import MailNumber, MessageText
+from .postage import PostagePricingContext, exact_weight_grams
 from .slots import RegionRef, RegionResolution, WeightValue
 
 
@@ -53,12 +54,21 @@ class PostageCommand(BaseModel):
     weight: WeightValue
     product_code: str | None = None
     declared_value: Decimal | None = Field(default=None, ge=0)
+    pricing_context: PostagePricingContext | None = None
 
     @model_validator(mode="after")
     def validate_executable_input(self) -> "PostageCommand":
         _require_resolved_route(self.origin, self.destination)
         if self.weight.value is None:
             raise ValueError("postage command requires a concrete weight")
+        if self.pricing_context is not None:
+            context = self.pricing_context
+            if self.declared_value is not None:
+                raise ValueError("基础询价不支持保额，不能静默丢弃")
+            if self.product_code != context.product_code:
+                raise ValueError("报价上下文与产品不一致")
+            if exact_weight_grams(self.weight.value, self.weight.unit, maximum=1_000_000) != context.weight_grams:
+                raise ValueError("报价上下文与输入重量不一致")
         return self
 
 

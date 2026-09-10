@@ -22,6 +22,7 @@ from .results import (
     PostageData,
 )
 from .tracking import TrackingQueryResult
+from .postage_observation import PostageQuoteObservation
 from .tooling import CommandModel, ToolDescriptor, ToolExecutionReceipt
 from .understanding import QueryUnderstandingResult
 
@@ -74,7 +75,8 @@ class DeliveryTimeGateway(Protocol):
 
 
 class PostageGateway(Protocol):
-    async def quote(self, command: PostageCommand) -> PostageData | None: ...
+    # Legacy Data/None exists only for the phase-3A fake path. P1 requires an observation.
+    async def quote(self, command: PostageCommand) -> PostageQuoteObservation | PostageData | None: ...
 
 
 class QueryUnderstander(Protocol):

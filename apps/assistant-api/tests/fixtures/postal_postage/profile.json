@@ -1,0 +1,8 @@
+{
+  "name": "postal-postage-synthetic-v1",
+  "evidence": "synthetic",
+  "api_version": "1.0.0",
+  "timezone": "Asia/Shanghai",
+  "currency": "CNY",
+  "amount_kind": "total"
+}

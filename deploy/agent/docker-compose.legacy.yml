@@ -1,0 +1,17 @@
+# API/UI rollback only; no schema downgrade and no removal of Agent volumes.
+services:
+  assistant-api:
+    environment:
+      ASSISTANT_DEPLOYMENT_UI_MODE: legacy
+      ASSISTANT_AGENT_ENABLED: "false"
+      ASSISTANT_AGENT_MANAGED_STORAGE_ENABLED: "false"
+      ASSISTANT_AGENT_BROWSER_SESSION_ENABLED: "false"
+      AGENT_DEMO_UI_MODE: legacy
+    healthcheck:
+      test: [CMD, /app/.venv/bin/python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health/live', timeout=3)"]
+  chat-web:
+    image: intern26-spb-agent-web-legacy:6a3
+    build:
+      args: {AGENT_UI_MODE: legacy}
+    environment:
+      AGENT_UI_MODE: legacy

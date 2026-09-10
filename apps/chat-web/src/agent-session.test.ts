@@ -54,6 +54,23 @@ const snapshot: AgentSessionSnapshot = {
 
 
 describe('Agent session persistence', () => {
+  it('restores messages and pending idempotency only under the verified browser binding', () => {
+    const storage = new MemoryStorage()
+    const bound = { ...snapshot, browserSessionRef: 'a'.repeat(64) }
+    saveAgentSession(bound, storage)
+    expect(loadAgentSession(storage, 3, bound.browserSessionRef)).toEqual(bound)
+    expect(loadAgentSession(storage, 3, 'b'.repeat(64))).toBeNull()
+    expect(storage.values.has(AGENT_SESSION_KEY)).toBe(false)
+  })
+
+  it('does not inherit legacy unbound history on browser mode enable, or vice versa', () => {
+    const storage = new MemoryStorage()
+    saveAgentSession(snapshot, storage)
+    expect(loadAgentSession(storage, 3, 'a'.repeat(64))).toBeNull()
+    saveAgentSession({ ...snapshot, browserSessionRef: 'a'.repeat(64) }, storage)
+    expect(loadAgentSession(storage, 3)).toBeNull()
+  })
+
   it('round-trips resumable workflow and idempotency state', () => {
     const storage = new MemoryStorage()
     saveAgentSession(snapshot, storage)

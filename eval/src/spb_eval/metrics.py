@@ -675,6 +675,7 @@ def agent_turn_checks(result: AgentTurnResult) -> dict[str, bool]:
             "required_inputs": False,
             "result_status": False,
             "result_values": False,
+            "quote_basis_values": False,
             "failure": False,
             "routing": False,
             "passed": False,
@@ -702,6 +703,14 @@ def agent_turn_checks(result: AgentTurnResult) -> dict[str, bool]:
     result_values_correct = all(
         _path_value(result_data, path) == expected_value
         for path, expected_value in expected.expected_result_values.items()
+    )
+    quote_basis = (
+        observation.result.quote_basis.model_dump(mode="json")
+        if observation.result is not None and observation.result.quote_basis is not None else {}
+    )
+    quote_basis_correct = all(
+        _path_value(quote_basis, path) == expected_value
+        for path, expected_value in expected.expected_quote_basis_values.items()
     )
 
     if expected.expected_failure_category is None:
@@ -738,6 +747,7 @@ def agent_turn_checks(result: AgentTurnResult) -> dict[str, bool]:
         ),
         "result_status": result_status_correct,
         "result_values": result_values_correct,
+        "quote_basis_values": quote_basis_correct,
         "failure": failure_correct,
         "routing": routing_correct,
     }

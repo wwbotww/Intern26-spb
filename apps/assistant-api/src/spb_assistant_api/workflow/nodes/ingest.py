@@ -24,6 +24,10 @@ def ingest_agent_input(state: AgentState) -> dict[str, object]:
             uuid5(NAMESPACE_URL, f"agent-query-v3:{conversation_id}:{turn_id}")
         ),
         "legacy_tool_call": None,
+        "postage_policy_snapshot": None,
+        "postage_review_fingerprint": None,
+        "postage_confirmed_fingerprint": None,
+        "postage_requirements": [],
         "latest_message": payload.message,
         "message": "",
         "phase": "understanding",

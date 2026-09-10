@@ -12,6 +12,7 @@ from ..domain.commands import (
     TrackingCommand,
 )
 from ..domain.failures import AgentFailure, FailureCategory
+from ..domain.postage import PostageSource
 from ..domain.results import (
     AgentResult,
     AgentResultStatus,
@@ -245,6 +246,24 @@ class AgentResultValidator:
                 "postage_query_time_without_timezone",
                 "资费查询时间必须包含时区",
             )
+        if command.pricing_context is not None:
+            try:
+                data = PostageData.model_validate(result.data.model_dump())
+            except ValueError:
+                raise _violation("postage_quote_invalid", "报价数字或语义不符合契约") from None
+            if data.quote_basis is None or data.quote_basis.context != command.pricing_context:
+                raise _violation("postage_quote_context_mismatch", "报价依据与执行上下文不一致")
+            if data.product_code != command.product_code:
+                raise _violation("postage_product_mismatch", "报价产品与请求不一致")
+            if len(result.provenance) != 1:
+                raise _violation("postage_source_missing", "报价必须有唯一观察来源")
+            source = result.provenance[0]
+            try:
+                PostageSource(source_type=source.source_type, source_name=source.source_name, profile=source.source_profile)
+            except ValueError:
+                raise _violation("postage_source_invalid", "报价来源不符合白名单契约") from None
+            if source.queried_at != data.queried_at or not _is_aware(source.queried_at):
+                raise _violation("postage_source_time_mismatch", "报价来源时间与数据不一致")
 
 
 def _validate_route(

@@ -5,9 +5,10 @@ from pydantic import TypeAdapter
 from ...domain.agent_events import AgentEventType
 from ...domain.intents import Intent
 from ...domain.ports import QueryUnderstander
-from ...domain.slots import SlotPayload, SlotProvenance
+from ...domain.slots import PostageSlots, SlotPayload, SlotProvenance
 from ...domain.understanding import ControlDirective
 from ...services.slot_merger import SlotMerger, required_missing_slots
+from ...services.postage_preflight import PostagePreflight
 from ..node_utils import agent_event
 from ..state import AgentState
 
@@ -18,6 +19,8 @@ _SLOTS_ADAPTER = TypeAdapter(SlotPayload)
 def create_understand_node(
     understander: QueryUnderstander,
     slot_merger: SlotMerger | None = None,
+    *,
+    postage_preflight: PostagePreflight | None = None,
 ):
     merger = slot_merger or SlotMerger()
 
@@ -58,6 +61,10 @@ def create_understand_node(
                 "multi_intent": False,
                 "control": result.control.value,
                 "slots": None,
+                "postage_policy_snapshot": None,
+                "postage_review_fingerprint": None,
+                "postage_confirmed_fingerprint": None,
+                "postage_requirements": [],
                 "slot_provenance": [],
                 "intent_choice_confirmed": False,
                 "missing_slots": [],
@@ -85,6 +92,39 @@ def create_understand_node(
         missing = list(result.missing_slots)
         incoming = result.slots
         existing = state.get("slots")
+        postage_update: dict[str, object] = {}
+        if postage_preflight is not None and isinstance(incoming, PostageSlots):
+            # Re-extract product locally; a model cannot invent an executable code.
+            message = state.get("latest_message", "")
+            evidence = message
+            if state.get("intent_choice_confirmed"):
+                evidence = state.get("pending_query", "") + " " + message
+            product, product_conflict = postage_preflight.select_product(
+                evidence, model_product=incoming.product_code,
+            )
+            incoming = incoming.model_copy(update={"product_code": product})
+            if product_conflict:
+                ambiguities.append("slot_conflict:product_code")
+            if product is not None:
+                result = result.model_copy(update={"slot_provenance": [
+                    item for item in result.slot_provenance if item.slot != "product_code"
+                ] + [SlotProvenance(slot="product_code", source="rule_extractor")]})
+            snapshot = state.get("postage_policy_snapshot")
+            if snapshot is None:
+                # An old paused postage query may have already lost unsupported
+                # original conditions. Never certify it using only the resume text.
+                snapshot = (
+                    "legacy-unverified"
+                    if active is Intent.POSTAGE and existing is not None
+                    else postage_preflight.fingerprint
+                )
+            postage_update = {
+                "postage_policy_snapshot": snapshot,
+                "postage_requirements": sorted(
+                    set(state.get("postage_requirements", []))
+                    | set(postage_preflight.unsupported_requirements(evidence))
+                ),
+            }
         existing_provenance = [
             SlotProvenance.model_validate(item)
             for item in state.get("slot_provenance", [])
@@ -146,6 +186,8 @@ def create_understand_node(
                 *required_missing_slots(resolved_slots),
                 *conflict_slots,
             ]
+            if postage_preflight is not None and resolved_slots.get("intent") == "postage":
+                missing = [*postage_preflight.missing_slots(PostageSlots.model_validate(resolved_slots)), *conflict_slots]
 
         intent_ambiguity = result.multi_intent or any(
             item
@@ -173,6 +215,7 @@ def create_understand_node(
             if item.startswith("slot_conflict:")
         ]
         return {
+            **postage_update,
             "latest_message": "",
             "explicit_intent": None,
             "active_intent": active_value,

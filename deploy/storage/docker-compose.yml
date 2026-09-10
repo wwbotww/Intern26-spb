@@ -1,0 +1,31 @@
+# Finite, synthetic storage drill only. No HTTP ports, live services or env_file.
+# Use --env-file /dev/null and a unique --project-name for each drill.
+x-storage: &storage
+  image: intern26-spb-agent-storage:6a2
+  build:
+    context: ../..
+    dockerfile: deploy/storage/Dockerfile
+  network_mode: none
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  volumes:
+    - runtime-data:/var/lib/spb-runtime
+    - backup-data:/var/lib/spb-backups
+    - restored-data:/var/lib/spb-restored
+
+services:
+  operator:
+    <<: *storage
+  demo:
+    <<: *storage
+    entrypoint: ["/app/.venv/bin/python", "-m", "spb_assistant_api.storage_demo"]
+    command: ["seed", "--directory", "/var/lib/spb-runtime/store"]
+
+volumes:
+  runtime-data:
+  backup-data:
+  restored-data:

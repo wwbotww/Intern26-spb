@@ -10,6 +10,7 @@ from ..domain.ports import QueryUnderstander
 from ..observability.telemetry import WorkflowTelemetry
 from ..services.agent_tools import ToolExecutor
 from ..services.result_validator import AgentResultValidator
+from ..services.postage_preflight import PostagePreflight
 from .instrumentation import instrument_node
 from .migrations import migrate_node_state
 from .nodes import (
@@ -77,6 +78,7 @@ class AgentGraphDependencies:
     policy: WorkflowPolicy
     executor: ToolExecutor
     validator: AgentResultValidator
+    postage_preflight: PostagePreflight | None = None
 
 
 def build_agent_graph(
@@ -92,7 +94,7 @@ def build_agent_graph(
     )
     nodes = {
         "ingest": ingest_agent_input,
-        "understand": create_understand_node(dependencies.understander),
+        "understand": create_understand_node(dependencies.understander, postage_preflight=dependencies.postage_preflight),
         "decide_next": create_decide_node(dependencies.policy),
         "clarify": clarify_agent_input,
         "execute_tool": create_execute_tool_node(dependencies.executor),

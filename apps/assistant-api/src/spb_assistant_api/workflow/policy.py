@@ -44,6 +44,8 @@ from ..domain.tooling import (
     argument_fingerprint,
 )
 from ..domain.understanding import ControlDirective
+from ..domain.agent_errors import AgentOperationError
+from ..services.postage_preflight import POSTAGE_CONFIRMATION, PostagePreflight
 
 
 _SLOTS_ADAPTER = TypeAdapter(SlotPayload)
@@ -58,6 +60,7 @@ _RETRYABLE_TOOL_FAILURES = {
 class WorkflowDecision:
     action: NextAction
     failure: AgentFailure | None = None
+    postage_review_fingerprint: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,8 +74,11 @@ class WorkflowPolicy:
     def __init__(
         self,
         descriptors: Mapping[Intent, ToolDescriptor],
+        *,
+        postage_preflight: PostagePreflight | None = None,
     ) -> None:
         self._descriptors = dict(descriptors)
+        self._postage_preflight = postage_preflight
 
     def decide(self, state: Mapping[str, Any]) -> WorkflowDecision:
         if state.get("last_result") is not None:
@@ -150,6 +156,15 @@ class WorkflowPolicy:
             )
 
         missing_slots = list(state.get("missing_slots", []))
+        if intent is Intent.POSTAGE and self._postage_preflight is not None:
+            try:
+                self._postage_preflight.validate_state(state)
+                slots = PostageSlots.model_validate(state.get("slots"))
+                missing_slots = list(dict.fromkeys([*missing_slots, *self._postage_preflight.missing_slots(slots)]))
+            except AgentOperationError as error:
+                return WorkflowDecision(action=RespondAction(), failure=error.failure)
+            except ValueError:
+                return self._failure(FailureCategory.INVALID_INPUT, "postage_slots_invalid", "资费输入不符合契约")
         if missing_slots:
             conflict_slots = {
                 item.split(":", 1)[1]
@@ -175,6 +190,10 @@ class WorkflowPolicy:
 
         try:
             command = self._build_command(intent, state.get("slots"))
+            if isinstance(command, PostageCommand) and self._postage_preflight is not None:
+                command = self._postage_preflight.prepare(command)
+        except AgentOperationError as error:
+            return WorkflowDecision(action=RespondAction(), failure=error.failure)
         except (TypeError, ValueError):
             return self._failure(
                 FailureCategory.INVALID_INPUT,
@@ -182,6 +201,35 @@ class WorkflowPolicy:
                 "已收集参数不能生成有效命令",
             )
         fingerprint = argument_fingerprint(command)
+        if (
+            isinstance(command, PostageCommand)
+            and self._postage_preflight is not None
+            and self._postage_preflight.require_confirmation
+            and state.get("postage_confirmed_fingerprint") != fingerprint
+        ):
+            # This is a reviewed command, not blanket permission for later edits.
+            context = command.pricing_context
+            assert context is not None
+            origin = command.origin.canonical_name
+            destination = command.destination.canonical_name
+            prompt = (
+                f"请确认本次基础询价：{origin} → {destination}，产品 {command.product_code}，"
+                f"实重 {context.weight_grams} 克；仅限国内实重、无增值服务。"
+                "结果仅为估算，不是最终收费。"
+                "如条件有误，请先修改；确认仅适用于本次条件。"
+            )
+            if self._postage_preflight.catalog.evidence == "synthetic":
+                prompt += "当前使用合成测试数据。"
+            return WorkflowDecision(
+                action=CollectSlotsAction(
+                    intent=intent, prompt=prompt,
+                    required_inputs=[RequiredInput(
+                        name="postage_confirmation", label="报价范围确认", type="choice",
+                        choices=[POSTAGE_CONFIRMATION], validation_hint=prompt,
+                    )],
+                ),
+                postage_review_fingerprint=fingerprint,
+            )
         try:
             query_id = UUID(str(state.get("query_id", "")))
             call_id = uuid5(
@@ -316,8 +364,8 @@ class WorkflowPolicy:
             )
         raise ValueError(f"尚未实现意图命令: {intent.value}")
 
-    @staticmethod
     def _required_input(
+        self,
         name: str,
         *,
         confirmation_required: bool = False,
@@ -327,6 +375,12 @@ class WorkflowPolicy:
             if confirmation_required
             else ""
         )
+        if name == "product_code" and self._postage_preflight is not None:
+            return RequiredInput(
+                name=name, label="询价产品", type="choice",
+                choices=self._postage_preflight.product_choices,
+                validation_hint="请选择目录中的产品；产品变更需要确认" + confirmation_hint,
+            )
         if name == "mail_no":
             return RequiredInput(
                 name="mail_no",
@@ -373,6 +427,7 @@ class WorkflowPolicy:
             "destination": "收件地区",
             "weight": "重量",
             "mail_no": "邮件号",
+            "product_code": "询价产品",
         }
         conflicts = conflict_slots or set()
         if conflicts:

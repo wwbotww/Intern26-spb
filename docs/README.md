@@ -32,7 +32,9 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
   总体为 `In progress`；阶段 0～2、3A、4A～4D、5A～5E 的本地切片已完成。
   模型 Adapter、真实烟测及 development 对照已完成；3B-T 的 T0～T3 契约 / Adapter、
   来源 / 新鲜度 / 迁移、受控 V2 / Web 已本地验证并收尾；接口不可达，T4 暂缓。
-  3B-P 资费文档分析完成、Adapter 未实现；代表性 holdout 与阶段 6 未完成。
+  3B-P 的 P0～P3、6A-1～6A-3 本地 / 合成通路完成，包含访客隔离、整库恢复、独立
+  HTTPS 部署与 V1 回退；工具链收口后当前 Python 1044 项、Web 70 项，完整 npm audit 0。
+  CI 文件及 moderate 门禁已实现，下一步获授权提交推送后验证远程执行；P4、holdout 和完整阶段 6 未完成。
 - [Phase 1 Agent Kernel 与 Fake Tracking](agent-kernel-phase1.md)：已实现的状态图、模块
   边界、预算、执行收据、Failure 路径、测试证据和未实现范围。
 - [Phase 2 Hybrid Understanding 与 SQLite 持久化](agent-kernel-phase2.md)：五意图规则、
@@ -51,7 +53,24 @@ Demo，文档只描述已经实现或已经确认的模块边界，不补写完�
 - [T3 受控装配、公开来源与 Web 闭环](agent-kernel-phase3b-tracking-t3.md)：56 项新增 Python
   与 12 项 Web 用例、配置 / 生命周期、语义熔断、来源契约及浏览器验收；已完成本地收尾，T4 暂缓。
 - [Phase 3B-P 资费接口评审与切片建议](agent-kernel-phase3b-postage-analysis.md)：CSB / 双层
-  签名、产品 / 地区 / 计费条件、金额口径、现有模块差距与 P1～P4 建议；仅分析，未实现 Adapter。
+  签名、产品 / 地区 / 计费条件、金额口径及 P0 初始差距；外部合同仍待确认。
+- [P1 资费领域契约与可执行条件](agent-kernel-phase3b-postage-p1.md)：86 项新增测试、
+  产品 / 地区目录、整数克、报价观察、上下文冻结与恢复保护；保持生产未装配。
+- [P2 资费协议与离线 Gateway](agent-kernel-phase3b-postage-p2.md)：160 项新增测试、双层签名、
+  四层响应检查、语义熔断、profile 绑定与可复跑 Graph / SQLite 烟测；只接受 MockTransport。
+- [资费扩展缺口台账](agent-kernel-phase3b-postage-gaps.md)：外部合同临时处理 / 所需证据，
+  以及 P3 内部关闭项、自然语言残余局限与后续交付顺序。
+- [P3 资费公开契约与离线 Web 闭环](agent-kernel-phase3b-postage-p3.md)：命令绑定确认、
+  白名单报价依据、独立离线工厂、13 场景 / 28 Turn Eval 与本地浏览器验收。
+- [6A-1 浏览器访客身份](agent-kernel-phase6a1-browser-identity.md)：代理服务 Key 与访客 owner
+  分离、Cookie/同源校验、核验后恢复、多标签页竞态与默认关闭配置；54 Python / 15 Web 新增。
+- [6A-2 SQLite 持久化与恢复](agent-kernel-phase6a2-sqlite-recovery.md)：受控目录 / 整库租约、
+  含 WAL 的停服快照、新目录恢复、44 项新增回归与独立断网 Docker 三卷演练；不覆盖旧库。
+- [6A-3 受控部署与离线 CI](agent-kernel-phase6a3-controlled-deployment.md)：独立冻结镜像、
+  HTTPS / Host / 公开路由、自动门禁文件和新卷恢复 / V1 回退合成演练；21 项新增回归，
+  远程 CI 尚未运行；[部署 runbook](../deploy/agent/README.md) 提供复跑和受控操作步骤。
+- [6A-3 工具链安全收口](agent-kernel-phase6a3-ci-closeout.md)：Vitest 4.1.11、默认单测与
+  dotenv / 开发代理分离、CI 全依赖 moderate 门禁、Node 22 构建内测试；3 项新增合同回归。
 - [Phase 4A Stateful Agent V2 JSON API](agent-kernel-phase4a.md)：显式装配的 V2 JSON、
   interrupt 投影、三层幂等、owner 隔离、外层 timeout、会话删除和 API 集成证据。
 - [Phase 4B Versioned SSE 与 Stateful Agent Web](agent-kernel-phase4b.md)：稳定 SSE 投影、

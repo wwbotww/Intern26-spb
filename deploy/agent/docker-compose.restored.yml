@@ -1,0 +1,7 @@
+# Explicit post-stop cutover to a validated NEW managed store in the restored volume.
+services:
+  assistant-api:
+    environment:
+      ASSISTANT_AGENT_DATABASE_PATH: /var/lib/spb-restored/store/agent.db
+      AGENT_DEMO_DATABASE_PATH: /var/lib/spb-restored/store/agent.db
+    volumes: [restored-data:/var/lib/spb-restored]

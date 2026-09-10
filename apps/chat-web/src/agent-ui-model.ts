@@ -48,6 +48,8 @@ export interface PendingAgentRequest {
 
 export interface AgentSessionSnapshot {
   version: 1
+  // Non-secret binding only. HttpOnly credential never enters JS / storage.
+  browserSessionRef?: string
   conversationId: string | null
   messages: AgentUiMessage[]
   pendingRequest: PendingAgentRequest | null

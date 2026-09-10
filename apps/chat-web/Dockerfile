@@ -6,7 +6,9 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
-RUN npm run build
+ARG VITE_ASSISTANT_UI_MODE=legacy
+ARG VITE_AGENT_BROWSER_SESSION=false
+RUN VITE_ASSISTANT_UI_MODE=$VITE_ASSISTANT_UI_MODE VITE_AGENT_BROWSER_SESSION=$VITE_AGENT_BROWSER_SESSION npm run build
 
 FROM nginx:1.27-alpine
 

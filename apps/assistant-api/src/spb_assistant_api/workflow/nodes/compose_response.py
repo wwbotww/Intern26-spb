@@ -66,6 +66,10 @@ def compose_agent_response(state: AgentState) -> dict[str, object]:
             "multi_intent": False,
             "control": "none",
             "slots": None,
+            "postage_policy_snapshot": None,
+            "postage_review_fingerprint": None,
+            "postage_confirmed_fingerprint": None,
+            "postage_requirements": [],
             "slot_provenance": [],
             "missing_slots": [],
             "ambiguities": [],
@@ -134,6 +138,24 @@ def compose_agent_response(state: AgentState) -> dict[str, object]:
 
 
 def _failure_reply(failure: AgentFailure) -> str:
+    postage_replies = {
+        "postage_scope_not_supported": "当前仅支持国内指定产品、按实重且无增值服务的基础询价。此次条件涉及未支持的范围，未生成报价；请确认条件后重新查询。",
+        "postage_weight_not_supported": "重量须为本地上限内、可精确换算成整数克的正数；不会自动取整。请修正后重新查询。",
+        "postage_context_changed_restart": "资费目录或报价口径已变化，或旧查询尚未核验条件。为避免错价，请重新发起查询。",
+        "postage_quote_manual_required": "该产品需要人工询价，本次未生成报价；请联系寄递服务方确认。",
+        "postage_quote_weight_rejected": "计费服务未接受此次重量，本次未生成报价；请核对条件后重新查询。",
+        "postage_quote_product_rejected": "计费服务未接受所选产品，本次未生成报价；请确认可用产品。",
+        "postage_quote_customer_eligibility": "当前询价身份不满足该产品的客户资格要求，未生成报价；请联系服务方确认。",
+        "postage_quote_billing_zone_unavailable": "计费服务未提供本次条件的计费区，未生成报价；这不代表该地区一定不可寄递。",
+        "postage_quote_rate_unavailable": "计费服务未提供本次条件的标准资费，未生成报价；请联系服务方确认。",
+        "postage_quote_customer_history_unavailable": "本次询价所需客户统计不可用，未生成报价；请联系服务方确认。",
+        "postage_quote_discount_rejected": "本次计价条件未通过服务方的折扣校验，未生成报价；请联系服务方确认。",
+        "postage_quote_billing_mode_unsupported": "计费服务不支持本次计费方式，未生成报价；请联系服务方确认。",
+        "postage_quote_collection_context_incomplete": "本次询价所需收寄上下文不完整，未生成报价；请联系服务方确认。",
+        "postage_response_scope_unsupported": "返回结果涉及当前未支持的计泡或额外服务费用，已停止展示报价；请联系服务方核实。",
+    }
+    if failure.code in postage_replies:
+        return postage_replies[failure.code]
     if failure.category in {
         FailureCategory.UPSTREAM_TIMEOUT,
         FailureCategory.UPSTREAM_RATE_LIMITED,

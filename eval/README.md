@@ -27,6 +27,16 @@
 - 独立计算 Understanding 六类 Intent Macro-F1、联合硬槽位 micro-F1、缺槽提示、
   正常 unknown／失败回退、调用预算、已知／未知用量与组件延迟，并从原始观测重算对照。
 
+## 资费公开 Workflow 回归（Phase 3B-P / P3）
+
+资费 P3 另有 [13 场景 / 28 Turn development 数据集](datasets/agent-postage-workflow-development-v1.jsonl)，
+仅经公开 V2 评测。新增 expected_quote_basis_values 用于断言 result.quote_basis 的点分字段
+（例如 source.source_type / fees.0.included_in_amount），纳入 Turn / Case 通过判定；
+expected_result_values 继续只表示 result.data，不改变旧数据集语义。
+独立 Eval 镜像不导入服务端；合成协议响应由应用侧 fixture 提供，不能读取 Gold 生成答案。
+复现入口、8 次 Mock 请求证据及限制见 [P3 说明](../docs/agent-kernel-phase3b-postage-p3.md)。
+全部通过不是模型质量或真实费率正确率。
+
 ## Understanding 组件评测（Phase 5C）
 
 它与下文 RAG／Assistant／Agent HTTP 数据集和命令分开，不用 `required_inputs`

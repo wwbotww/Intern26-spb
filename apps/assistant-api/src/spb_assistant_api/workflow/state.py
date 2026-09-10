@@ -77,6 +77,10 @@ class AgentState(TypedDict, total=False):
     turn_id: str
     query_id: str
     legacy_tool_call: dict[str, Any] | None
+    postage_policy_snapshot: str | None
+    postage_requirements: list[str]
+    postage_review_fingerprint: str | None
+    postage_confirmed_fingerprint: str | None
     message: str
     latest_message: str
     explicit_intent: str | None

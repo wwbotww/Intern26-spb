@@ -1,0 +1,9 @@
+# Optional, operator-approved existing dependency network. Never used by smoke.py.
+# It does not start RAG/MySQL, change their configuration, or enable logistics/model calls.
+services:
+  assistant-api:
+    networks: [agent-private, approved-dependencies]
+networks:
+  approved-dependencies:
+    external: true
+    name: ${AGENT_DEPENDENCY_NETWORK:?Explicit existing dependency network required}

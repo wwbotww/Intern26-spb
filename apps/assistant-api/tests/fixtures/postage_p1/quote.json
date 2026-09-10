@@ -1,0 +1,9 @@
+{
+  "amount": "12.30",
+  "billable_weight": {"value": "1500", "unit": "g"},
+  "source": {
+    "source_type": "fake_gateway",
+    "source_name": "synthetic-postage",
+    "profile": "postage-p1-synthetic-v1"
+  }
+}

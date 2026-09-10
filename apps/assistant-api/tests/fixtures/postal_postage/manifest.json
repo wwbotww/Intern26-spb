@@ -1,0 +1,18 @@
+{
+  "profile": "postal-postage-synthetic-v1",
+  "classification": "synthetic-development-wire-fixtures",
+  "provider_verified": false,
+  "live_requests": 0,
+  "catalog": "../postage_p1/catalog.json",
+  "cases": ["profile.json", "success.json", "signature_vectors.json"],
+  "vector_reference": "Locally frozen using OpenSSL dgst -md5 -binary twice, then base64; CSB via OpenSSL dgst -sha1 -hmac <synthetic key> -binary then base64. No supplier golden vectors.",
+  "csb_reference": "https://github.com/aliyun/csb-sdk/blob/master/Java/src/main/java/com/alibaba/csb/CsbSignature.java",
+  "assumptions": [
+    "Business signature uses raw MD5 bytes at both stages, password + exact sorted compact UTF-8 map JSON",
+    "CSB scalar-form signing uses public example header fields and epoch milliseconds, no nonce",
+    "body.retBody is decoded exactly once to an object containing map",
+    "Response weights are integer grams, CNY prices use major currency units; totalFee is selected explicitly",
+    "Fuel breakdown inclusion is unknown; no fee is added to totalFee",
+    "All records and credentials are invented; no real prices, routes or product codes"
+  ]
+}

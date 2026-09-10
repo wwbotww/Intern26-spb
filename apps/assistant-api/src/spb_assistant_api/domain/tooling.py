@@ -31,8 +31,12 @@ CommandModel: TypeAlias = (
 
 def argument_fingerprint(command: CommandModel) -> str:
     """Argument integrity only; never a conversation-wide cache identity."""
+    values = command.model_dump(mode="json")
+    if isinstance(command, PostageCommand) and command.pricing_context is None:
+        # Preserve pre-P1 action/receipt fingerprints byte-for-byte.
+        values.pop("pricing_context", None)
     payload = json.dumps(
-        command.model_dump(mode="json"),
+        values,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

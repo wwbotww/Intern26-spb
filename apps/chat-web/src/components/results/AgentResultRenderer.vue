@@ -20,7 +20,7 @@ const data = computed(() => props.result.data ?? {})
     :provenance="result.provenance ?? []"
   />
   <DeliveryTimeResult v-else-if="result.type === 'delivery_time'" :data="data" />
-  <PostageResult v-else-if="result.type === 'postage'" :data="data" />
+  <PostageResult v-else-if="result.type === 'postage'" :data="data" :status="result.status" :basis="result.quote_basis ?? null" />
   <EvidenceResult
     v-else
     :type="result.type"

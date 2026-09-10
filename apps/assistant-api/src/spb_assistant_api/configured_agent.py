@@ -108,6 +108,7 @@ def create_configured_agent_factory(
             )
             components = await stack.enter_async_context(create_persistent_agent(
                 database_path=settings.agent_database_path,
+                managed_storage=settings.agent_managed_storage_enabled,
                 tracking_gateway=tracking,
                 # Missing shipping contracts remain absent, never Fake fallback.
                 policy_tool=borrowed.get(QueryMode.POLICY),

@@ -9,6 +9,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    TypeAdapter,
     model_validator,
 )
 NonEmptyText = Annotated[
@@ -366,6 +367,7 @@ class AgentEvalTurn(BaseModel):
     )
     expected_result_status: AgentResultStatus | None = None
     expected_result_values: dict[str, Any] = Field(default_factory=dict)
+    expected_quote_basis_values: dict[str, Any] = Field(default_factory=dict)
     expected_failure_category: AgentFailureCategory | None = None
     expected_failure_code: NonEmptyText | None = None
 
@@ -401,7 +403,7 @@ class AgentEvalTurn(BaseModel):
         ):
             raise ValueError("只有 completed turn 可以期待 result")
         if (
-            self.expected_result_values
+            (self.expected_result_values or self.expected_quote_basis_values)
             and self.expected_result_status is None
         ):
             raise ValueError("result value 断言必须同时声明 result status")
@@ -455,6 +457,56 @@ class AgentSourceObservation(BaseModel):
     history_completeness: Literal["complete", "partial", "unknown"] = "unknown"
 
 
+PublicQuoteAmount = Annotated[
+    str, StringConstraints(strict=True, pattern=r"^(0|[1-9][0-9]{0,8})\.[0-9]{2}$")
+]
+_PUBLIC_QUOTE_AMOUNT = TypeAdapter(PublicQuoteAmount)
+_PUBLIC_QUOTE_TIME = TypeAdapter(AwareDatetime)
+
+
+class PostageSourceObservation(BaseModel):
+    """Quotation observation: deliberately no tracking history semantics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_type: Literal["fake_gateway", "external_api"]
+    source_name: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    source_profile: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    queried_at: AwareDatetime
+
+
+class PostageFeeObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal[
+        "registration", "insurance", "declared_value", "inspection", "customs",
+        "fuel", "return_receipt", "password_delivery", "printing", "handling",
+    ]
+    amount: PublicQuoteAmount
+    included_in_amount: Literal["yes", "no", "unknown"]
+
+
+class PostageQuoteBasisObservation(BaseModel):
+    """Versioned public allowlist. No pricing identity, hashes or billing IDs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1"] = "1"
+    amount_kind: Literal["total", "standard", "customer"]
+    currency: Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+    product_code: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    scope: Literal["domestic_actual_weight_no_extras"]
+    is_estimate: Literal[True]
+    fees: list[PostageFeeObservation] = Field(default_factory=list)
+    source: PostageSourceObservation
+
+    @model_validator(mode="after")
+    def unique_fees(self) -> "PostageQuoteBasisObservation":
+        if len({fee.kind for fee in self.fees}) != len(self.fees):
+            raise ValueError("报价费用项不能重复")
+        return self
+
+
 class AgentResultObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -463,6 +515,23 @@ class AgentResultObservation(BaseModel):
     data: dict[str, Any] | None = None
     reason_code: str = ""
     provenance: list[AgentSourceObservation] = Field(default_factory=list)
+    quote_basis: PostageQuoteBasisObservation | None = None
+
+    @model_validator(mode="after")
+    def validate_quote_basis(self) -> "AgentResultObservation":
+        basis = self.quote_basis
+        if basis is not None:
+            if self.type != "postage" or self.status != "success" or self.data is None:
+                raise ValueError("报价依据仅能出现在成功资费结果中")
+            if (self.data.get("currency"), self.data.get("product_code")) != (
+                basis.currency, basis.product_code,
+            ):
+                raise ValueError("报价依据必须与资费数据一致")
+            _PUBLIC_QUOTE_AMOUNT.validate_python(self.data.get("amount"))
+            if _PUBLIC_QUOTE_TIME.validate_python(self.data.get("queried_at")) != basis.source.queried_at:
+                raise ValueError("报价依据观察时间必须与数据一致")
+        return self
+
 
 
 class AgentFailureObservation(BaseModel):

@@ -2,6 +2,7 @@
 import { computed, reactive, watch } from 'vue'
 
 import type { PublicIntent, RequiredInput } from '../agent-api'
+import { slotReply } from '../agent-slot-input'
 
 
 const props = defineProps<{
@@ -24,7 +25,7 @@ const fieldInputs = computed(() =>
   props.inputs.filter((item) => item.name !== 'intent'),
 )
 const complete = computed(() =>
-  fieldInputs.value.every((item) => (values[item.name] ?? '').trim()),
+  Boolean(slotReply(fieldInputs.value, values)),
 )
 const confirmationRequired = computed(() =>
   props.inputs.some((item) =>
@@ -68,10 +69,8 @@ function chooseIntent(value: string): void {
 
 
 function submit(): void {
-  if (!complete.value || props.pending) return
-  const message = fieldInputs.value
-    .map((item) => `${item.label}：${values[item.name].trim()}`)
-    .join('；')
+  if (!complete.value || props.pending || (confirmationRequired.value && !confirmOverwrite.value)) return
+  const message = slotReply(fieldInputs.value, values)
   emit('submit', {
     message,
     confirmOverwrite: confirmationRequired.value && confirmOverwrite.value,
@@ -104,7 +103,17 @@ function submit(): void {
     <form v-if="fieldInputs.length" class="agent-slot-form" @submit.prevent="submit">
       <label v-for="input in fieldInputs" :key="input.name">
         <span>{{ input.label }}</span>
+        <select
+          v-if="input.type === 'choice'"
+          v-model="values[input.name]"
+          :disabled="pending"
+          :aria-label="input.label"
+        >
+          <option disabled value="">请选择{{ input.label }}</option>
+          <option v-for="choice in input.choices" :key="choice" :value="choice">{{ choice }}</option>
+        </select>
         <input
+          v-else
           v-model="values[input.name]"
           type="text"
           :inputmode="input.type === 'number' ? 'decimal' : 'text'"

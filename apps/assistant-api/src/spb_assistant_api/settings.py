@@ -6,6 +6,8 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .security.browser_session import BrowserSessionConfig
+
 
 class AssistantSettings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -39,8 +41,18 @@ class AssistantSettings(BaseSettings):
     # Opt-in single-process V2 composition. No temporary/implicit state store.
     agent_enabled: bool = False
     agent_database_path: str = Field(default="", repr=False)
+    agent_managed_storage_enabled: bool = False
     agent_conversation_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
     agent_request_timeout_seconds: float = Field(default=30, gt=0, le=120)
+
+    # Anonymous visitor isolation, not user login. Requires a dedicated gateway role.
+    agent_browser_session_enabled: bool = False
+    agent_browser_proxy_api_key: SecretStr = SecretStr("")
+    agent_browser_signing_key: SecretStr = SecretStr("")
+    agent_browser_previous_signing_key: SecretStr = SecretStr("")
+    agent_browser_public_origin: str = ""
+    agent_browser_cookie_secure: bool = True
+    agent_browser_session_ttl_seconds: int = Field(default=1800, ge=60, le=86400)
 
     tracking_enabled: bool = False
     tracking_base_url: str = Field(default="", repr=False)
@@ -102,6 +114,16 @@ class AssistantSettings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_dependency_settings(self) -> "AssistantSettings":
+        if self.agent_managed_storage_enabled and not self.agent_enabled:
+            raise ValueError("受控存储必须同时启用 V2 Agent")
+        if self.agent_browser_session_enabled:
+            if not self.agent_enabled:
+                raise ValueError("浏览器访客隔离必须同时启用受控 V2")
+            config = self.browser_session_config()
+            if config.proxy_api_key not in self.parsed_api_keys():
+                raise ValueError("浏览器代理 Key 必须包含在服务 API Key 列表中")
+            if config.signing_key in self.parsed_api_keys() or config.previous_signing_key in self.parsed_api_keys():
+                raise ValueError("浏览器签名 Key 不能复用任何服务 API Key")
         if self.tracking_enabled and not self.agent_enabled:
             raise ValueError("启用轨迹装配必须同时启用 ASSISTANT_AGENT_ENABLED")
         if self.agent_enabled:
@@ -166,6 +188,18 @@ class AssistantSettings(BaseSettings):
                 "price_result_limit 不能大于 price_candidate_limit"
             )
         return self
+
+    def browser_session_config(self) -> BrowserSessionConfig | None:
+        if not self.agent_browser_session_enabled:
+            return None
+        return BrowserSessionConfig(
+            public_origin=self.agent_browser_public_origin,
+            proxy_api_key=self.agent_browser_proxy_api_key.get_secret_value(),
+            signing_key=self.agent_browser_signing_key.get_secret_value(),
+            previous_signing_key=self.agent_browser_previous_signing_key.get_secret_value(),
+            secure=self.agent_browser_cookie_secure,
+            ttl_seconds=self.agent_browser_session_ttl_seconds,
+        )
 
     def parsed_api_keys(self) -> tuple[str, ...]:
         value = self.api_keys.get_secret_value()

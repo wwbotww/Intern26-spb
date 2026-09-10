@@ -10,11 +10,13 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    TypeAdapter,
     model_validator,
 )
 
 from .intents import Intent
 from .primitives import MailNumber
+from .postage import PostageQuoteBasis, QuoteMoney
 from .slots import RegionRef, WeightValue
 
 
@@ -25,6 +27,7 @@ CurrencyCode = Annotated[
         pattern=r"^[A-Z]{3}$",
     ),
 ]
+_QUOTE_MONEY_ADAPTER = TypeAdapter(QuoteMoney)
 
 
 class AgentResultStatus(StrEnum):
@@ -184,6 +187,23 @@ class PostageData(BaseModel):
     currency: CurrencyCode
     product_code: str = ""
     queried_at: datetime
+    quote_basis: PostageQuoteBasis | None = None
+
+    @model_validator(mode="after")
+    def validate_explicit_quote(self) -> "PostageData":
+        if self.quote_basis is None:
+            return self  # Historical fake results retain their unknown basis.
+        _QUOTE_MONEY_ADAPTER.validate_python(self.amount)
+        context = self.quote_basis.context
+        if self.currency != context.currency or self.product_code != context.product_code:
+            raise ValueError("报价金额或产品口径与上下文不一致")
+        if self.billable_weight is None or self.billable_weight.value is None:
+            raise ValueError("明确报价必须返回计费重量")
+        if not self.billable_weight.value.is_finite():
+            raise ValueError("计费重量必须是有限数")
+        if self.queried_at.utcoffset() is None:
+            raise ValueError("报价查询时间必须包含时区")
+        return self
 
 
 AgentData = Annotated[

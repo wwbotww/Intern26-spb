@@ -74,7 +74,7 @@ class RegionRef(BaseModel):
 class WeightValue(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    value: Decimal | None = Field(default=None, gt=0)
+    value: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
     unit: Literal["g", "kg"] = "kg"
 
 

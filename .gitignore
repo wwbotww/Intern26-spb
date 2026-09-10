@@ -10,6 +10,13 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Managed Agent runtime / backup artifacts may contain private conversation state.
+**/agent.db*
+**/agent-store.json
+**/agent-store.lock
+**/.agent-store-reserved
+**/snapshot.sqlite3*
+
 # 运行期抓取数据可能很大，不纳入版本控制。
 data/raw/
 data/state/

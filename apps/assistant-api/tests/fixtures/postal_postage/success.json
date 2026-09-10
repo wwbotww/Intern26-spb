@@ -1,0 +1,12 @@
+{
+  "Code": "200",
+  "RequestId": "synthetic-request-id",
+  "Message": "SYNTHETIC-PRIVATE-MESSAGE",
+  "body": {
+    "serialNo": "synth-p2-1",
+    "retCode": "000",
+    "retDate": "2026-09-09 16:00:00",
+    "retMsg": "SYNTHETIC-PRIVATE-MESSAGE",
+    "retBody": "{\"map\":{\"errorcode\":null,\"errorname\":null,\"weight\":\"1250\",\"feeWeight\":\"1500\",\"volWeight\":null,\"volRatio\":\"0\",\"totalFee\":\"12.30\",\"standardFee\":\"11.50\",\"realFee\":null,\"regFee\":null,\"BXF\":null,\"BJF\":null,\"YGF\":null,\"BGF\":null,\"FJF\":\"0.80\",\"HZF\":null,\"MMTDF\":null,\"DYFWF\":null,\"BJSXZF\":null,\"internalNote\":\"SYNTHETIC-PRIVATE-MESSAGE\"}}"
+  }
+}

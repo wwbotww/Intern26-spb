@@ -317,10 +317,23 @@ Agent，以 LangGraph 作为核心 Workflow Runtime。当前已补齐模型 Adap
 Dashboard 已完成本地闭环，不把离线完成写成代表性验收。随后取得单份轨迹文档，已完成
 阶段 3B-T 的 T0/T1 契约、表单 / 签名与 Gateway，以及 T2 查询作用域、State v3 / 收据
 迁移和领域来源的离线切片；T3 又完成受控 V2 装配、公开来源 / Web、语义级熔断及能力
-可用性前置检查。当前 Python `641 passed`、Web `29 passed`，并完成本地收尾；用户确认
+可用性前置检查。T3 本地收尾时 Python `641 passed`、Web `29 passed`；用户确认
 接口暂不可达，T4 真实联调暂缓。随后资费文档已完成
-[契约评审](agent-kernel-phase3b-postage-analysis.md)，仅分析，未实现资费 Adapter；时限仍待文档。
-阶段 6A 的装配准备可在该路径复用，完整部署验收仍未完成。详细实施基线见
+[契约评审](agent-kernel-phase3b-postage-analysis.md)及 [P1 领域 / 工作流切片](agent-kernel-phase3b-postage-p1.md)，
+P1 新增 86 项后 Python `727 passed`；随后 [P2](agent-kernel-phase3b-postage-p2.md) 新增 160 项，
+当时 Python `887 passed`、Web `29 passed`，资费协议已贯通 Mock / Graph / SQLite；
+随后 [P3](agent-kernel-phase3b-postage-p3.md) 完成命令绑定确认、公开依据及离线 V2 / Web / Eval，
+当时 Python `922 passed`、Web `55 passed`。随后 [6A-1](agent-kernel-phase6a1-browser-identity.md)
+完成匿名访客身份隔离，当时 Python `976 passed`、Web `70 passed`。
+[6A-2](agent-kernel-phase6a2-sqlite-recovery.md) 又完成受控 SQLite / 整库租约、停服快照与新目录
+恢复，新增 44 项后当时 Python `1020 passed`、Web `70 passed`；断网 Docker 三卷重建、
+继续和免调用重放通过。真实互通未完成，时限仍待文档。未确认事项记录在[缺口台账](agent-kernel-phase3b-postage-gaps.md)。
+[6A-3](agent-kernel-phase6a3-controlled-deployment.md) 又补独立受控入口、冻结镜像、HTTPS /
+公共路由和新卷恢复 / V1 回退，新增 21 项后当时 Python `1041 passed`、Web `70 passed`。
+[工具链收口](agent-kernel-phase6a3-ci-closeout.md)又完成 Vitest 4.1.11、默认测试隔离与
+moderate 门禁；新增 3 项后当前 Python `1044 passed`、Web `70 passed`，完整 npm audit 为 0。
+CI 自动工作流已实现但远程未运行；下一步授权提交推送后验证 CI，完整部署
+验收仍未完成。详细实施基线见
 [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
 ### 11.1 设计问题与目标
@@ -762,17 +775,172 @@ Phase 5D 新增 31 个审核／冻结／V2 集成 case 后为 `411 passed`，无
 均通过；本轮仅更新文档，没有新增代码或真实调用。接口不可达后明确将“本地验收完成”
 与“T4 暂缓”分开记录，没有把外部依赖问题改写成已接入事实。
 
-资费文档评审可用作**设计讨论素材，不能写成已实现业绩**：相同的“查询”交互并不意味着
+初次资费文档评审仅属于**设计讨论素材**；随后 P1/P2 已实现的部分见故事 P/Q。相同的“查询”交互并不意味着
 相同协议或业务语义。现有 Graph / Tool Port / 收据 / HTTP 边界可以复用，但新的 CSB
 双层签名、必需产品、地域字典和总资费 / 实收 / 增值费口径要在 Adapter 与领域契约中
 分别处理。尤其不能把 HTTP 200 当报价成功，或让模型猜产品码和缺失金额。详见
 [Phase 3B-P 分析](agent-kernel-phase3b-postage-analysis.md)。
 
+#### 故事 P：识别意图不等于能够执行正确的报价
+
+- Situation：旧资费只收两地和重量，但新文档要求产品，并有标准 / 客户 / 总资费等口径。
+  如果恢复期间配置变化，或补槽时非法新重量被忽略，就可能生成条件不一致的报价。
+- Action：在原 LangGraph 中注入纯前置策略，以目录验证产品和计费地域；参数指纹生成前
+  固定产品、整数克、币种 / 金额口径和目录内容指纹。新报价必须有观察依据，写收据与
+  重放校验一致性；旧未完成查询没有核验记录时要求重新发起，旧完成数据保留未知依据。
+- Result：86 项新增离线测试，完整 Python `727 passed`，覆盖产品冲突、两后端重放、
+  SQLite 重启 / 配置漂移、异常重量、非法报价不落收据和内部绑定不公开；真实请求为 0。
+- Boundary：没有真实产品字典、CSB 互通或正式报价 UI；保守范围规则会误拦截否定表达，
+  也不能覆盖全部隐含条件。不能把这组合同回归写成生产报价准确率。
+
+#### 故事 Q：合同不完整时，如何推进通路并保留真实边界
+
+- Situation：资费文档存在双层签名、四层错误与多金额口径，但业务样例、字典和单位
+  不完整，真实服务也不可访问；只写领域 Fake 无法验证协议映射，自动猜结构又可能错价。
+- Action：把未确认内容冻结为具名 synthetic profile，以严格 MockTransport 门禁打通
+  map 序列化、业务 / CSB 签名、分层响应、Graph 与 SQLite；profile 语义参与报价上下文
+  指纹，旧查询配置变化后必须重新发起。用缺口台账分别管理临时选择与需要接口方确认的证据。
+- Failure Handling：只有图拥有两次尝试预算。HTTP / 契约故障由 Gateway 单次记账；
+  已识别业务拒绝不重试、不写成功报价收据，但可证明协议路径健康，避免客户资格问题
+  熔断整个能力。取消释放半开探测，缺价格 / 计费重不让模型或其他金额字段补齐。
+- Result：新增 160 项离线测试，全量 Python `887 passed`；独立 smoke 经补产品、SQLite
+  重启、报价、收据重放与新查询，仅发生 2 次 Mock 请求，真实物流 / 模型调用为 0。
+  两组本地 OpenSSL 签名向量验证原文与编码顺序，不与运行时 signer 自我循环证明。
+- Boundary：本地向量不是供应商 golden vector；CNY / 克 / totalFee 等仍为合成假设，
+  不宣称生产报价正确率、CSB 互通或新版资费 UI 已验收。API 产品槽位 / 来源 / Web / Eval
+  的缺口留给 P3，不因 Graph 已完成就把公开链路标为完成。
+
+面试时可讲清三个边界：LangGraph 管状态与有限循环，Adapter 管遗留协议和单次健康观察，
+Domain / 前置策略管能否执行和报价条件；框架并不能替代合同确认或金额解释。
+
+#### 故事 R：将“收齐字段”与“确认执行”分开，并贯通公开消费者
+
+- Situation：资费已有内部离线 Adapter，但公开 API 不接受产品槽位，UI 也无法说明
+  金额口径；用户修改重量后，不能把“确认覆盖”视为接受询价范围。
+- Task：在供应商仍不可达的条件下形成可演示、可验证且不误导使用者的 Agent 闭环。
+- Action：用纯 Policy 准备命令、生成指纹，复用 LangGraph interrupt / checkpoint
+  保存待审条件，resume 后比较当前指纹才执行；计价主体引用变化使旧确认失效。
+  为报价定义独立白名单 DTO，协调 API / SSE / OpenAPI / TS / 刷新解析 / Eval，
+  不泄露内部计费 ID，不复用轨迹历史完整性解释价格，不擅自补币种或合计费用。
+- Result：P3 新增 35 项 Python、26 项 Web 回归，该切片完成时全量 922 / 55；13 场景 / 28 Turn
+  公共 V2 Eval 全部通过，8 次 Mock 请求，真实物流 / 模型调用为 0；浏览器验证补产品、
+  待确认刷新恢复、报价依据与观察时间保留、业务拒绝无假报价。
+- Boundary：这是命令绑定确认和跨消费者合同治理，不是自由 Agent 的自动业务授权，
+  也不是生产准确率；“不需要保价”仍可能保守误拒，P4 和代表性理解 holdout 仍未验收。
+
+可追问的核心：审批快照如何绑定到执行参数？配置漂移是否影响暂停会话？为何来源信息
+不能直接序列化 Domain？何时应复用收据、何时必须重新查询？这些均有可运行测试支撑。
+
+#### 故事 S：识别“服务 Key 不等于访客”，将身份约束放在 Agent 运行时之前
+
+- Situation：原 V2 已有 owner 检查，但 Nginx 给所有浏览器注入一个服务 Key，导致访客
+  实际共享 owner；只验证“不同 API Key 不能互访”不足以证明 Web 多访客隔离。
+- Task：在不改 LangGraph 业务图、不引入未完成账号系统的前提下，建立可验收的匿名
+  访客边界，并避免刷新或重试把旧请求交给新身份。
+- Action：分离服务鉴权/共享配额和 Cookie-derived owner，增加 origin-bound HMAC、
+  固定有效期、精确 Origin 与 session_ref 核验，复用 API owner 门禁保护 metadata、
+  checkpoint 和幂等。Web 先核验再恢复本地历史；身份改变时中止旧流、不自动重发。
+  浏览器测试又发现旧标签页核验响应覆盖 reset Cookie，改为普通核验不签发 Cookie，
+  并保留可重复的延迟响应回归。签名轮换接受前代 Token，不延长绝对期限。
+- Result：新增 54 Python / 15 Web 测试，全量 976 / 70；两个独立 cookie jar 的 JSON/SSE/
+  删除隔离、SQLite 重启、轮换/过期、共享限流与多标签页 UI 通过本地合成验证。没有真实
+  模型/物流请求，生产默认未开启。
+- Boundary：匿名隔离不是登录、RBAC、计价资格或强制注销；reset 不撤销复制的旧 Token。
+  当时备份仍待实施，随后由 6A-2 补齐；6A-3 又补本地 HTTPS / Compose / CI 文件，
+  远程 CI、生产部署与分布式会话控制仍待验收，不能称为完整企业 IAM。
+
+面试可追问：为什么不能用 thread_id 授权？为何配额不跟随随机访客 ID？Cookie 重建
+与删除会话有什么不同？为什么普通核验不做滑动续期？设计与证据见
+[ADR 0017](adr/0017-browser-visitor-identity.md) 和 [6A-1](agent-kernel-phase6a1-browser-identity.md)。
+
+#### 故事 T：Agent 恢复不只恢复图，还要恢复授权、幂等与有效期
+
+- Situation：已有 LangGraph Checkpointer 与 SQLite 持久化，但只备份 checkpoint 会丢失
+  owner、创建 / 消息幂等和执行收据。即使整库文件可读，也可能截在一个尚未完成的业务步骤中。
+- Task：在真实接口不可达时，为单实例 Agent 建立有明确边界、可复跑的备份与恢复通路，
+  不改变 Domain / Graph 规则，不覆盖用户现有数据库，不靠真实请求验证恢复。
+- Action：将 0700/0600 路径校验与整库非阻塞进程租约放到基础设施 / composition 边界，
+  让运行时和 CLI 协作停服；备份检查未完成 claim，使用 SQLite Backup API 纳入已提交 WAL。
+  对 8 张表生成版本化清单和 SHA-256，恢复仅创建新目录，校验后才发布；保留 owner、原始
+  TTL、请求 hash、checkpoint 与 Tool 收据。用公开 API 测报价确认继续、跨 owner 拒绝、
+  幂等 / 删除 / TTL，再用 UID 10001、断网只读容器和三个命名卷验证跨容器重建。
+- Result：新增 44 项存储 / 故障 / API 回归，全量 Python 1020 / Web 70 通过；Docker
+  seed / resume / replay 分别为 1 / 1 / 0 次 Fake 工具调用，真实调用为 0。
+  完成源库、备份包与恢复库隔离验证，没有把“原库覆盖成功”当作恢复验收。
+- Boundary：这是本地单实例 quiescent snapshot，不是在线业务事务快照、任意 crash repair、
+  多副本协调或上游 exactly-once。SHA-256 不是签名，0600 不是加密；旧备份可能带回后来
+  删除的数据，密钥 / Origin 需独立匹配，异地与保留策略、备份外删除账本仍是待办。
+
+面试可追问：SQLite Backup API 已能在线复制，为什么还要停服？为什么锁文件不能删除？
+恢复后什么情况下应该重新执行工具，什么情况下只返回收据？图状态完整为什么仍可能拒绝
+恢复？为什么数据库备份不能恢复浏览器身份和删除历史？证据见
+[ADR 0018](adr/0018-quiescent-agent-storage-snapshots.md) 和 [6A-2](agent-kernel-phase6a2-sqlite-recovery.md)。
+
+#### 故事 U：部署验收验证信任与恢复，不只是容器 healthy
+
+- Situation：Graph、访客 owner 和 SQLite 恢复已经有单测，但真实代理可能泄露 metrics、
+  混淆服务 Key 与访客，或在 Web / API 模式错配时失去恢复能力；供应商暂不可访问。
+- Task：不触碰真实配置和旧库，建立独立单实例部署、可执行 CI 和能解释的回退证据，
+  同时保持 LangGraph Node 与业务 Tool 的职责不变。
+- Action：拆分严格受控入口与纯合成组合根，前者缺依赖 readiness 503、绝不 Fake 兜底；
+  后者忽略业务环境、只允许回环 HTTPS。冻结基础镜像 digest / 依赖 lock，绑定 Web 构建
+  和代理模式；Key 仅在代理私有 tmpfs，TLS / Host / 方法 / 路由门禁与 API owner 校验分层。
+  将存储初始化、运行和停服运维分离，用同一公开 HTTPS 入口串起两访客、整库备份、新卷
+  恢复、SSE 继续 / 回放和 V1 → V2 切换。CI 最小权限 / 固定 Actions SHA、不读 secrets；
+  演练固定本机 Docker endpoint，防止环境 context 重定向操作目标。
+- Result：新增 21 项回归，全量 Python 1041 / Web 70、13 场景 / 28 Turn / 8 次 Mock
+  Eval 通过；本地 Docker 四组验收通过。恢复后的完成请求 execute_tool 计数为 0，暂停
+  请求继续仅增加 1，再次回放与 V1 返回后不增加。V1 JSON/SSE 可用，未降级 / 删除 Agent DB。
+  构建审计同时发现并修复 nanoid high，当时保留 Vitest 2 项 moderate 的后续升级任务。
+- Boundary：真实业务调用为 0；CI 文件已实现不代表远程绿灯。回退是同版本 API/UI 模式
+  切换，不是旧二进制或 DB schema downgrade；单机自签 HTTPS 不是公网证书 / 企业 IAM，
+  也不是多架构、生产 SLA、多副本、供应商 exactly-once 或漏洞全面清零的证据。
+
+调试中的具体教训：短生命周期证书初始化先设置文件 mode 再转移 UID；BusyBox 的正则
+重复次数上限与本机工具不同，Key 长度改用 shell 校验；只读 Nginx 要配置所有临时路径；
+容器内部 healthy 不能证明 host 发布路径可访问，需要真实 HTTPS 黑盒验证。修复后重跑
+整个恢复 / 回退流程，而不是只复查最后一个报错。
+
+后续工具链收口的补充证据：按维护者公告将 Vitest 家族升级至 4.1.11，区分“同一漏洞
+影响两个依赖条目”和“两种独立漏洞”；保持运行时依赖与原 70 项业务用例不变。为默认
+单测建立不读 dotenv / 不带代理的独立入口，将 CI 安装与审计显式覆盖 dev，收紧至
+moderate 门禁，补 3 项合同回归。固定 Node 22 构建内先测试再生成两种 UI，最后再跑公开
+HTTPS 恢复 / 回退；全量 Python 1044、Web 70、npm audit 0。最终运行镜像 ID 未变化，
+因为升级的测试工具未进入运行镜像；锁文件 / 构建日志与运行产物是不同层次的证据。
+该结果仍不覆盖 Python / OS 安全扫描或远程 CI。详见[工具链收口](agent-kernel-phase6a3-ci-closeout.md)。
+
+面试可追问：为何正常入口不能自动注入 Fake？为什么 TLS 之外还要检查 Host / Origin？
+代理为什么不能自动 retry Agent POST？恢复库后为什么还要保留密钥和原幂等请求？API/UI
+回退和 schema 回滚有何区别？如何证明 CI 不误用本地凭据？证据见
+[ADR 0019](adr/0019-controlled-deployment-and-offline-ci.md)、
+[6A-3](agent-kernel-phase6a3-controlled-deployment.md)和[可复跑脚本](../deploy/agent/smoke.py)。
+
 ### 11.6 简历 bullet 模板
 
-当前可以使用、但必须明确 `Phase 3B-T T3 / Phase 5E / Fake 或 Mock Gateway / fixture 或 development / local SQLite / opt-in V2`
+当前可以使用、但必须明确 `Phase 3B-T T3 / Phase 3B-P P1–P3 / Phase 5E / Phase 6A-1–3 / Fake 或 Mock Gateway / fixture 或 development / local SQLite / opt-in V2`
 范围的工程表述：
 
+- 为 LangGraph Agent 构建独立受控部署与离线 CI 工作流，分层实现 HTTPS / 代理身份 /
+  路由白名单和单实例持久卷，新增 21 项回归；通过真实 Nginx / Docker 合成演练验证双
+  访客隔离、新卷恢复、SSE 幂等回放与 V1 回退（本地验收，远程 CI / 生产发布待验证）。
+- 将 Agent Web 测试入口与真实运行配置分离，完成 Vitest 安全大版本迁移及全开发依赖
+  moderate 门禁；保持原 70 项用例 / 运行时依赖不变，验证 Node 22 构建内测试与两种
+  UI 构建，npm 已知漏洞报告归零（限定当时锁文件 / npm 公告库，非整体安全认证）。
+- 为 LangGraph Agent 实现停服整库备份与独立目录恢复，覆盖 owner、checkpoint、消息幂等
+  和 Tool 收据；以合作进程租约、版本 / 摘要校验及 44 项新增回归验证恢复后继续、免调用
+  重放、TTL 与删除，并完成断网 Docker 三卷演练（本地单实例，非分布式灾备）。
+- 为 Stateful Agent 分离代理服务鉴权与匿名访客归属，在 API 边界实现签名 Cookie、
+  同源校验和身份绑定的会话恢复；修复多标签页 Cookie 覆盖竞态，新增 54 后端 / 15 Web
+  回归，完成双访客越权、幂等/重启与浏览器验证（本地 opt-in Demo，非完整登录系统）。
+- 基于 LangGraph interrupt / checkpoint 构建命令绑定的资费确认流程，区分补槽、覆盖冲突
+  与执行确认；通过白名单报价依据贯通 V2 JSON/SSE、Web 刷新恢复和独立 Eval，新增
+  35 项 Python / 26 项 Web 回归，并完成 13 场景 / 28 Turn 合成黑盒验证（非真实资费接入）。
+- 在资费合同不完整、服务不可达的条件下，以版本化临时 profile 实现独立协议适配层，
+  完成双层签名、四层成功校验、单次语义熔断与 LangGraph / SQLite 离线通路；新增
+  160 项合同 / 故障 / 恢复测试，并以缺口台账区分工程完成和供应商互通，避免未知金额兜底。
+- 为资费 Agent 建立产品 / 地域可执行门禁、精确整数克与显式定价上下文，在生成执行
+  参数指纹前固定报价口径；通过恢复时的目录内容校验、类型化报价观察和收据校验防止
+  条件漂移，新增 86 项合成领域 / 多轮回归测试（尚未完成供应商互通）。
 - 贯通受控 V2 Agent 装配、SQLite、多轮 Web 与独立 Eval 契约，以白名单来源 DTO
   展示查询时间和历史完整性；将单次语义熔断与 Graph 重试预算分离，覆盖 11 类失败
   单次记账及半开取消恢复，新增 56 项 Python 与 12 项 Web 回归测试，保持真实接口默认关闭。
@@ -943,13 +1111,41 @@ Phase 5A 数字是本地 fixture，Phase 5C 是 synthetic development，均不�
 - 完成 Phase 3B-T / T3：受控组合根、公开来源 / Web、语义级熔断和未开放能力前置阻断；
   新增 56 个 Python / 12 个 Web 用例，全量分别 `641 passed` / `29 passed`。完成本地
   浏览器验证；实际环境未开启，没有真实物流或付费模型请求，T4 仍待确认与授权。
+- 完成 Phase 3B-P / P1：资费目录门禁、产品补槽、整数克、报价观察与上下文恢复保护；
+  86 项新增测试后当时全量 `727 passed`，Web `29 passed`。
+- 完成 Phase 3B-P / P2：资费双层签名 / 四层校验 / profile 绑定 / 语义熔断、Mock 至
+  Graph / SQLite / 执行收据通路；160 项新增测试后全量 `887 passed`、Web `29 passed`，
+  并提供可复跑合成烟测与缺口台账；当时尚未实现 P3。
+- 完成 Phase 3B-P / P3：命令绑定确认、非敏感计价身份引用、公开报价依据、独立离线组合根，
+  新增 35 Python / 26 Web 后全量 `922 passed` / `55 passed`；13 场景 / 28 Turn Eval 与
+  本地浏览器验证通过，无真实物流 / 模型调用。当时 P4、完整否定理解、6A 和代表性 holdout 未完成。
+- 完成 Phase 6A-1：分离代理服务 Key/共享配额与匿名访客 owner、签名 Cookie/同源校验、
+  核验后恢复与多标签页竞态保护；新增 54 Python / 15 Web 后全量 `976 passed` / `70 passed`。
+  本地浏览器/类型/隔离构建通过，真实调用为 0；当时 6A-2/6A-3、登录与完整生产部署未完成。
+- 完成 Phase 6A-2：受控目录 / 整库进程租约、含 WAL 的停服快照、新目录恢复及版本 /
+  摘要 / 结构检查；44 项新增测试后全量 `1020 passed` / Web `70 passed`，类型与隔离构建通过。
+  Docker 命名卷使用独立合成项目，UID 10001、无网络 / dotenv，恢复继续 1 次 Fake 调用、
+  再次重放 0 次；无运行容器，保留三个合成卷。镜像平台元数据限制留给 6A-3，真实调用为 0。
+- 完成 Phase 6A-3 本地 / 合成验收：独立受控入口 / Compose / 冻结镜像、HTTPS 公共
+  边界、实际 CI 工作流文件；新增 21 项后全量 `1041 passed` / Web `70 passed`，类型 /
+  双构建与 13 场景 / 28 Turn Eval 通过。Docker 新卷恢复、SSE 继续 / 回放和 V1 返回 V2
+  全流程通过，保留合成卷、移除本次容器 / 网络，真实调用为 0；远程 CI 尚未运行。
+  当时 npm runtime audit 为 0，Vitest 2 项 moderate 待升级，未声称所有依赖安全合格。
+- 完成 6A-3 工具链收口：Vitest / mocker 4.1.11，完整 npm audit 为 0；默认单测不读
+  dotenv / 开发代理，CI 包含 dev / 拦截 moderate / 严格 Node 合同，Docker 构建先执行
+  测试。新增 3 项合同回归后全量 `1044 passed` / Web `70 passed`，Node 22 双构建及
+  HTTPS 新卷恢复 / SSE / V1 回退重跑通过；无真实业务调用，远程 CI 尚待授权后验证。
 
 当前不能表述：
 
 - 已完成代表性 Structured LLM 质量评测或生产 SLA 验证；当前完成工程接入、Mock、
   真实烟测和 development 对照，未审核小样本不能替代独立 holdout 或生产长尾统计；
-- 已实现生产级多副本 LangGraph Agent 或跨进程会话锁；当前持久化结论只适用于本地
-  单进程 SQLite；
+- 已完成 GitHub CI 远程绿灯 / 分支保护、镜像不可变发布、公网 HTTPS / 秘密托管或所有
+  依赖安全审计；当前是自动工作流代码、本地测试与受控合成 Docker 证据；
+- 已实现生产级多副本 LangGraph Agent 或允许多个进程协调推进会话；6A-2 的整库合作
+  进程租约拒绝第二个实例，不是分布式会话锁，持久化结论仍只适用于本地单实例 SQLite；
+- 已实现加密异地灾备、任意 crash repair、备份外删除账本或数据库 RTO / RPO SLA；当前只有
+  停服 / 合成夹具恢复验证，没有把快照大小或一次运行耗时转写成生产指标；
 - 已接入轨迹、时限和资费真实接口；
 - 已通过供应商签名互通、保证供应方实时性或实现跨系统 exactly-once；当前查询内
   重放与新查询重新取数仅有本地 Fake / Mock 回归证据；

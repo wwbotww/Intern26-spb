@@ -1,0 +1,68 @@
+name: Agent offline quality and deployment
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: agent-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  ASSISTANT_QUERY_MODEL_ENABLED: "false"
+  ASSISTANT_TRACKING_ENABLED: "false"
+  ASSISTANT_OTEL_ENABLED: "false"
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - name: Install locked workspace dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/uv-tools"
+          "$RUNNER_TEMP/uv-tools/bin/pip" install uv==0.11.28
+          "$RUNNER_TEMP/uv-tools/bin/uv" sync --frozen --all-packages --group dev --python 3.12
+          npm --prefix apps/chat-web ci --include=dev --engine-strict
+      - name: Dependency security gate (includes development dependencies)
+        working-directory: apps/chat-web
+        run: npm run audit:dependencies
+      - name: Python, architecture and offline evaluation gates
+        run: |
+          .venv/bin/pytest
+          .venv/bin/python -m apps.assistant-api.tests.ci_offline_eval --output "$RUNNER_TEMP/agent-eval"
+      - name: Web tests, generated contract and both isolated builds
+        working-directory: apps/chat-web
+        run: |
+          npm test
+          npm run check:agent-types
+          ./node_modules/.bin/vue-tsc --noEmit
+          ./node_modules/.bin/vite build --config vite.browser-session.config.ts --outDir "$RUNNER_TEMP/web-agent"
+          POSTAGE_OFFLINE_UI_MODE=legacy ./node_modules/.bin/vite build --config vite.postage-offline.config.ts --outDir "$RUNNER_TEMP/web-legacy"
+      - name: Whitespace gate
+        run: git diff --check
+  synthetic-deployment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: contracts
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install locked smoke client
+        run: |
+          python3 -m venv "$RUNNER_TEMP/uv-tools"
+          "$RUNNER_TEMP/uv-tools/bin/pip" install uv==0.11.28
+          "$RUNNER_TEMP/uv-tools/bin/uv" sync --frozen --package spb-assistant-api --no-dev --python 3.12
+      - name: Local HTTPS, identity, new-volume recovery and V1 rollback
+        run: .venv/bin/python deploy/agent/smoke.py --build
+      # Smoke uses a unique local project, no secrets, no registry push or deployment host.
+      # Its finally block stops the stack without deleting any volumes.

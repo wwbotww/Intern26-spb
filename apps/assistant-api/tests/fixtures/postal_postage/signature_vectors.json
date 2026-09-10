@@ -1,0 +1,26 @@
+[
+  {
+    "password": "synthetic-password-only",
+    "form": {
+      "map": "{\"aACode\":\"synthetic-destination-shanghai\",\"productCode\":\"SYN-A\",\"senderCityNo\":\"synthetic-origin-beijing\",\"weight\":\"1250\"}",
+      "messageHeader": "{\"sendDate\":\"2026-09-09 16:00:00\",\"serialNo\":\"synth-p2-1\",\"sign\":\"piJekwVF+aXCtq18BvOXmg==\",\"sysCode\":\"SYNTHP2\"}"
+    },
+    "business_signature": "piJekwVF+aXCtq18BvOXmg==",
+    "timestamp_ms": 1788940800000,
+    "access_key": "synthetic-ak-only",
+    "secret_key": "synthetic-sk-only",
+    "csb_signature": "D8Vrc8Zeq8kc15mi6y6IwRc2yn0="
+  },
+  {
+    "password": "synthetic-password-only",
+    "form": {
+      "map": "{\"empty\":\"\",\"literal\":\"%2B\",\"note\":\"中文 +&=% /\\\\\\\"\"}",
+      "messageHeader": "{\"sendDate\":\"2026-09-09 16:00:00\",\"serialNo\":\"synth-p2-1\",\"sign\":\"K3YVEZ4Vq617gZv0/k8t+g==\",\"sysCode\":\"SYNTHP2\"}"
+    },
+    "business_signature": "K3YVEZ4Vq617gZv0/k8t+g==",
+    "timestamp_ms": 1788940800000,
+    "access_key": "synthetic-ak-only",
+    "secret_key": "synthetic-sk-only",
+    "csb_signature": "DJBhc0+gzosc7sMsLmThvqjSAPM="
+  }
+]

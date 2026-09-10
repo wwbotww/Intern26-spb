@@ -33,6 +33,7 @@ from .routes.agent import router as agent_router
 from .routes.chat import router as chat_router
 from .routes.health import router as health_router
 from .routes.metrics import router as metrics_router
+from .routes.browser_session import router as browser_session_router
 
 
 def _default_tools(
@@ -181,6 +182,7 @@ def create_app(
             max_request_body_bytes=(
                 resolved_settings.max_request_body_bytes
             ),
+            browser_session=resolved_settings.browser_session_config(),
         ),
         metrics=service_metrics,
     )
@@ -213,6 +215,8 @@ def create_app(
             )
 
         app.include_router(agent_router)
+        if resolved_settings.agent_browser_session_enabled:
+            app.include_router(browser_session_router)
     if resolved_settings.metrics_enabled:
         app.include_router(metrics_router)
     return app

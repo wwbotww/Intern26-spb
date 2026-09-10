@@ -16,6 +16,10 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from ..observability.context import bind_request_id, reset_request_id
 from ..observability.metrics import ServiceMetrics
 from ..security.rate_limit import SlidingWindowRateLimiter
+from ..security.browser_session import (
+    BrowserSessionConfig, BrowserSessionError, BrowserSessionManager,
+    SESSION_PATH, SESSION_REF_HEADER,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +42,7 @@ class OperationsConfig:
     rate_limit_requests: int
     rate_limit_window_seconds: int
     max_request_body_bytes: int
+    browser_session: BrowserSessionConfig | None = None
 
 
 class OperationsMiddleware:
@@ -51,6 +56,11 @@ class OperationsMiddleware:
         self._app = app
         self._config = config
         self._metrics = metrics
+        if config.browser_session and (
+            not config.auth_enabled or config.browser_session.proxy_api_key not in config.api_keys
+        ):
+            raise ValueError("Browser identity requires authenticated proxy service role")
+        self._browser = BrowserSessionManager(config.browser_session) if config.browser_session else None
         self._limiter = SlidingWindowRateLimiter(
             limit=config.rate_limit_requests,
             window_seconds=config.rate_limit_window_seconds,
@@ -88,6 +98,8 @@ class OperationsMiddleware:
                 status_code = int(message["status"])
                 response_headers = MutableHeaders(scope=message)
                 response_headers["X-Request-ID"] = request_id
+                if self._browser and path.startswith("/v2/agent"):
+                    response_headers["Cache-Control"] = "no-store"
                 for name, value in rate_headers.items():
                     response_headers[name] = value
             await send(message)
@@ -111,6 +123,7 @@ class OperationsMiddleware:
                 return
 
             client_id = self._client_ip(scope)
+            api_key = ""
             if path not in EXEMPT_PATHS and self._config.auth_enabled:
                 if not self._config.api_keys:
                     await self._respond(
@@ -169,6 +182,33 @@ class OperationsMiddleware:
 
             state["request_id"] = request_id
             state["client_id"] = client_id
+            # Keep the gateway's aggregate quota separate from conversation ownership.
+            if self._browser and path.startswith("/v2/agent") and path not in EXEMPT_PATHS:
+                is_proxy = hmac.compare_digest(api_key.encode(), self._browser.config.proxy_api_key.encode())
+                try:
+                    if path == SESSION_PATH and not is_proxy:
+                        raise BrowserSessionError("browser_proxy_required", "此入口仅用于浏览器代理会话", 403)
+                    if is_proxy:
+                        for name in ("authorization", "x-api-key", "origin", "sec-fetch-site", SESSION_REF_HEADER):
+                            if len(headers.getlist(name)) > 1:
+                                raise BrowserSessionError("browser_headers_invalid", "请求身份标识重复", 400)
+                        self._browser.check_origin(
+                            origin=headers.get("origin"), fetch_site=headers.get("sec-fetch-site"), method=method,
+                        )
+                        # Join multiple Cookie fields so duplicate identity cookies cannot be hidden.
+                        cookie = "; ".join(headers.getlist("cookie"))
+                        state["browser_session_manager"] = self._browser
+                        state["browser_cookie_header"] = cookie
+                        if path != SESSION_PATH:
+                            identity = self._browser.verify_cookie(cookie)
+                            self._browser.check_reference(identity, headers.get(SESSION_REF_HEADER))
+                            state["agent_owner_id"] = identity.owner_id
+                except BrowserSessionError as error:
+                    await self._respond(
+                        scope, receive, send_with_headers, status_code=error.status,
+                        code=error.code, message=str(error),
+                    )
+                    return
             await self._app(scope, receive, send_with_headers)
         finally:
             duration = perf_counter() - started

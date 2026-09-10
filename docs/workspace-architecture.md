@@ -84,11 +84,32 @@ Resolver、Slot Merger 和白名单工具执行，Workflow Runtime 负责编排�
 会话串行化与生命周期，Adapter 提供 Fake Tool、`AsyncSqliteSaver`、元数据/API 幂等和
 Tool 收据，以及接口无关的单次 HTTP Client 与能力级熔断。时限/资费已能通过 Fake
 Gateway 执行；Phase 3B-T 已新增邮政轨迹 wire Adapter 的离线切片，默认关闭，
-时限 / 资费 wire Adapter 仍未实现。轨迹的领域来源、query_id 作用域和 State / 收据迁移
+时限 wire Adapter 仍未实现。轨迹的领域来源、query_id 作用域和 State / 收据迁移
 已在 [T2](agent-kernel-phase3b-tracking-t2.md) 验证；[T3](agent-kernel-phase3b-tracking-t3.md)
 又完成受控组合根、公开来源 / Web、语义级单次熔断和未装配能力的前置阻断，并完成本地收尾。
 接口暂不可达，T4 真实互通暂缓。新收到的资费文档已完成
-[3B-P 评审](agent-kernel-phase3b-postage-analysis.md)，尚未新增 Adapter；时限仍待文档。
+[3B-P 评审](agent-kernel-phase3b-postage-analysis.md)及 [P1](agent-kernel-phase3b-postage-p1.md)。
+P1 用纯服务处理产品 / 地区 / 重量可执行性，Domain 固定定价上下文，原 Graph 承担补槽 /
+恢复；[P2](agent-kernel-phase3b-postage-p2.md) 的独立 CSB / 业务 signer 与资费 Gateway
+进一步复用单次 HTTP、语义熔断、Graph 和 SQLite。Service 只接收不透明 profile 指纹，
+不依赖供应商字段；该 Gateway 仅接受显式 MockTransport，生产资费未装配。
+[P3](agent-kernel-phase3b-postage-p3.md) 又完成公开产品 / 确认槽位、报价依据 / 独立来源 DTO、
+Web / Eval 闭环。Policy 决策、Node 保存命令绑定确认，LangGraph 复用 interrupt / checkpoint；
+offline_postage 独立组合根持有 Gateway / SQLite 生命周期，不装配模型或真实网络。
+API 和 Eval 各自保持公开镜像，不把 Domain 内部计费身份暴露给消费者；剩余缺口见[台账](agent-kernel-phase3b-postage-gaps.md)。
+[6A-1](agent-kernel-phase6a1-browser-identity.md) 将浏览器信任边界留在 Security/Middleware/API：
+代理服务鉴权与共享限流使用 client_id，签名 Cookie 解析为 agent_owner_id 后才进入既有
+会话服务。Graph、Tool 与 checkpointer 不读取 Cookie、Origin 或前端 session_ref。
+Web 核验后才恢复绑定的本地历史；匿名 owner 不等于登录、租户或资费计价资格。
+[6A-2](agent-kernel-phase6a2-sqlite-recovery.md) 将受控路径与存储运维留在基础设施边界：
+checkpointer factory 获取覆盖全部运行连接的整库合作进程租约，独立 CLI 停服备份 8 表、
+校验后恢复到新目录；Domain / Node 不处理权限、锁文件或备份。CLI 不启动应用 / 模型、
+不解码 checkpoint 业务载荷；保留 owner / TTL / 幂等 / 收据，而不是只复制图状态。
+[6A-3](agent-kernel-phase6a3-controlled-deployment.md) 将部署入口和合成验收分开：
+`deployed_app` 只读显式配置且拒绝空能力 ready，`deployment_demo` 忽略业务环境、只注入
+固定工具；Nginx 承担 TLS / Host / 公开路由，API 继续承担 owner / 幂等，Graph 无部署分支。
+独立 Compose 复用存储 CLI 与既有组合根，CI 复用公开 Eval 和 HTTPS 恢复 / 回退脚本；
+没有将秘密、证书、Docker 或备份逻辑塞进 Node。CI 文件与本地验证不等于生产部署完成。
 Phase 4A/4B 提供只依赖窄化 Service Protocol
 和 Descriptor 的 V2 JSON/SSE HTTP Adapter；稳定事件投影不暴露 Graph 内部状态，
 lifespan factory 负责 SQLite Agent 组件启停。Phase 4C 在该边界内增加只读 schema
@@ -101,7 +122,8 @@ readiness probe、固定标签指标、脱敏停止态 Run Trace 和共享 coord
 依赖时才挂载；T3 的 `ASSISTANT_AGENT_ENABLED` 可启用该受控工厂，要求鉴权和独立 SQLite
 路径。默认仍不注入，因此当前默认运行拓扑、`/v1` 单轮语义和 `memory=disabled`
 健康状态保持不变。LangGraph import 继续由架构测试限制在 Workflow
-Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单进程恢复能力。
+Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单实例恢复能力。受控租约会拒绝
+第二个合作进程开库，并不提供多副本工作流并发或分布式协调。
 
 `query_model.py` 是模型组合根，显式开关决定是否实例化独立 DeepSeek Adapter，并在
 lifespan 关闭其连接池。Adapter 复用共享 HTTP，只返回领域理解 DTO；Hybrid 执行规则

@@ -36,6 +36,7 @@ from ..services.agent_tools import (
 )
 from ..services.query_understanding import HybridQueryUnderstander
 from ..services.result_validator import AgentResultValidator
+from ..services.postage_preflight import PostagePreflight
 from ..tools.delivery_time import DeliveryTimeTool
 from ..tools.postage import PostageTool
 from ..tools.tracking import TrackingTool
@@ -60,6 +61,7 @@ def create_agent_runtime(
     tracking_gateway: TrackingGateway | None = None,
     delivery_time_gateway: DeliveryTimeGateway | None = None,
     postage_gateway: PostageGateway | None = None,
+    postage_preflight: PostagePreflight | None = None,
     policy_tool: AssistantTool | None = None,
     device_price_tool: AssistantTool | None = None,
     understander: QueryUnderstander | None = None,
@@ -85,13 +87,13 @@ def create_agent_runtime(
     if delivery_time_gateway is not None:
         tools.append(DeliveryTimeTool(delivery_time_gateway))
     if postage_gateway is not None:
-        tools.append(PostageTool(postage_gateway))
+        tools.append(PostageTool(postage_gateway, preflight=postage_preflight))
     if policy_tool is not None:
         tools.append(PolicyAssistantToolAdapter(policy_tool))
     if device_price_tool is not None:
         tools.append(DevicePriceAssistantToolAdapter(device_price_tool))
     registry = AgentToolRegistry(tools)
-    policy = WorkflowPolicy(registry.descriptors)
+    policy = WorkflowPolicy(registry.descriptors, postage_preflight=postage_preflight)
     executor = ToolExecutor(
         AgentCommandDispatcher(registry),
         receipts,
@@ -105,6 +107,7 @@ def create_agent_runtime(
             policy=policy,
             executor=executor,
             validator=AgentResultValidator(),
+            postage_preflight=postage_preflight,
         ),
     )
     return StatefulAgentRuntime(
@@ -133,9 +136,11 @@ class PersistentAgentComponents:
 async def create_persistent_agent(
     *,
     database_path: str | Path,
+    managed_storage: bool = False,
     tracking_gateway: TrackingGateway | None = None,
     delivery_time_gateway: DeliveryTimeGateway | None = None,
     postage_gateway: PostageGateway | None = None,
+    postage_preflight: PostagePreflight | None = None,
     policy_tool: AssistantTool | None = None,
     device_price_tool: AssistantTool | None = None,
     understander: QueryUnderstander | None = None,
@@ -157,7 +162,7 @@ async def create_persistent_agent(
     """
 
     resolved_clock = clock or (lambda: datetime.now(UTC))
-    async with create_sqlite_checkpointer(database_path) as checkpointer:
+    async with create_sqlite_checkpointer(database_path, managed_storage=managed_storage) as checkpointer:
         async with create_sqlite_agent_repositories(
             database_path
         ) as repositories:
@@ -167,6 +172,7 @@ async def create_persistent_agent(
                 tracking_gateway=tracking_gateway,
                 delivery_time_gateway=delivery_time_gateway,
                 postage_gateway=postage_gateway,
+                postage_preflight=postage_preflight,
                 policy_tool=policy_tool,
                 device_price_tool=device_price_tool,
                 understander=understander,

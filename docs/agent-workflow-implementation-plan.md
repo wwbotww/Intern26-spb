@@ -5,7 +5,7 @@
 > 起始设计基线：提交 `093e29d`；Phase 0–1 实现里程碑：提交 `07699e0`；
 > 当前版本：`assistant-api 0.3.6`、`chat-web 0.2.0`、`eval 0.7.0`。
 >
-> 更新日期：2026-09-09。
+> 更新日期：2026-09-10。
 >
 > 实施进度：阶段 0、1、2、3A、4A～4D、5A～5E 的本地切片已完成。当前包含锁定的
 > `langgraph 1.2.11` 与 `langgraph-checkpoint-sqlite 3.1.1`、正式 Agent StateGraph、
@@ -25,13 +25,30 @@
 > wall-clock span、采样、OTLP 与本地 Dashboard。Phase 3B-T 的 T0/T1 再完成轨迹
 > provisional 契约与未装配的表单 / 签名 / Gateway；T2 完成查询作用域、State v3 / 收据
 > 迁移、来源与观察时间；T3 完成默认关闭的受控 V2 组合根、公开来源 / Web 与语义级熔断。
-> 当前完整 Python 工作区 `641 passed`，Web `29 passed`，类型检查和 production build
-> 通过，并已完成 T3 收尾复核；接口暂不可访问，T4 真实互通暂缓。实现证据见
+> 3B-P 的 P1 随后补齐资费可执行目录、产品补槽、报价观察及上下文恢复检查。
+> P2 又以具名临时合同打通双层签名、分层校验、语义熔断及 Mock → Graph → SQLite / 收据路径。
+> P3 再完成命令绑定确认、公开报价依据、受控离线 V2 / Web / Eval 与刷新 / 重放回归。
+> 6A-1 随后分离代理服务 Key 与浏览器匿名访客 owner，加入签名 Cookie、同源校验、
+> 核验后恢复和多标签页身份漂移保护；新增 54 Python / 15 Web 回归。
+> 6A-2 再完成受控目录 / 整库租约、停服快照 / 新目录恢复、44 项新增回归及断网 Docker
+> 命名卷演练；恢复后继续和免调用重放通过，不接管原库，不承诺跨系统 exactly-once。
+> 6A-3 又完成独立受控部署入口 / 冻结镜像、HTTPS 公共边界、实际 CI 工作流及合成
+> 新卷恢复 / SSE / V1 回退演练；工作流尚未提交推送，远程执行仍待验证。
+> 随后工具链收口升级 Vitest 4.1.11、隔离默认测试配置、CI 全依赖 moderate 门禁，npm
+> audit 为 0，新增 3 项合同回归。当前完整 Python 工作区 `1044 passed`，Web `70 passed`，类型检查和 Agent / V1 隔离构建
+> 通过；T3 已本地收尾，接口暂不可访问，T4 真实互通暂缓。实现证据见
 > [Phase 2 说明](agent-kernel-phase2.md)、
 > [Phase 3A 说明](agent-kernel-phase3a.md)、
 > [Phase 3B-T 说明](agent-kernel-phase3b-tracking.md)、
 > [T2 新鲜度与收据说明](agent-kernel-phase3b-tracking-t2.md)、
 > [T3 受控装配与来源展示](agent-kernel-phase3b-tracking-t3.md)、
+> [P1 资费领域与可执行条件](agent-kernel-phase3b-postage-p1.md)、
+> [P2 资费协议与离线 Gateway](agent-kernel-phase3b-postage-p2.md)、[资费缺口台账](agent-kernel-phase3b-postage-gaps.md)、
+> [P3 公开报价与离线闭环](agent-kernel-phase3b-postage-p3.md)、
+> [6A-1 浏览器访客身份](agent-kernel-phase6a1-browser-identity.md)、
+> [6A-2 SQLite 备份恢复](agent-kernel-phase6a2-sqlite-recovery.md)、
+> [6A-3 受控部署与离线 CI](agent-kernel-phase6a3-controlled-deployment.md)、
+> [6A-3 工具链收口](agent-kernel-phase6a3-ci-closeout.md)、
 > [Phase 4A 说明](agent-kernel-phase4a.md)、
 > [Phase 4B 说明](agent-kernel-phase4b.md)、
 > [Phase 4C 说明](agent-kernel-phase4c.md)、
@@ -56,8 +73,10 @@
 >
 > 外部接口状态：已收到 V1.0.0（2019-11-25）的轨迹文档，已据此完成 T0/T1 离线实现；
 > 签名、时间和错误口径等冲突仍待确认，真实接口未调用。2026-09-09 又收到资费文档，
-> 已完成 [Phase 3B-P 分析](agent-kernel-phase3b-postage-analysis.md)，尚未实现资费 Adapter；
-> 时限文档仍未提供。用户确认接口暂不可访问，真实联调暂缓，后续可推进资费离线切片或 6A。
+> 已完成 [Phase 3B-P 分析](agent-kernel-phase3b-postage-analysis.md)、P1 领域 / 工作流及 P2 协议离线切片。
+> 资费 P3 公开集成本地完成，但仍仅限 MockTransport；时限文档未提供。真实联调暂缓，
+> 6A-1～6A-3 本地装配 / 合成演练及测试依赖安全收口完成；下一步获 Git 授权后验证
+> 远程 CI。目标环境、真实接口与完整阶段 6 仍分开验收。
 > 未确认项保留 provisional 标记；文档到达、离线实现、供应商互通分别验收。
 
 ## 1. 建设目标
@@ -123,7 +142,7 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 `pyproject.toml` 声明 `langgraph>=1.0,<2`，并由 `uv.lock` 固定实际验证版本
 `1.2.11`；后续升级必须重新执行 Graph 与 Checkpointer 合同测试。
 
-### 1.3 当前执行顺序（2026-09-09）
+### 1.3 当前执行顺序（2026-09-10）
 
 保持原阶段编号，把本地切片、真实联调、完整验收分别标记。以下是剩余工作的执行顺序，
 不是增加新的架构阶段，也不把 Phase 5E 完成视为阶段 0～5 已全部验收。
@@ -134,8 +153,8 @@ Agent，并把 **LangGraph 作为核心 Workflow Runtime**。在保留现有 RAG
 | 2 | 阶段 5 | Understanding 质量对照、数据审核与 V2 场景验证 | Phase 5C development 真实对照与 Phase 5D 审核冻结／V2 Mock 回归完成；待人工审核新 holdout、固定代码／Prompt 后另获预算真实对照，不能用 Mock 代替 |
 | 3 | 阶段 5 | 逐 Node wall-clock span、采样、OpenTelemetry exporter 与 Dashboard | Phase 5E 本地闭环已完成；有界导出与隐私测试、Docker/Prometheus/Tempo/Grafana 验证通过，不代表 holdout 已验收 |
 | 4 | 阶段 3B-T | 轨迹单能力本地收尾 | T0～T3 本地 / Mock 完成，641 Python / 29 Web 回归通过；T4 因接口不可达暂缓，恢复后仍需合同确认与调用授权 |
-| 5 | 阶段 3B-P | 资费合同分析及离线切片 | P0 分析完成；P1 领域 / 产品 / 代码目录与报价口径 → P2 协议 Gateway → P3 受控 V2/Web，均为后续计划；P4 真实联调暂缓 |
-| 6 | 阶段 4 收口 / 6A | 正式 V2 装配、Web/Compose 开关、身份隔离、持久化卷、CI 和回退 | T3 已提供受控工厂、生命周期和 Web；代理访客身份、卷 / 备份、CI / Compose / 回退仍待完成，可独立推进。完整真实五能力验收仍待逐能力合同确认与联调 |
+| 5 | 阶段 3B-P | 资费合同分析及离线切片 | P0～P3 本地完成；P3 新增 35 Python / 26 Web 后全量 922 / 55，13 场景 / 28 Turn Eval 通过；P4 真实联调暂缓 |
+| 6 | 阶段 4 收口 / 6A | 正式 V2 装配、Web/Compose 开关、身份隔离、持久化卷、CI 和回退 | 6A-1～6A-3 本地及工具链安全收口完成；独立 HTTPS / Compose / CI 文件 / 新卷恢复 / V1 回退通过。下一步授权提交推送后验证远程 CI；目标环境和完整真实五能力仍待授权 / 合同 / 联调 |
 | 7 | 阶段 6 | 生产持久化、多副本协调、升级回滚、标准演示和真实指标回填 | 最后完整验收，不能默认省略多副本要求 |
 
 模型凭据已在本地配置，不进入 Git。已看过的烟测样本归入 development，不当作未见
@@ -151,13 +170,45 @@ T0/T1 已完成，T2 又修复了会话级 Tool 收据误缓存新查询和写�
 语义级熔断成功边界已移到完整合同校验之后；未开放能力在补槽前直接结束。
 真实联调是独立的 T4，不以本地签名向量冒充供应商确认。T3 已按本地 / Mock 范围收尾，
 T4 因用户确认网络不可达而暂缓，详见 [Phase 3B-T](agent-kernel-phase3b-tracking.md)。
-新资费文档已完成分析，下一轮开发建议按 [3B-P 切片](agent-kernel-phase3b-postage-analysis.md)
-执行；不能把 CSB / 双层签名和多金额口径直接套成轨迹 Adapter。
-阶段 6A 的单实例 SQLite 卷、CI、Web/Compose 和 V1 回退准备可复用 T3，并可独立推进，
-但不替代完整部署验收。尚无可装配、通过验收 Adapter 的能力
+新资费文档已完成分析及 [P1](agent-kernel-phase3b-postage-p1.md)：显式产品 / 地区目录、
+整数克、报价观察和定价上下文在参数指纹前冻结；旧未核验查询要求重启。
+[P2](agent-kernel-phase3b-postage-p2.md) 已实现独立资费协议 Gateway、双层签名与四层校验，
+复用既有 HTTP / Graph / SQLite；不把多金额口径套成轨迹协议，也不声称真实互通。
+[P3](agent-kernel-phase3b-postage-p3.md) 已补公开 product_code / postage_confirmation、独立离线工厂，
+同步报价依据 / 来源 DTO、OpenAPI / TS、Web 确认与展示、Eval 多轮回归。确认绑定当前命令，
+覆盖冲突不等于范围批准；pricing_scope_ref 参与语义指纹。内部关闭项和自然语言残余局限见[缺口台账](agent-kernel-phase3b-postage-gaps.md)。
+签名 / 字典 / 金额 / 计价身份未确认项继续记录，不阻塞合成通路，也不提前开放真实 transport。
+[6A-1](agent-kernel-phase6a1-browser-identity.md) 已修复同一代理 Key 导致所有访客共享 owner 的缺口：
+服务鉴权/配额与匿名访客归属分开，Web 先核验后恢复，身份变化不得自动重发。该开关默认关闭，
+不是登录系统；Cookie 个体撤销仍未完成，TLS / 公开路由随后由 6A-3 本地验证，生产部署仍未验收。
+[6A-2](agent-kernel-phase6a2-sqlite-recovery.md) 随后建立整库进程租约、0700/0600 存储边界、
+包含 WAL 的停服快照与新目录恢复；保留 owner / TTL / 幂等 / Tool 收据，不自动修复未完成 claim。
+Docker 独立三卷、UID 10001、只读根文件系统和无网络演练通过；不修改现有数据库或真实 `.env`。
+后续按以下切片验收：
+
+| 切片 | 状态 | 交付与退出条件 |
+| --- | --- | --- |
+| 6A-1 | Local complete | 签名 Cookie / 精确 Origin / session_ref、双访客 JSON/SSE/删除隔离、刷新/重启/轮换、共享限流、多标签页重建回归；54 Python / 15 Web 新增 |
+| 6A-2 | Local complete | 受控目录 / 整库租约、8 表停服快照 / 新目录恢复；44 项新增回归覆盖权限、互斥、WAL、拒绝半成品 / 篡改、owner / 幂等 / 继续 / TTL / 删除；独立 Docker 三卷演练 seed / resume / replay 为 1 / 1 / 0 次 Fake 调用 |
+| 6A-3 | Local / synthetic complete；remote CI pending | 无 dotenv 的独立入口 / Compose / managed 卷、digest 冻结构建、HTTPS / Host / 路由 / 代理角色、CI 自动工作流；21 项新增回归、13 场景 / 28 Turn Eval 和 Docker 新卷恢复 / SSE / V1 回退通过。远程 CI、目标部署与多架构资格尚未验收 |
+| 6A-3 收口 | Local complete | Vitest 4.1.11 / npm audit 0、独立默认单测配置、CI 全 dev / moderate 门禁、严格 Node 合同和构建内测试；新增 3 项合同回归，全量 1044 Python / 70 Web，Node 22 双构建通过 |
+
+6A-3 已依次完成配置 / 镜像 / 存储合同、HTTPS 公共边界、实际 CI 文件和新卷恢复 /
+V1 回退演练，见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)。合成路径不读取真实
+`.env`、不调用模型 / 物流；受控栈全部依赖缺失时 readiness 503，不能用 Fake 兜底。
+
+[6A-3 工具链收口](agent-kernel-phase6a3-ci-closeout.md)已完成：Vitest / mocker 4.1.11，
+完整 npm audit 为 0；默认测试不读 dotenv，Node 22 / 本机的 Web 与双构建通过。
+下一步在用户授权提交 / 推送后验证远程 CI 两个 job，补报告留存与不可变发布版本。
+Python / OS 扫描仍未覆盖，npm 公告库结果不是供应链全面合格证明。
+之后才根据目标环境与业务访问许可验证受控单实例依赖；资料 / 授权齐备后执行 T4 / P4、
+人工审核 holdout，最后完整阶段 6。旧库迁移、异地加密 / 保留策略、备份外删除账本和
+多副本协调保持独立缺口，见 [6A-2 第 7 节](agent-kernel-phase6a2-sqlite-recovery.md#7-未完成项及恢复操作注意事项)。
+
+尚无可装配、通过验收 Adapter 的能力
 继续标为 unavailable，不把独立监控 Demo 的 Fake Tool 当作生产依赖。
-若最终只交付单副本 Demo，需要显式调整 Definition of Done。当前“CI 门禁”指 CLI
-的失败退出码，实际自动工作流仍待第 6 项接入。
+若最终只交付单副本 Demo，需要显式调整 Definition of Done。当前已有 CLI 失败退出码
+及 `.github/workflows/agent-ci.yml`，但没有远程执行 / 分支保护 / 自动发布完成的证据。
 
 ## 2. 范围与非目标
 
@@ -1492,7 +1543,10 @@ eval/src/spb_eval/
 > 新增 12 项后 `29 passed`，受控装配 / 来源展示 / 语义熔断完成本地验证。生产默认仍关闭，
 > T3 收尾回归保持上述结果；用户确认各接口暂不可访问，T4 暂缓，不能记为阶段 3B 整体已验收。
 > 新收到的资费文档已完成 [Phase 3B-P 评审](agent-kernel-phase3b-postage-analysis.md)。
-> P0 分析完成，P1～P3 离线实现 / 集成尚未开始，P4 真实互通独立验收；时限仍待文档。
+> P0/P1 已完成，P1 新增 86 项后全量 `727 passed`；随后 P2 协议离线 Gateway 新增 160 项，
+> P3 再新增 35 Python / 26 Web 后全量 `922 passed` / `55 passed`；受控公开离线集成已完成，
+> 13 场景 / 28 Turn Eval 通过，复现入口及剩余缺口见 [P3](agent-kernel-phase3b-postage-p3.md) 与台账。
+> P4 真实互通独立验收；时限仍待文档。
 
 工作内容：
 
@@ -1709,6 +1763,9 @@ Phase 5E 本地可观测性切片已完成：
 ### 阶段 6：部署硬化与求职材料固化
 
 目标：形成可部署、可复盘、可在面试中现场解释的完整项目版本。
+
+前置切片 6A 的当前拆分见 1.3 节。6A-1～6A-3 已本地 / 合成验收，远程 CI 与目标部署
+仍待完成；以下完整阶段 6 的生产、多副本和版本回滚条件没有因单实例合成演练而降低。
 
 工作内容：
 

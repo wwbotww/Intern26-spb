@@ -59,6 +59,14 @@ _DISPLAY_NAMES: dict[Intent, str] = {
     Intent.POSTAGE: "邮费试算",
 }
 _REQUIRED_INPUTS: dict[str, RequiredInput] = {
+    "product_code": RequiredInput(
+        name="product_code", label="询价产品", type="choice",
+        validation_hint="请根据对话中当前目录提供的选项选择产品，不自动选择默认产品",
+    ),
+    "postage_confirmation": RequiredInput(
+        name="postage_confirmation", label="报价范围确认", type="choice",
+        validation_hint="在补齐条件后确认本次基础询价范围",
+    ),
     "question": RequiredInput(
         name="question",
         label="查询问题",
@@ -182,7 +190,7 @@ def _request_id(request: Request) -> str:
 
 
 def _owner_id(request: Request) -> str:
-    return str(getattr(request.state, "client_id", "unknown"))
+    return str(getattr(request.state, "agent_owner_id", getattr(request.state, "client_id", "unknown")))
 
 
 def _creation_request_hash(payload: AgentMessageRequest) -> str:

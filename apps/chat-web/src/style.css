@@ -1326,7 +1326,8 @@ button {
   font-weight: 650;
 }
 
-.agent-slot-form input[type="text"] {
+.agent-slot-form input[type="text"],
+.agent-slot-form select {
   width: 100%;
   min-height: 40px;
   padding: 9px 10px;
@@ -1337,7 +1338,8 @@ button {
   background: #fbfdfc;
 }
 
-.agent-slot-form input[type="text"]:focus {
+.agent-slot-form input[type="text"]:focus,
+.agent-slot-form select:focus {
   border-color: #62bd9a;
   box-shadow: 0 0 0 3px rgba(71, 181, 139, 0.11);
 }
@@ -1348,7 +1350,7 @@ button {
   font-size: 9px;
   font-weight: 400;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .agent-confirm-overwrite {

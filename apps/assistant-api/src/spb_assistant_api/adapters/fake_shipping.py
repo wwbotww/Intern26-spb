@@ -6,6 +6,7 @@ from ..domain.agent_errors import AgentOperationError
 from ..domain.commands import DeliveryTimeCommand, PostageCommand
 from ..domain.failures import AgentFailure
 from ..domain.results import DeliveryTimeData, PostageData
+from ..domain.postage_observation import PostageQuoteObservation
 
 
 class FakeDeliveryTimeGateway:
@@ -36,7 +37,7 @@ class FakePostageGateway:
 
     def __init__(
         self,
-        result: PostageData | None = None,
+        result: PostageQuoteObservation | PostageData | None = None,
         *,
         scripted_failures: Iterable[AgentFailure] = (),
     ) -> None:
@@ -44,7 +45,7 @@ class FakePostageGateway:
         self._failures = list(scripted_failures)
         self.commands: list[PostageCommand] = []
 
-    async def quote(self, command: PostageCommand) -> PostageData | None:
+    async def quote(self, command: PostageCommand) -> PostageQuoteObservation | PostageData | None:
         self.commands.append(command)
         if self._failures:
             raise AgentOperationError(self._failures.pop(0))

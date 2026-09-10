@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "kind": "synthetic-domain-fixtures",
+  "profile": "postage-p1-synthetic-v1",
+  "supplier_confirmed": false,
+  "live_requests": 0,
+  "files": ["catalog.json", "quote.json"],
+  "notes": [
+    "Not provider wire samples or signature golden vectors.",
+    "Product IDs and billing IDs are synthetic. Region codes come from the existing local demo resolver.",
+    "CNY, total and 30000 grams are explicit test choices, not confirmed provider rules.",
+    "Quote amounts are supplied by fixtures, never calculated from weight."
+  ]
+}

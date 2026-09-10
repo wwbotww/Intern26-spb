@@ -547,7 +547,24 @@ uv run pytest packages/contracts/tests
   Web 展示与语义级熔断，Python 全量 `641 passed`、Web `29 passed`。实际环境未开启，
   已完成本地收尾，接口暂不可达，T4 真实互通暂缓，见 [T3 说明](docs/agent-kernel-phase3b-tracking-t3.md)；
 - 新收到的资费文档已完成 [契约分析与后续切片建议](docs/agent-kernel-phase3b-postage-analysis.md)，
-  资费真实 Adapter 尚未实现，时限文档仍未提供；不把文档到达或 Mock 通过当作真实接入；
+  随后 [P1](docs/agent-kernel-phase3b-postage-p1.md) 补齐产品 / 地区可执行条件、整数克、
+  报价观察和上下文恢复保护；[P2](docs/agent-kernel-phase3b-postage-p2.md) 已打通双层签名、
+  分层校验、语义熔断和 SQLite / 收据重放；[P3](docs/agent-kernel-phase3b-postage-p3.md) 再完成
+  命令绑定确认、公开依据及离线 V2 / Web / Eval，当时 Python 全量 `922 passed`、Web `55 passed`。
+  资费仍仅为 MockTransport 离线通路，13 场景 / 28 Turn 回归不等于真实互通；签名、字典、金额等
+  [缺口已记录](docs/agent-kernel-phase3b-postage-gaps.md)，时限仍待文档，不把本地通过当作真实接入；
+- [6A-1](docs/agent-kernel-phase6a1-browser-identity.md) 已分离代理服务 Key 与浏览器匿名访客
+  owner，加入签名 Cookie、同源校验、核验后恢复和跨标签页保护；默认关闭，非登录系统。
+  当时 Python `976 passed`、Web `70 passed`；
+- [6A-2](docs/agent-kernel-phase6a2-sqlite-recovery.md) 已增加受控 SQLite 目录、整库进程租约、
+  停服快照 / 新目录恢复和断网 Docker 命名卷演练；恢复后继续、重放、TTL 与删除已测。
+  当时 Python `1020 passed`、Web `70 passed`，
+  不把本地单实例快照视为生产多副本或异地灾备；
+- [6A-3](docs/agent-kernel-phase6a3-controlled-deployment.md) 已完成独立受控入口 / 冻结镜像、
+  HTTPS / Host / 公开路由及 Docker 新卷恢复 / SSE / V1 回退；[工具链收口](docs/agent-kernel-phase6a3-ci-closeout.md)
+  又完成 Vitest 4.1.11、独立默认测试及 moderate 门禁，完整 npm audit 为 0；当前 Python
+  `1044 passed`、Web `70 passed`。下一步授权提交推送后验证远程 CI；目标环境 / 真实接口 /
+  holdout 仍待独立验收；
 - 设备价格匹配已加入品牌、系列、型号和容量等硬约束，但阈值与展示上限仍需用
   更大的代表性数据集持续校准；
 - 问答结果用于政策信息辅助检索，涉及行政决定或法律结论时仍应核验主管部门

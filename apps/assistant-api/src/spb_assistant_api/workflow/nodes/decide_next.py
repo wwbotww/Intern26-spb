@@ -77,6 +77,7 @@ def create_decide_node(policy: WorkflowPolicy):
             "reply": reply,
             "required_inputs": required_inputs,
             "audit_events": events,
+            "postage_review_fingerprint": decision.postage_review_fingerprint,
         }
         if decision.failure is not None:
             failure = decision.failure.model_dump(mode="json")

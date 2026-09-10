@@ -3,6 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import {
   AgentApiError,
+  bootstrapAgentBrowserSession,
+  browserSessionEnabled,
+  clearAgentBrowserIdentity,
   deleteAgentConversation,
   getAgentCapabilities,
   streamAgentMessage,
@@ -15,7 +18,7 @@ import type {
   PublicIntent,
   RequiredInput,
 } from './agent-api'
-import { clearAgentSession, loadAgentSession, saveAgentSession } from './agent-session'
+import { AGENT_SESSION_KEY, clearAgentSession, loadAgentSession, saveAgentSession } from './agent-session'
 import type {
   AgentMessageState,
   AgentUiMessage,
@@ -54,8 +57,8 @@ const presentation: Record<PublicIntent, CapabilityPresentation> = {
   },
   postage: {
     icon: '费',
-    description: '结合寄收地区与重量，执行类型化邮费试算。',
-    example: '北京寄到上海 2 公斤要多少钱？',
+    description: '补齐地区、产品和重量，确认询价范围后查看报价依据。',
+    example: '北京寄到上海 1.25 公斤要多少钱？',
   },
   policy: {
     icon: '政',
@@ -76,7 +79,12 @@ const fallbackNames: Record<PublicIntent, string> = {
   postage: '邮费试算',
 }
 
-const restored = loadAgentSession()
+const browserMode = browserSessionEnabled()
+const identityReady = ref(!browserMode)
+const identityChecking = ref(false)
+const identityRef = ref<string | null>(null)
+// Never display saved history before the cookie's identity is verified.
+const restored = browserMode ? null : loadAgentSession()
 const messages = ref<AgentUiMessage[]>(restored?.messages ?? [])
 const conversationId = ref<string | null>(restored?.conversationId ?? null)
 const pendingRequest = ref<PendingAgentRequest | null>(
@@ -95,6 +103,9 @@ const messageList = ref<HTMLElement | null>(null)
 let activeController: AbortController | null = null
 let capabilityController: AbortController | null = null
 let scrollFrame: number | null = null
+let expiryTimer: ReturnType<typeof setTimeout> | null = null
+let requestGeneration = 0
+let disposed = false
 
 if (pendingRequest.value) {
   const interrupted = messages.value.find(
@@ -133,14 +144,16 @@ function queueScroll(): void {
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = null
     const element = messageList.value
-    if (element) element.scrollTop = element.scrollHeight
+    if (element) element.scrollTop = messages.value.length ? element.scrollHeight : 0
   })
 }
 
 
 function persist(): void {
+  if (!identityReady.value) return
   saveAgentSession({
     version: 1,
+    ...(identityRef.value ? { browserSessionRef: identityRef.value } : {}),
     conversationId: conversationId.value,
     messages: messages.value,
     pendingRequest: pendingRequest.value,
@@ -241,7 +254,8 @@ async function executeRequest(
   const assistant = messages.value.find(
     (item) => item.id === request.assistantMessageId,
   )
-  if (!assistant || pending.value) return
+  if (!assistant || pending.value || !identityReady.value) return
+  const generation = ++requestGeneration
 
   if (reset) {
     assistant.content = ''
@@ -267,9 +281,13 @@ async function executeRequest(
       idempotencyKey: request.idempotencyKey,
       requestId: request.requestId,
       signal: activeController.signal,
-      onEvent: (event) => applyEvent(assistant, event),
+      onEvent: (event) => {
+        if (generation === requestGeneration && identityReady.value) applyEvent(assistant, event)
+      },
     })
   } catch (error) {
+    if (generation !== requestGeneration) return
+    if (handleIdentityError(error)) return
     if (error instanceof DOMException && error.name === 'AbortError') {
       assistant.state = 'aborted'
       assistant.error = undefined
@@ -293,10 +311,12 @@ async function executeRequest(
       }
     }
   } finally {
-    pending.value = false
-    activeController = null
-    persist()
-    queueScroll()
+    if (generation === requestGeneration) {
+      pending.value = false
+      activeController = null
+      persist()
+      queueScroll()
+    }
   }
 }
 
@@ -305,7 +325,7 @@ async function submitRequest(
   payload: Omit<AgentMessageRequest, 'stream'>,
   userText: string,
 ): Promise<void> {
-  if (pending.value) return
+  if (pending.value || !identityReady.value) return
   if (lastAssistant.value?.state === 'waiting_user') {
     lastAssistant.value.state = 'done'
     lastAssistant.value.requiredInputs = []
@@ -350,7 +370,7 @@ async function submitRequest(
 
 function submitText(): void {
   const message = draft.value.trim()
-  if (!message || pending.value) return
+  if (!message || pending.value || !identityReady.value) return
   draft.value = ''
   const explicitIntent = waitingForInput.value
     ? undefined
@@ -427,7 +447,7 @@ function discardSession(): void {
 
 
 async function startOver(): Promise<void> {
-  if (pending.value || clearing.value) return
+  if (pending.value || clearing.value || !identityReady.value) return
   const id = conversationId.value
   if (!id) {
     discardSession()
@@ -438,6 +458,7 @@ async function startOver(): Promise<void> {
     await deleteAgentConversation(id)
     discardSession()
   } catch (error) {
+    if (handleIdentityError(error)) return
     if (error instanceof AgentApiError && error.status === 404) {
       discardSession()
     } else {
@@ -452,24 +473,121 @@ async function startOver(): Promise<void> {
 }
 
 
-onMounted(async () => {
+function suspendIdentity(message: string, removeSaved = false): void {
+  requestGeneration += 1
+  activeController?.abort()
+  capabilityController?.abort()
+  activeController = null
+  pending.value = false
+  identityReady.value = false
+  identityRef.value = null
+  clearAgentBrowserIdentity()
+  if (expiryTimer !== null) clearTimeout(expiryTimer)
+  expiryTimer = null
+  messages.value = []
+  conversationId.value = null
+  pendingRequest.value = null
+  selectedIntent.value = null
+  draft.value = ''
+  capabilities.value = []
+  banner.value = message
+  if (removeSaved) clearAgentSession()
+  if (!disposed) queueScroll()
+}
+
+
+function handleIdentityError(error: unknown): boolean {
+  if (browserMode && error instanceof AgentApiError && (
+    error.code.startsWith('browser_') || error.status === 401 || error.status === 403
+  )) {
+    suspendIdentity(`${error.message} 未重发任何业务请求。`, true)
+    return true
+  }
+  return false
+}
+
+
+async function initialize(reset = false): Promise<void> {
+  if (identityChecking.value) return
+  identityChecking.value = true
+  capabilityLoading.value = true
+  if (browserMode) suspendIdentity('正在核验浏览器访客身份…', reset)
   capabilityController = new AbortController()
   try {
-    capabilities.value = await getAgentCapabilities(capabilityController.signal)
+    if (browserMode) {
+      const identity = await bootstrapAgentBrowserSession(reset, capabilityController.signal)
+      // Verify the ref against the currently sent Cookie before exposing saved history.
+      // A delayed bootstrap from an old tab may legitimately describe its old Cookie.
+      const verifiedCapabilities = await getAgentCapabilities(capabilityController.signal)
+      if (disposed || document.hidden) return
+      capabilities.value = verifiedCapabilities
+      identityRef.value = identity.session_ref
+      identityReady.value = true
+      const snapshot = loadAgentSession(localStorage, Date.now(), identity.session_ref)
+      messages.value = snapshot?.messages ?? []
+      conversationId.value = snapshot?.conversationId ?? null
+      pendingRequest.value = snapshot?.pendingRequest ?? null
+      selectedIntent.value = snapshot?.selectedIntent ?? null
+      const interrupted = messages.value.find((item) => item.id === pendingRequest.value?.assistantMessageId)
+      if (interrupted) {
+        interrupted.state = 'error'
+        interrupted.error = '身份已核验，可使用原幂等键安全重试未完成请求。'
+      }
+      banner.value = snapshot ? '访客身份已核验，已恢复本机聊天记录。'
+        : reset ? '已重建访客身份，旧会话不可在新身份下恢复；旧服务端数据仍按 TTL 清理。'
+          : '已建立匿名访客会话；这不是登录身份，请勿在共享设备留下敏感内容。'
+      expiryTimer = setTimeout(() => suspendIdentity('访客身份已到期，请重新核验；不会自动重发业务请求。'),
+        Math.max(0, Date.parse(identity.expires_at) - Date.now()))
+      persist()
+    } else {
+      capabilities.value = await getAgentCapabilities(capabilityController.signal)
+    }
   } catch (error) {
+    if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return
+    if (handleIdentityError(error)) return
     banner.value =
       error instanceof AgentApiError
         ? `能力目录加载失败：${error.message}`
         : '能力目录加载失败，请确认 V2 Agent 服务已启用。'
   } finally {
     capabilityLoading.value = false
+    identityChecking.value = false
+    if (!disposed) queueScroll()
   }
+}
+
+
+function onVisibilityChange(): void {
+  if (!browserMode) return
+  if (document.hidden) suspendIdentity('回到页面后将重新核验访客身份。')
+  else void initialize()
+}
+
+function onSessionStorage(event: StorageEvent): void {
+  if (!browserMode || event.key !== AGENT_SESSION_KEY || !identityReady.value) return
+  try {
+    if (event.newValue && JSON.parse(event.newValue).browserSessionRef === identityRef.value) return
+  } catch { /* Invalid cross-tab state must not keep old history visible. */ }
+  suspendIdentity('另一页面的会话已变化，正在重新核验身份。')
+  if (!document.hidden) void initialize()
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('storage', onSessionStorage)
+  void initialize()
 })
 
 
 onBeforeUnmount(() => {
+  disposed = true
+  requestGeneration += 1
   activeController?.abort()
   capabilityController?.abort()
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('storage', onSessionStorage)
+  if (expiryTimer !== null) clearTimeout(expiryTimer)
+  clearAgentBrowserIdentity()
   if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
 })
 </script>
@@ -485,6 +603,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="header-actions">
+        <span v-if="browserMode" class="agent-session-chip">{{ identityReady ? '匿名访客 · 已核验' : '访客身份待核验' }}</span>
+        <button v-if="browserMode && identityReady" type="button" class="text-button"
+          title="丢弃本机旧记录；旧服务端会话仍按 TTL 清理"
+          :disabled="pending || clearing || identityChecking" @click="initialize(true)">重建访客身份</button>
         <span v-if="conversationId" class="agent-session-chip">
           会话 {{ shortConversationId }}
         </span>
@@ -501,6 +623,12 @@ onBeforeUnmount(() => {
     </header>
 
     <main ref="messageList" class="message-list" aria-live="polite">
+      <section v-if="browserMode && !identityReady" class="agent-banner" role="status">
+        <span>核验前不会展示本地历史或发送业务请求。</span>
+        <button type="button" :disabled="identityChecking" @click="initialize()">{{ identityChecking ? '核验中…' : '重新核验' }}</button>
+        <button type="button" title="丢弃本机旧记录；旧服务端会话仍按 TTL 清理"
+          :disabled="identityChecking" @click="initialize(true)">重建访客身份</button>
+      </section>
       <div v-if="banner" class="agent-banner" role="status">
         <span>{{ banner }}</span>
         <button type="button" aria-label="关闭提示" @click="banner = ''">×</button>
@@ -561,7 +689,7 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <footer class="agent-action-area">
+    <footer v-if="identityReady" class="agent-action-area">
       <div v-if="pendingRequest && !pending" class="agent-retry-bar">
         <span>本轮请求尚未收到终止事件，可复用原幂等键继续。</span>
         <button type="button" @click="retryLast">安全重试</button>

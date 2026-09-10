@@ -34,8 +34,25 @@ Phase 3B-T 的 T0/T1 已完成邮政轨迹 provisional 契约、表单 / 签名�
 熔断；默认开关仍关闭，显式 `ASSISTANT_AGENT_ENABLED` 才挂载 V2，轨迹再由独立开关
 启用。需要鉴权与绝对 SQLite 路径，不改变本文中的 `/v1` 契约；没有调用真实物流接口。
 完整配置和 T4 联调前提见 T3 文档。T3 已完成本地收尾，接口暂不可达，T4 暂缓。
-新收到的资费文档已完成 [3B-P 分析](agent-kernel-phase3b-postage-analysis.md)，未新增资费
-Adapter 或公开 API 字段；时限文档仍未提供。实现证据见
+资费已完成 [P1 领域 / 工作流切片](agent-kernel-phase3b-postage-p1.md)，通过注入前置策略
+校验产品 / 地区 / 整数克与报价依据；[P2](agent-kernel-phase3b-postage-p2.md) 已新增只接受
+MockTransport 的资费 wire Adapter，打通 Graph / SQLite / 收据，未新增生产装配或公开 API 字段。
+[P3](agent-kernel-phase3b-postage-p3.md) 已补公开 product_code / postage_confirmation，复用 interrupt
+确认当前条件；新增独立 result.quote_basis 白名单与来源，内部计费绑定仍不公开。
+独立离线工厂拥有鉴权 / SQLite / Gateway 生命周期，不读取 .env，不改变 main 默认资费不可用。
+[6A-1](agent-kernel-phase6a1-browser-identity.md) 又提供默认关闭的浏览器身份模式：专用代理
+Key 只代表服务角色，匿名签名 Cookie 决定会话 owner；新增条件挂载的
+`POST /v2/agent/browser-session`，业务请求要求 Cookie、session_ref 及不安全方法的精确
+Origin。其他可信服务 Key 保持原 owner 语义；不改 V1 契约，不提供登录或业务权限。
+[6A-2](agent-kernel-phase6a2-sqlite-recovery.md) 又增加默认关闭的受控 SQLite 配置、全生命周期
+整库租约，以及不读取 dotenv 的运维 `storage_cli`：停服整库备份、版本 / 摘要校验与新目录
+恢复。恢复包含 owner / TTL / 幂等 / Tool 收据和 checkpoint，不新增公开备份 HTTP 接口；
+现有未标记数据库不自动迁移。
+[6A-3](agent-kernel-phase6a3-controlled-deployment.md) 再提供独立 `deployed_app` 与
+`deploy/agent/`：不读 dotenv，强制单实例 / managed / HTTPS 身份一致配置，空能力
+readiness 503，不注入 Fake。独立合成入口验证真实代理下的新卷恢复 / SSE / V1 回退，
+不修改默认 main；CI 文件已实现但远程未运行，受控真实依赖仍待授权验收。
+JSON/SSE、生成 TS、Web 及独立 Eval 已回归；缺口见[台账](agent-kernel-phase3b-postage-gaps.md)。时限文档仍未提供。实现证据见
 [阶段 1 说明](agent-kernel-phase1.md)、[阶段 2 说明](agent-kernel-phase2.md)、
 [阶段 3A 说明](agent-kernel-phase3a.md)、[阶段 4A 说明](agent-kernel-phase4a.md)、
 [阶段 4B 说明](agent-kernel-phase4b.md)、[阶段 4C 说明](agent-kernel-phase4c.md)、
@@ -43,8 +60,9 @@ Adapter 或公开 API 字段；时限文档仍未提供。实现证据见
 [阶段 5B 说明](agent-kernel-phase5b.md)和
 [实施方案](agent-workflow-implementation-plan.md)。
 
-该服务是只读查询 Demo 的统一入口，不执行审批、交易、流程流转或数据库写入。
-每次请求相互独立，不接收会话历史，也不会自动融合政策和价格结果。
+本文的 V1 是只读查询 Demo 的统一入口，不执行业务审批、交易或业务数据库写入。
+V1 每次请求相互独立，不接收会话历史，也不会自动融合政策和价格结果；显式 V2 的
+会话、checkpoint 与幂等记录会写入专用 SQLite，资费确认不是业务审批。
 
 ## 1. 接入与鉴权
 

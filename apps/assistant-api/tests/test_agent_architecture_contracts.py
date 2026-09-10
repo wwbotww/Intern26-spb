@@ -206,6 +206,7 @@ def test_v2_openapi_phase4d_has_valid_internal_refs_and_intents() -> None:
         "partially-implemented"
     )
     assert set(document["paths"]) == {
+        "/v2/agent/browser-session",
         "/v2/agent/capabilities",
         "/v2/agent/health/ready",
         "/v2/agent/messages",

@@ -1,0 +1,41 @@
+# Explicit fixture overlay; never referenced by the controlled entrypoint.
+services:
+  tls-init:
+    image: intern26-spb-agent-api:6a3
+    platform: linux/amd64
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        if [ -e /certs/server.key ]; then
+          cmp /source/server.key /certs/server.key
+          cmp /source/server.crt /certs/server.crt
+        else
+          install -m 0600 /source/server.key /certs/server.key
+          install -m 0644 /source/server.crt /certs/server.crt
+          chown 10001:10001 /certs/server.key /certs/server.crt
+        fi
+    volumes:
+      - type: bind
+        source: ${AGENT_TLS_DIRECTORY:?Explicit synthetic TLS directory required}
+        target: /source
+        read_only: true
+        bind: {create_host_path: false}
+      - synthetic-tls:/certs
+  assistant-api:
+    command: [-m, spb_assistant_api.deployment_demo]
+    environment:
+      AGENT_DEMO_UI_MODE: agent
+      AGENT_DEMO_DATABASE_PATH: /var/lib/spb-runtime/store/agent.db
+      AGENT_DEMO_PUBLIC_ORIGIN: ${AGENT_PUBLIC_ORIGIN:?Explicit HTTPS origin required}
+  chat-web:
+    volumes: [synthetic-tls:/run/tls:ro]
+    depends_on:
+      tls-init: {condition: service_completed_successfully}
+volumes:
+  synthetic-tls:

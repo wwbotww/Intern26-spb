@@ -13,7 +13,7 @@ from ..domain.tooling import ToolDescriptor
 
 
 PUBLIC_AGENT_SLOTS = frozenset(
-    {"question", "mail_no", "origin", "destination", "weight"}
+    {"question", "mail_no", "origin", "destination", "weight", "product_code", "postage_confirmation"}
 )
 
 

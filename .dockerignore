@@ -7,6 +7,12 @@
 **/*.py[cod]
 **/.pytest_cache
 **/.env
+**/.env.*
+**/agent.db*
+**/agent-store.json
+**/agent-store.lock
+**/.agent-store-reserved
+**/snapshot.sqlite3*
 .env
 data
 eval/reports

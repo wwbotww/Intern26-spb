@@ -1,0 +1,53 @@
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr warn;
+events { worker_connections 512; }
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log off;
+    server_tokens off;
+    client_body_temp_path /tmp/client-body;
+    proxy_temp_path /tmp/proxy;
+    fastcgi_temp_path /tmp/fastcgi;
+    uwsgi_temp_path /tmp/uwsgi;
+    scgi_temp_path /tmp/scgi;
+    client_max_body_size 1m;
+    client_body_timeout 15s;
+    client_header_timeout 15s;
+    keepalive_timeout 30s;
+    send_timeout 40s;
+    map $http_host $allowed_host {
+        default 0;
+        "${AGENT_PUBLIC_AUTHORITY}" 1;
+    }
+    # Container-local liveness; never published through Compose.
+    server {
+        listen 127.0.0.1:8080;
+        location = /healthz { return 204; }
+        location / { return 404; }
+    }
+    server {
+        listen 8443 ssl default_server;
+        server_name _;
+        ssl_certificate /run/tls/server.crt;
+        ssl_certificate_key /run/tls/server.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_tickets off;
+        if ($allowed_host = 0) { return 421; }
+        add_header X-Content-Type-Options nosniff always;
+        add_header Referrer-Policy no-referrer always;
+        add_header X-Frame-Options DENY always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+        add_header Cache-Control no-store always;
+        root /usr/share/nginx/html;
+        include /opt/agent/nginx/routes-${AGENT_UI_MODE}.conf;
+        # Do not send unknown API paths, metrics, readiness or docs upstream or to the SPA.
+        location /api { return 404; }
+        location ~ /\. { return 404; }
+        location /assets/ { try_files $uri =404; }
+        location = / { try_files /index.html =404; }
+        location / { return 404; }
+    }
+}

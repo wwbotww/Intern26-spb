@@ -16,6 +16,7 @@ from ...domain.agent_actions import (
 )
 from ...domain.agent_events import AgentEventType
 from ...domain.intents import Intent
+from ...services.postage_preflight import POSTAGE_CONFIRMATION
 from ..node_utils import agent_event
 from ..migrations import CURRENT_AGENT_STATE_SCHEMA
 from ..state import AgentState
@@ -132,6 +133,13 @@ def _resume_update(
         )
     update: dict[str, object] = {
         "schema_version": CURRENT_AGENT_STATE_SCHEMA,
+        "postage_confirmed_fingerprint": (
+            state.get("postage_review_fingerprint")
+            if event_intent is Intent.POSTAGE
+            and not intent_confirmed
+            and message.strip() == POSTAGE_CONFIRMATION
+            else None
+        ),
         "latest_message": message,
         "explicit_intent": (
             explicit_intent.value if explicit_intent is not None else None

@@ -1,5 +1,6 @@
 import { parseSseBlock } from './api'
 import type {
+  BrowserSessionResponse,
   AgentCapability,
   AgentFailure,
   AgentMessageRequest,
@@ -49,6 +50,47 @@ export class AgentApiError extends Error {
     super(message)
     this.name = 'AgentApiError'
   }
+}
+
+let browserIdentity: BrowserSessionResponse | null = null
+
+export function browserSessionEnabled(): boolean {
+  return import.meta.env.VITE_AGENT_BROWSER_SESSION === 'true'
+}
+
+export function clearAgentBrowserIdentity(): void {
+  browserIdentity = null
+}
+
+export async function bootstrapAgentBrowserSession(
+  reset = false, signal?: AbortSignal,
+): Promise<BrowserSessionResponse> {
+  clearAgentBrowserIdentity()
+  const response = await fetch('/api/v2/agent/browser-session', {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reset }), signal,
+  })
+  if (!response.ok) throw await responseError(response)
+  const value = record(await response.json(), 'browser session')
+  const reference = stringValue(value.session_ref, 'session_ref')
+  const expires = stringValue(value.expires_at, 'expires_at')
+  const expiry = Date.parse(expires)
+  if (!/^[a-f0-9]{64}$/.test(reference) || !/(?:Z|[+-]\d{2}:\d{2})$/.test(expires)
+    || !Number.isFinite(expiry) || expiry <= Date.now() || expiry > Date.now() + 86_430_000) {
+    throw new AgentApiError('browser_session_invalid', '访客会话响应无效，请重新核验身份。')
+  }
+  browserIdentity = { session_ref: reference, expires_at: expires }
+  return browserIdentity
+}
+
+function browserSessionHeaders(): Record<string, string> {
+  if (!browserSessionEnabled()) return {}
+  if (!browserIdentity || Date.parse(browserIdentity.expires_at) <= Date.now()) {
+    clearAgentBrowserIdentity()
+    throw new AgentApiError('browser_session_required', '请先核验浏览器访客身份。', 401)
+  }
+  return { 'X-Agent-Session': browserIdentity.session_ref }
 }
 
 const intents = new Set<Intent>([
@@ -227,6 +269,54 @@ function agentFailure(value: unknown): AgentFailure | null {
   }
 }
 
+function postageQuoteBasis(value: unknown): NonNullable<AgentResult['quote_basis']> | null {
+  if (value === undefined || value === null) return null
+  const basis = record(value, 'quote_basis')
+  const amountKind = stringValue(basis.amount_kind, 'quote_basis.amount_kind')
+  const currency = stringValue(basis.currency, 'quote_basis.currency')
+  const product = stringValue(basis.product_code, 'quote_basis.product_code')
+  if ((basis.schema_version === undefined ? '1' : basis.schema_version) !== '1' || basis.is_estimate !== true
+    || basis.scope !== 'domestic_actual_weight_no_extras'
+    || !['total', 'standard', 'customer'].includes(amountKind)
+    || !/^[A-Z]{3}$/.test(currency) || !/^[A-Za-z0-9_.-]{1,128}$/.test(product)) {
+    return invalidContract('报价依据不符合公开契约。')
+  }
+  const source = record(basis.source, 'quote_basis.source')
+  const sourceType = stringValue(source.source_type, 'quote.source_type')
+  const name = stringValue(source.source_name, 'quote.source_name')
+  const profile = stringValue(source.source_profile, 'quote.source_profile')
+  const queriedAt = stringValue(source.queried_at, 'quote.queried_at')
+  if (!['fake_gateway', 'external_api'].includes(sourceType)
+    || !/^[A-Za-z0-9_.-]{1,128}$/.test(name) || !/^[A-Za-z0-9_.-]{1,128}$/.test(profile)
+    || !/(?:Z|[+-]\d{2}:\d{2})$/.test(queriedAt) || !Number.isFinite(Date.parse(queriedAt))) {
+    return invalidContract('报价来源不符合公开契约。')
+  }
+  const rawFees = basis.fees === undefined ? [] : basis.fees
+  if (!Array.isArray(rawFees)) return invalidContract('报价费用项必须为数组。')
+  type Fee = NonNullable<AgentResult['quote_basis']>['fees']
+  const kinds = new Set<string>()
+  const parsedFees = rawFees.map((raw) => {
+    const fee = record(raw, 'quote.fee')
+    const kind = stringValue(fee.kind, 'quote.fee.kind')
+    const amount = stringValue(fee.amount, 'quote.fee.amount')
+    const included = stringValue(fee.included_in_amount, 'quote.fee.included_in_amount')
+    if (!['registration', 'insurance', 'declared_value', 'inspection', 'customs', 'fuel',
+      'return_receipt', 'password_delivery', 'printing', 'handling'].includes(kind)
+      || kinds.has(kind) || !/^(0|[1-9][0-9]{0,8})\.[0-9]{2}$/.test(amount)
+      || !['yes', 'no', 'unknown'].includes(included)) return invalidContract('报价费用项不符合公开契约。')
+    kinds.add(kind)
+    return { kind, amount, included_in_amount: included } as NonNullable<Fee>[number]
+  })
+  return {
+    schema_version: '1', amount_kind: amountKind as 'total' | 'standard' | 'customer',
+    currency, product_code: product, scope: 'domestic_actual_weight_no_extras', is_estimate: true,
+    fees: parsedFees, source: {
+      source_type: sourceType as 'fake_gateway' | 'external_api', source_name: name,
+      source_profile: profile, queried_at: queriedAt,
+    },
+  }
+}
+
 export function validateAgentResult(value: unknown): AgentResult | null {
   if (value === null || value === undefined) return null
   const item = record(value, 'result')
@@ -236,9 +326,22 @@ export function validateAgentResult(value: unknown): AgentResult | null {
   }
   const data = item.data
   if (data !== null && data !== undefined) record(data, 'result.data')
+  const basis = postageQuoteBasis(item.quote_basis)
+  if (basis) {
+    const quote = record(data, 'postage.data')
+    if (item.type !== 'postage' || status !== 'success'
+      || quote.currency !== basis.currency || quote.product_code !== basis.product_code
+      || typeof quote.amount !== 'string' || !/^(0|[1-9][0-9]{0,8})\.[0-9]{2}$/.test(quote.amount)
+      || typeof quote.queried_at !== 'string'
+      || !/(?:Z|[+-]\d{2}:\d{2})$/.test(quote.queried_at)
+      || Date.parse(quote.queried_at) !== Date.parse(basis.source.queried_at)) {
+      return invalidContract('报价依据与结果不一致。')
+    }
+  }
   return {
     type: publicIntentValue(item.type, 'result.type'),
     status,
+    quote_basis: basis,
     provenance: agentSources(item.provenance),
     data: data === undefined ? null : (data as Record<string, unknown> | null),
     reason_code:
@@ -460,7 +563,8 @@ export async function getAgentCapabilities(
   signal?: AbortSignal,
 ): Promise<AgentCapability[]> {
   const response = await fetch('/api/v2/agent/capabilities', {
-    headers: { Accept: 'application/json' },
+    headers: { Accept: 'application/json', ...browserSessionHeaders() },
+    credentials: 'same-origin', cache: 'no-store',
     signal,
   })
   if (!response.ok) throw await responseError(response)
@@ -475,7 +579,7 @@ export async function deleteAgentConversation(
 ): Promise<void> {
   const response = await fetch(
     `/api/v2/agent/conversations/${encodeURIComponent(conversationId)}`,
-    { method: 'DELETE', signal },
+    { method: 'DELETE', signal, headers: browserSessionHeaders(), credentials: 'same-origin', cache: 'no-store' },
   )
   if (!response.ok) throw await responseError(response)
 }
@@ -489,7 +593,9 @@ export async function streamAgentMessage(options: {
 }): Promise<void> {
   const response = await fetch('/api/v2/agent/messages', {
     method: 'POST',
+    credentials: 'same-origin', cache: 'no-store',
     headers: {
+      ...browserSessionHeaders(),
       Accept: 'text/event-stream',
       'Content-Type': 'application/json',
       'Idempotency-Key': options.idempotencyKey,

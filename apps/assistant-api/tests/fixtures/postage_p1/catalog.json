@@ -1,0 +1,17 @@
+{
+  "version": "postage-p1-synthetic-v1",
+  "evidence": "synthetic",
+  "products": [
+    {"code": "SYN-A", "name": "合成甲产品", "aliases": ["演示甲"]},
+    {"code": "SYN-B", "name": "合成乙产品", "aliases": ["演示乙"]}
+  ],
+  "origins": [
+    {"province_code": "110000", "city_code": "110100", "billing_id": "synthetic-origin-beijing"}
+  ],
+  "destinations": [
+    {"province_code": "310000", "city_code": "310100", "billing_id": "synthetic-destination-shanghai"}
+  ],
+  "currency": "CNY",
+  "amount_kind": "total",
+  "max_weight_grams": 30000
+}

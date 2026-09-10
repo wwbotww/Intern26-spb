@@ -194,5 +194,70 @@ Trace 下钻与停止流程见 [Phase 5E](agent-kernel-phase5e.md)。该配置�
 代码已支持 `ASSISTANT_AGENT_ENABLED` 和独立 tracking 开关，要求鉴权及绝对 SQLite
 文件路径；公开来源、语义熔断与 Web 在本地 Mock 下通过验收。配置、生命周期和可复现
 浏览器夹具见 [T3](agent-kernel-phase3b-tracking-t3.md)。本 Compose 仍未启用该路径；
-不要只改开关就当作生产发布。阶段 6A 需补持久化卷 / 备份、代理 owner 身份映射、CI
-与升级回退，真实物流调用须先通过 T4 的合同确认和单独授权。
+不要只改开关就当作生产发布。6A-1 代理访客身份、6A-2 受控 SQLite / 独立卷备份恢复已
+本地实现；6A-3 已增加独立部署栈和本地 HTTPS / 回退演练，未改本默认 V1 栈。
+远程 CI / 目标环境 / 跨版本升级仍待验收，真实物流调用须先通过 T4 合同确认和单独授权。
+
+### 6A-1 浏览器匿名访客身份（默认关闭）
+
+原 Nginx 的同一个服务 Key 不能区分访客。V2 现有可选 browser-session 模式，要求后端
+专用代理 Key 与 Nginx/Vite 服务端 Key 一致；签名密钥必须独立，浏览器只收到 HttpOnly
+Cookie 与非敏感引用。Web 先核验才恢复聊天记录，拒绝跨 owner 恢复/删除；这不是用户登录。
+配置表、轮换/过期/重建语义与无真实依赖的验收入口见
+[6A-1](agent-kernel-phase6a1-browser-identity.md)。
+
+Web Dockerfile 已提供 `VITE_ASSISTANT_UI_MODE` / `VITE_AGENT_BROWSER_SESSION` 两个构建
+参数，并排除 `.env.*`；Nginx 清除客户端伪造身份头。**本 Compose 尚未映射这些参数、
+后端 browser-session 环境或数据卷**，根 `.env` 单独增加变量不会完成部署。
+没有运行真实业务栈或改变实际密钥；后续 6A-3 在独立合成栈验证了 TLS，不代表本栈已切换。
+
+6A-2 已完成单实例受控持久化 / 停服备份 / 独立目录恢复；6A-3 又验证独立代理身份、TLS、Host、
+安全响应头和公共路由白名单，拒绝 `/api/metrics` 或 readiness 细节经其公共代理泄露。
+anonymous cookie 不能承担业务授权、反机器人或多副本全局限流；完整阶段 6 保持独立。
+
+### 6A-2 受控 SQLite 与恢复（独立合成卷已验收）
+
+新增默认关闭的 `ASSISTANT_AGENT_MANAGED_STORAGE_ENABLED`。启用前需由运行 UID 使用
+`python -m spb_assistant_api.storage_cli init` 创建全新专用目录，数据库路径固定为该目录
+中的 `agent.db`；目录 / 文件权限要求 0700 / 0600。存在受控标记时，新版运行工厂自动
+获取整库进程租约，第二个合作实例或运行中备份会被拒绝，不支持多 worker 共享该库。
+
+运维 CLI 不读取 `.env`：停服备份覆盖 metadata、LangGraph checkpoints / writes、
+创建 / 消息幂等与 Tool 收据；`verify` 检查版本、摘要和结构，`restore` 只写全新目录，
+不覆盖原数据库。未完成消息 claim 拒绝发布，不自动清除。备份含业务数据，权限限制
+不是加密；旧库收编、密钥保管、异地与保留策略、备份外删除账本仍需后续方案。
+
+[部署外存储演练](../deploy/storage/README.md) 使用三个全新 Docker 命名卷，UID 10001、
+根文件系统只读、无网络 / 端口 / dotenv，每次命令启动新容器；恢复后继续和重放已验证。
+主 Compose **仍未接入** managed 开关、初始化或卷映射。本轮复用本地依赖镜像，有架构
+元数据兼容限制，不能视为可发布镜像；6A-3 已用独立 digest / lock 构建替代该镜像路径，
+不宣称多架构验收；实际 CI 文件与 V1 回退的本地证据见下节。
+可复跑命令、故障退出码与验收边界见 [6A-2](agent-kernel-phase6a2-sqlite-recovery.md)。
+
+### 6A-3 独立受控栈与离线 CI（本地 / synthetic verified）
+
+新增 [deploy/agent](../deploy/agent/README.md)，不修改本篇原 V1 Compose。
+`deployed_app` 只读显式配置，要求鉴权、HTTPS browser-session、managed 存储、单 worker；
+无隐式 Fake，无依赖时 readiness 503。RAG / MySQL 必须显式批准并通过可选网络 overlay
+连接；tracking / 模型 / exporter 关闭，不能直接按用户现有 `.env` 启动。
+
+独立镜像从锁文件构建，基础 digest 固定；Web 构建 / 路由模式绑定，Key 只注入服务端。
+UID 10001、只读根目录、资源上限；API 不发布端口、只连内部网络，Web 发布回环 HTTPS。
+公共代理仅放行既定 V2 路由，内部健康 / metrics / docs 不透出；拒绝伪造 Host / Origin /
+身份头。TLS / 私钥与秘密保管、公网入口仍须目标环境验收。
+
+```bash
+.venv/bin/python deploy/agent/smoke.py --build
+```
+
+此命令只对本地 Docker 使用新合成数据 / 证书，零真实业务 / 模型调用；本地验证双访客、
+整库备份 / 新卷恢复、SSE 续接与回放、V1 回退并切回 V2。停止容器 / 网络而保留合成卷，
+不降级 / 删除数据库、不关 TLS 校验。不能把模式回退当作跨版本迁移验收。
+
+`.github/workflows/agent-ci.yml` 已接入全量测试、类型、双构建、公开 Mock Eval 和 Docker
+演练；最小权限 / 固定 Actions SHA、无 secrets / 镜像推送 / 自动部署。尚未提交推送，
+**远程 CI 未运行**。[工具链收口](agent-kernel-phase6a3-ci-closeout.md)已升级 Vitest 4.1.11，
+当前 1044 Python / 70 Web，完整 npm audit 为 0。默认 `npm test` 不再加载开发代理 / dotenv，
+CI 显式安装 dev / 校验 Node，审计拦截 moderate 及以上；Web Docker 构建阶段先执行单测。
+下一步需授权提交推送后验证远程 CI；Python / OS 扫描和目标部署仍待验收，见
+[6A-3](agent-kernel-phase6a3-controlled-deployment.md)。

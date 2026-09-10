@@ -43,12 +43,18 @@ function validPending(value: unknown): value is PendingAgentRequest {
 export function loadAgentSession(
   storage: Pick<Storage, 'getItem' | 'removeItem'> = localStorage,
   now = Date.now(),
+  expectedBrowserSessionRef?: string,
 ): AgentSessionSnapshot | null {
   try {
     const raw = storage.getItem(AGENT_SESSION_KEY)
     if (!raw) return null
     const value: unknown = JSON.parse(raw)
     if (!isRecord(value) || value.version !== 1) return null
+    // Mode changes, missing cookies and different visitors cannot inherit history.
+    if (value.browserSessionRef !== expectedBrowserSessionRef) {
+      storage.removeItem(AGENT_SESSION_KEY)
+      return null
+    }
     if (
       value.conversationId !== null &&
       typeof value.conversationId !== 'string'
