@@ -79,17 +79,28 @@ clone3 兼容问题参见 [Moby 修复](https://github.com/moby/moby/pull/42681)
 `smoke.py --transport private-http --legacy-threads`；普通 HTTPS / HTTP 演练仍可在本机运行。
 Alpine 替代路线已因锁定的 sqlite-vec 缺少 musllinux wheel 而放弃；未改依赖锁或删减功能。
 
+### 3.2 Web 的发行版兼容
+
+API 就绪后，旁路 Nginx 1.31.3 / Alpine 3.24 在写 PID 时仍返回 `pwrite: EPERM`。
+同类问题已在 [Nginx 官方镜像仓库](https://github.com/nginx/docker-nginx/issues/1059) 报告。
+没有通过改 PID 权限、降级 Nginx 或关闭 seccomp 掩盖错误；改用**同一 Nginx 版本**的
+官方 Debian 镜像，固定注册表 digest，并将健康检查改为镜像自带的 `curl`。
+目标原生主机在原隔离条件下已健康启动，Agent / V1 两种 Web 镜像重新构建，
+默认 HTTPS 与显式 HTTP 的四段恢复 / 回退演练重新通过。
+
 ## 4. 验证顺序与证据
 
 1. 33 项新增回归：私有 origin 正反例、完整 opt-in、默认安全边界、两核心能力 / 三项
    unavailable、双 owner、同源拒绝、核心响应与免调用重放；无真实业务网络。
 2. 另有 10 项旧主机兼容回归覆盖 ABI / syscall 边界、安装顺序及失败关闭。
-   全量 Python **1088 passed**、Web **70 passed**、生成 API 类型一致（本地验证）。
+   再补 1 项 Debian 健康检查合同，全量 Python **1089 passed**、Web **70 passed**、
+   生成 API 类型一致（本地验证）。
 3. 同一 Docker smoke 已分别通过默认 HTTPS 与显式 `--transport private-http`，各四组 PASS：
    路由 / 身份、停服备份、新卷恢复、SSE 与 V1 回退；只连接回环、合成数据，保留演练卷。
-   本地报告分别为临时目录 `spb-agent-6a3-t4nag3oo/report.json` 与
-   `spb-agent-6a3-at8mw9lr/report.json`，两者 `status=passed`、`containers_removed=true`。
-4. 最终提交远程 CI 与实际服务器 HTTP 验收待填；未完成前不得宣称服务器已更新。
+   最新 Debian 版本报告为临时目录 `spb-agent-6a3-5ao8joyo/report.json`（HTTPS）与
+   `spb-agent-6a3-lo4uiuwj/report.json`（HTTP），两者 `status=passed`、`containers_removed=true`。
+4. `6a7a79a` 的[远程 CI](https://github.com/wwbotww/Intern26-spb/actions/runs/34444339412)已全绿，
+   包括原生 Linux 完整线程兼容演练；Debian Web 后续提交与正式入口切换单独验收。
 
 ```bash
 .venv/bin/pytest

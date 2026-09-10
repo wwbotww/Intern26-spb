@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent
 SOURCES = (
     ("Dockerfile.api", "ghcr.io/astral-sh/uv", "python3.12-bookworm-slim"),
     ("Dockerfile.web", "node", "22.23.2-alpine"),
-    ("Dockerfile.web", "nginx", "1.31.3-alpine"),
+    ("Dockerfile.web", "nginx", "1.31.3"),
 )
 DIGEST = re.compile(r"^Digest:\s+(sha256:[0-9a-f]{64})$", re.MULTILINE)
 

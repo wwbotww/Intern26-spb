@@ -136,3 +136,10 @@ def test_web_uses_business_unavailability_wording():
     source = (Path(__file__).resolve().parents[3] / "apps/chat-web/src/AgentApp.vue").read_text()
     assert "暂不可用</em>" in source
     assert "当前未装配" not in source
+
+
+def test_debian_web_healthcheck_uses_bundled_curl():
+    root = Path(__file__).resolve().parents[3]
+    compose = (root / "deploy/agent/docker-compose.yml").read_text()
+    assert "test: [CMD, curl, --fail, --silent, --output, /dev/null, http://127.0.0.1:8080/healthz]" in compose
+    assert "test: [CMD, wget" not in compose

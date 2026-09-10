@@ -79,7 +79,7 @@
 > 6A-1～6A-3 本地装配 / 合成演练、测试依赖安全与远程 CI 收口完成；当前进入
 > [6A-4 内网单实例更新](agent-kernel-phase6a4-intranet-release.md)。用户明确保留原 HTTP，
 > 不等待三项物流接口或多副本；policy / device_price 复用原数据，三项物流正常 unavailable。
-> 已增 33 项 HTTP / 两核心能力及 10 项旧主机兼容回归，全量本地 1088 Python / 70 Web 通过。
+> 已增 33 项 HTTP / 两核心能力、10 项旧主机兼容及 1 项 Debian Web 回归，全量本地 1089 Python / 70 Web 通过。
 > 旧主机只增加 clone3 / ENOSYS 拒绝过滤器，不关闭 Docker seccomp；服务器切换单独验收。
 > 未确认项保留 provisional 标记；文档到达、离线实现、供应商互通分别验收。
 

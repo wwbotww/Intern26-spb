@@ -333,7 +333,7 @@ P1 新增 86 项后 Python `727 passed`；随后 [P2](agent-kernel-phase3b-posta
 [工具链收口](agent-kernel-phase6a3-ci-closeout.md)又完成 Vitest 4.1.11、默认测试隔离与
 moderate 门禁；新增 3 项后当前 Python `1044 passed`、Web `70 passed`，完整 npm audit 为 0。
 随后修复 Python 基础镜像引用、增加注册表验证，`d28c87c` 两个远程 CI job 成功。
-6A-4 已补 33 项内网 HTTP 与 10 项旧主机兼容回归，全量本地 1088 Python / 70 Web；目标更新单独验收。
+6A-4 已补 33 项内网 HTTP、10 项旧主机兼容与 1 项 Debian Web 回归，全量本地 1089 Python / 70 Web；目标更新单独验收。
 详细实施基线见
 [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)。
 
@@ -928,6 +928,11 @@ origin、独立 Cookie、owner 隔离与路由门禁复用，文档明确 HTTP �
 10 项新回归验证 ABI、单一 syscall 边界及失败关闭，全量增至 1088。Mac 模拟器不支持
 同等 seccomp 检查，因此将完整兼容演练显式交给原生 Linux CI，不把绕过检查算作通过。
 这是平台兼容与安全约束之间可解释、可测的窄例外，不代表旧 OS 已获得长期安全支持。
+
+Web 的实际旁路验收还发现同版 Alpine Nginx 的 PID 写入兼容错误。通过同版官方 Debian
+镜像解决，而非叠加更多权限或降级业务软件；固定新 digest、使用镜像已有 curl 做健康检查，
+重新验证 HTTPS / HTTP、Agent / V1 与恢复 / 回退，完整回归增至 1089 Python / 70 Web。
+这也说明应该分别验收 API 和反向代理的目标平台兼容性，不能把一个健康探针外推到整套部署。
 
 面试可追问：为何正常入口不能自动注入 Fake？为什么 TLS 之外还要检查 Host / Origin？
 代理为什么不能自动 retry Agent POST？恢复库后为什么还要保留密钥和原幂等请求？API/UI
