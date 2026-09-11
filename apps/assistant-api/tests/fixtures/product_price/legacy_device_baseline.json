@@ -1,0 +1,510 @@
+{
+  "fixture_version": "product-price-legacy-baseline-v1",
+  "synthetic": true,
+  "purpose": "Stage A1: reusable device capability baseline, not real inventory or price accuracy evidence.",
+  "record_defaults": {
+    "brand_code": "APPLE",
+    "brand_name": "Apple",
+    "official_product_id": "synthetic-iphone-16-pro",
+    "product_name": "iPhone 16 Pro",
+    "series_name": "iPhone 16",
+    "model_number": "",
+    "official_product_url": "https://example.test/products/iphone-16-pro",
+    "sku_name": "iPhone 16 Pro 256GB",
+    "color": "黑色",
+    "capacity": "256GB",
+    "memory": "",
+    "connectivity": "5G",
+    "size": "",
+    "availability": "ON_SALE",
+    "source_url": "https://example.test/offers/device",
+    "channel_name": "合成官方商城",
+    "currency": "CNY",
+    "original_price": "8999.00",
+    "original_price_type": "CROSSED_OUT",
+    "current_price": "7999.00",
+    "observed_at": "2026-08-01T00:00:00+00:00"
+  },
+  "records": {
+    "apple_pro_256": {
+      "offer_id": 1,
+      "official_sku_id": "synthetic-apple-pro-256"
+    },
+    "apple_pro_512": {
+      "offer_id": 2,
+      "official_sku_id": "synthetic-apple-pro-512",
+      "sku_name": "iPhone 16 Pro 512GB",
+      "capacity": "512GB",
+      "color": "蓝色",
+      "current_price": "9999.00",
+      "original_price": null,
+      "original_price_type": "NONE",
+      "observed_at": "2026-08-02T08:30:00+08:00",
+      "source_url": ""
+    },
+    "apple_pro_max": {
+      "offer_id": 3,
+      "official_sku_id": "synthetic-apple-pro-max",
+      "official_product_id": "synthetic-iphone-16-pro-max",
+      "product_name": "iPhone 16 Pro Max",
+      "sku_name": "iPhone 16 Pro Max 256GB",
+      "current_price": "8999.00",
+      "original_price": "9999.00"
+    },
+    "apple_base": {
+      "offer_id": 4,
+      "official_sku_id": "synthetic-apple-base",
+      "official_product_id": "synthetic-iphone-16",
+      "product_name": "iPhone 16",
+      "sku_name": "iPhone 16 128GB",
+      "capacity": "128GB",
+      "current_price": "5999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "apple_next_generation": {
+      "offer_id": 5,
+      "official_sku_id": "synthetic-apple-next-generation",
+      "official_product_id": "synthetic-iphone-17-pro",
+      "product_name": "iPhone 17 Pro",
+      "series_name": "iPhone 17",
+      "sku_name": "iPhone 17 Pro 256GB"
+    },
+    "huawei_12_256": {
+      "offer_id": 6,
+      "brand_code": "HUAWEI",
+      "brand_name": "华为",
+      "official_sku_id": "synthetic-huawei-12-256",
+      "official_product_id": "synthetic-mate-70-pro",
+      "product_name": "HUAWEI Mate 70 Pro",
+      "series_name": "Mate 70",
+      "sku_name": "Mate 70 Pro 12GB+256GB",
+      "memory": "12GB",
+      "current_price": "5999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "huawei_12_512": {
+      "offer_id": 7,
+      "brand_code": "HUAWEI",
+      "brand_name": "华为",
+      "official_sku_id": "synthetic-huawei-12-512",
+      "official_product_id": "synthetic-mate-70-pro",
+      "product_name": "HUAWEI Mate 70 Pro",
+      "series_name": "Mate 70",
+      "sku_name": "Mate 70 Pro 12GB+512GB",
+      "capacity": "512GB",
+      "memory": "12GB",
+      "current_price": "6999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "huawei_16_512": {
+      "offer_id": 8,
+      "brand_code": "HUAWEI",
+      "brand_name": "华为",
+      "official_sku_id": "synthetic-huawei-16-512",
+      "official_product_id": "synthetic-mate-70-pro",
+      "product_name": "HUAWEI Mate 70 Pro",
+      "series_name": "Mate 70",
+      "sku_name": "Mate 70 Pro 16GB+512GB",
+      "capacity": "512GB",
+      "memory": "16GB",
+      "current_price": "7499.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "huawei_plus": {
+      "offer_id": 9,
+      "brand_code": "HUAWEI",
+      "brand_name": "华为",
+      "official_sku_id": "synthetic-huawei-plus",
+      "official_product_id": "synthetic-mate-70-pro-plus",
+      "product_name": "HUAWEI Mate 70 Pro+",
+      "series_name": "Mate 70",
+      "sku_name": "Mate 70 Pro+ 12GB+512GB",
+      "capacity": "512GB",
+      "memory": "12GB"
+    },
+    "oppo_find_x8": {
+      "offer_id": 10,
+      "brand_code": "OPPO",
+      "brand_name": "OPPO",
+      "official_sku_id": "synthetic-oppo-find-x8",
+      "official_product_id": "synthetic-oppo-find-x8-pro",
+      "product_name": "OPPO Find X8 Pro",
+      "series_name": "Find X8",
+      "sku_name": "OPPO Find X8 Pro 12GB+256GB",
+      "memory": "12GB",
+      "current_price": "4999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "oppo_find_x9s": {
+      "offer_id": 11,
+      "brand_code": "OPPO",
+      "brand_name": "OPPO",
+      "official_sku_id": "synthetic-oppo-find-x9s",
+      "official_product_id": "synthetic-oppo-find-x9s-pro",
+      "product_name": "OPPO Find X9s Pro",
+      "series_name": "Find X9",
+      "sku_name": "OPPO Find X9s Pro 12GB+256GB",
+      "memory": "12GB"
+    },
+    "vivo_x200": {
+      "offer_id": 12,
+      "brand_code": "VIVO",
+      "brand_name": "vivo",
+      "official_sku_id": "synthetic-vivo-x200",
+      "official_product_id": "synthetic-vivo-x200-pro",
+      "product_name": "vivo X200 Pro",
+      "series_name": "X200",
+      "sku_name": "vivo X200 Pro 16GB+512GB",
+      "capacity": "512GB",
+      "memory": "16GB",
+      "current_price": "5499.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "xiaomi_17t": {
+      "offer_id": 13,
+      "brand_code": "XIAOMI",
+      "brand_name": "小米",
+      "official_sku_id": "synthetic-xiaomi-17t",
+      "official_product_id": "synthetic-xiaomi-17t",
+      "product_name": "Xiaomi 17T",
+      "series_name": "Xiaomi 17T",
+      "sku_name": "Xiaomi 17T 256GB",
+      "current_price": "3999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "macbook_memory_16": {
+      "offer_id": 14,
+      "official_sku_id": "synthetic-macbook-memory-16",
+      "official_product_id": "synthetic-macbook-pro",
+      "product_name": "MacBook Pro",
+      "series_name": "MacBook Pro",
+      "sku_name": "MacBook Pro 16GB 16 英寸 512GB",
+      "capacity": "512GB",
+      "memory": "16GB",
+      "size": "16 英寸"
+    },
+    "apple_off_shelf": {
+      "offer_id": 15,
+      "official_sku_id": "synthetic-apple-off-shelf",
+      "availability": "OFF_SHELF"
+    },
+    "apple_out_of_stock": {
+      "offer_id": 16,
+      "official_sku_id": "synthetic-apple-out-of-stock",
+      "availability": "OUT_OF_STOCK"
+    },
+    "apple_unknown": {
+      "offer_id": 17,
+      "official_sku_id": "synthetic-apple-unknown",
+      "availability": "UNKNOWN"
+    }
+  },
+  "evidence_defaults": {
+    "brand": "Apple",
+    "model": "iPhone 16 Pro",
+    "specification": "256GB / 5G / 黑色",
+    "price": "7999.00",
+    "currency": "CNY",
+    "original_price": "8999.00",
+    "original_price_type": "CROSSED_OUT",
+    "availability": "ON_SALE",
+    "source": "合成官方商城",
+    "source_url": "https://example.test/offers/device",
+    "observed_at": "2026-08-01T00:00:00Z",
+    "official_product_id": "synthetic-iphone-16-pro"
+  },
+  "expected_evidence": {
+    "apple_pro_256": {"official_sku_id": "synthetic-apple-pro-256"},
+    "apple_pro_512": {
+      "official_sku_id": "synthetic-apple-pro-512",
+      "specification": "512GB / 5G / 蓝色",
+      "price": "9999.00",
+      "original_price": null,
+      "original_price_type": "NONE",
+      "observed_at": "2026-08-02T00:30:00Z",
+      "source_url": "https://example.test/products/iphone-16-pro"
+    },
+    "apple_pro_max": {
+      "official_sku_id": "synthetic-apple-pro-max",
+      "official_product_id": "synthetic-iphone-16-pro-max",
+      "model": "iPhone 16 Pro Max",
+      "price": "8999.00",
+      "original_price": "9999.00"
+    },
+    "apple_base": {
+      "official_sku_id": "synthetic-apple-base",
+      "official_product_id": "synthetic-iphone-16",
+      "model": "iPhone 16",
+      "specification": "128GB / 5G / 黑色",
+      "price": "5999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "huawei_12_256": {
+      "official_sku_id": "synthetic-huawei-12-256",
+      "official_product_id": "synthetic-mate-70-pro",
+      "brand": "华为",
+      "model": "HUAWEI Mate 70 Pro",
+      "specification": "256GB / 12GB / 5G / 黑色",
+      "price": "5999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "huawei_12_512": {
+      "official_sku_id": "synthetic-huawei-12-512",
+      "official_product_id": "synthetic-mate-70-pro",
+      "brand": "华为",
+      "model": "HUAWEI Mate 70 Pro",
+      "specification": "512GB / 12GB / 5G / 黑色",
+      "price": "6999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "huawei_16_512": {
+      "official_sku_id": "synthetic-huawei-16-512",
+      "official_product_id": "synthetic-mate-70-pro",
+      "brand": "华为",
+      "model": "HUAWEI Mate 70 Pro",
+      "specification": "512GB / 16GB / 5G / 黑色",
+      "price": "7499.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "huawei_plus": {
+      "official_sku_id": "synthetic-huawei-plus",
+      "official_product_id": "synthetic-mate-70-pro-plus",
+      "brand": "华为",
+      "model": "HUAWEI Mate 70 Pro+",
+      "specification": "512GB / 12GB / 5G / 黑色"
+    },
+    "oppo_find_x8": {
+      "official_sku_id": "synthetic-oppo-find-x8",
+      "official_product_id": "synthetic-oppo-find-x8-pro",
+      "brand": "OPPO",
+      "model": "OPPO Find X8 Pro",
+      "specification": "256GB / 12GB / 5G / 黑色",
+      "price": "4999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "vivo_x200": {
+      "official_sku_id": "synthetic-vivo-x200",
+      "official_product_id": "synthetic-vivo-x200-pro",
+      "brand": "vivo",
+      "model": "vivo X200 Pro",
+      "specification": "512GB / 16GB / 5G / 黑色",
+      "price": "5499.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "xiaomi_17t": {
+      "official_sku_id": "synthetic-xiaomi-17t",
+      "official_product_id": "synthetic-xiaomi-17t",
+      "brand": "小米",
+      "model": "Xiaomi 17T",
+      "price": "3999.00",
+      "original_price": null,
+      "original_price_type": "NONE"
+    },
+    "apple_off_shelf": {"official_sku_id": "synthetic-apple-off-shelf", "availability": "OFF_SHELF"},
+    "apple_out_of_stock": {"official_sku_id": "synthetic-apple-out-of-stock", "availability": "OUT_OF_STOCK"},
+    "apple_unknown": {"official_sku_id": "synthetic-apple-unknown", "availability": "UNKNOWN"}
+  },
+  "cases": [
+    {
+      "id": "device-identity-exact-pro",
+      "question": "iPhone 16 Pro 256G 多少钱",
+      "records": ["apple_base", "apple_pro_max", "apple_next_generation", "apple_pro_256"],
+      "expected": {"status": "success", "evidence": ["apple_pro_256"]}
+    },
+    {
+      "id": "device-identity-required-pro",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_base"],
+      "expected": {"status": "no_match", "evidence": []}
+    },
+    {
+      "id": "device-identity-required-max",
+      "question": "iPhone 16 Pro Max 多少钱",
+      "records": ["apple_pro_256"],
+      "expected": {"status": "no_match", "evidence": []}
+    },
+    {
+      "id": "device-identity-exact-pro-max",
+      "question": "iPhone 16 Pro Max 多少钱",
+      "records": ["apple_pro_256", "apple_pro_max"],
+      "expected": {"status": "success", "evidence": ["apple_pro_max"]}
+    },
+    {
+      "id": "device-identity-generation",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_next_generation"],
+      "expected": {"status": "no_match", "evidence": []}
+    },
+    {
+      "id": "device-identity-family",
+      "question": "Pura 70 Pro 多少钱",
+      "records": ["huawei_12_512"],
+      "expected": {"status": "no_match", "evidence": []}
+    },
+    {
+      "id": "device-identity-mixed-model-token",
+      "question": "OPPO Find X8 Pro 多少钱",
+      "records": ["oppo_find_x9s"],
+      "expected": {"status": "no_match", "evidence": []}
+    },
+    {
+      "id": "device-identity-no-sku-number-leak",
+      "question": "iPhone 16 多少钱",
+      "records": ["macbook_memory_16", "apple_base"],
+      "expected": {"status": "success", "evidence": ["apple_base"]}
+    },
+    {
+      "id": "device-identity-brand",
+      "question": "华为 Mate 70 Pro 多少钱",
+      "records": ["apple_pro_256"],
+      "expected": {"status": "no_match", "evidence": []}
+    },
+    {
+      "id": "device-identity-plus",
+      "question": "Mate 70 Pro+ 多少钱",
+      "records": ["huawei_12_512", "huawei_plus"],
+      "expected": {"status": "success", "evidence": ["huawei_plus"]}
+    },
+    {
+      "id": "device-brand-oppo",
+      "question": "OPPO Find X8 Pro 12G+256G 多少钱",
+      "records": ["oppo_find_x8"],
+      "expected": {"status": "success", "evidence": ["oppo_find_x8"]}
+    },
+    {
+      "id": "device-brand-vivo",
+      "question": "vivo X200 Pro 16GB+512GB 多少钱",
+      "records": ["vivo_x200"],
+      "expected": {"status": "success", "evidence": ["vivo_x200"]}
+    },
+    {
+      "id": "device-model-t-not-capacity",
+      "question": "Xiaomi 17T 多少钱",
+      "records": ["xiaomi_17t"],
+      "expected": {"status": "success", "evidence": ["xiaomi_17t"]}
+    },
+    {
+      "id": "device-spec-memory-and-capacity",
+      "question": "华为 Mate 70 Pro 12GB+512GB 多少钱",
+      "records": ["huawei_12_256", "huawei_12_512", "huawei_16_512"],
+      "expected": {"status": "success", "evidence": ["huawei_12_512"]}
+    },
+    {
+      "id": "device-spec-capacity-all-memories",
+      "question": "Mate 70 Pro 512G 多少钱",
+      "records": ["huawei_16_512", "huawei_12_512", "huawei_12_256"],
+      "expected": {"status": "success", "evidence": ["huawei_12_512", "huawei_16_512"], "warnings_contain": ["多个 SKU"]}
+    },
+    {
+      "id": "device-spec-no-match",
+      "question": "iPhone 16 Pro 1TB 多少钱",
+      "records": ["apple_pro_256", "apple_pro_512"],
+      "expected": {"status": "no_match", "evidence": [], "missing_fields": ["matching_specification"]}
+    },
+    {
+      "id": "device-sku-aggregation-and-provenance",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_pro_256", "apple_pro_512"],
+      "expected": {"status": "success", "evidence": ["apple_pro_512", "apple_pro_256"], "warnings_contain": ["多个 SKU"]}
+    },
+    {
+      "id": "device-original-price-unknown",
+      "question": "iPhone 16 Pro 512G 多少钱",
+      "records": ["apple_pro_256", "apple_pro_512"],
+      "expected": {"status": "success", "evidence": ["apple_pro_512"]}
+    },
+    {
+      "id": "device-state-off-shelf-priced",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_off_shelf"],
+      "expected": {"status": "success", "evidence": ["apple_off_shelf"], "warnings_contain": ["不是在售状态"]}
+    },
+    {
+      "id": "device-state-out-of-stock-priced",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_out_of_stock"],
+      "expected": {"status": "success", "evidence": ["apple_out_of_stock"], "warnings_contain": ["不是在售状态"]}
+    },
+    {
+      "id": "device-state-unknown-priced",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_unknown"],
+      "expected": {"status": "success", "evidence": ["apple_unknown"], "warnings_contain": ["不是在售状态"]}
+    },
+    {
+      "id": "device-display-limit",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_off_shelf", "apple_unknown", "apple_out_of_stock", "apple_pro_256"],
+      "result_limit": 2,
+      "expected": {"status": "success", "evidence": ["apple_pro_256", "apple_out_of_stock"], "warnings_contain": ["多个 SKU", "仅返回前 2 条", "不是在售状态"]}
+    },
+    {
+      "id": "device-missing-model",
+      "question": "小米多少钱",
+      "records": [],
+      "expected": {"status": "need_more_info", "evidence": [], "missing_fields": ["brand_or_model"], "repository_calls": 0}
+    },
+    {
+      "id": "device-missing-context",
+      "question": "这个型号呢？",
+      "records": [],
+      "expected": {"status": "need_more_info", "evidence": [], "missing_fields": ["brand_or_model"], "repository_calls": 0}
+    },
+    {
+      "id": "device-missing-model-capacity-only",
+      "question": "256GB 的设备多少钱？",
+      "records": [],
+      "expected": {"status": "need_more_info", "evidence": [], "missing_fields": ["brand_or_model"], "repository_calls": 0}
+    },
+    {
+      "id": "device-empty-repository",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": [],
+      "expected": {"status": "no_match", "evidence": []}
+    },
+    {
+      "id": "device-dependency-unavailable",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": [],
+      "repository_unavailable": true,
+      "expected": {"failure": "upstream_unavailable", "agent_failure_code": "legacy_device_price_tool_unavailable", "retryable": true}
+    }
+  ],
+  "known_gaps": [
+    {
+      "id": "device-gap-pro-must-not-substitute-max",
+      "question": "iPhone 16 Pro 多少钱",
+      "records": ["apple_pro_max"],
+      "expected": {"status": "no_match", "evidence": []},
+      "planned_stage": "C",
+      "reason": "Required variants are currently a subset check; a Pro-only query can incorrectly accept Pro Max when Pro is absent."
+    },
+    {
+      "id": "device-gap-base-must-not-aggregate-pro",
+      "question": "iPhone 16 多少钱",
+      "records": ["apple_base", "apple_pro_256"],
+      "expected": {"status": "success", "evidence": ["apple_base"]},
+      "planned_stage": "C",
+      "reason": "A shared series name can produce equal scores for base and Pro products; a specific base-model query must not aggregate both identities."
+    }
+  ],
+  "excluded_capabilities": [
+    "Amountless availability observations: current legacy DevicePriceRecord requires a numeric current_price; covered by the new V2 consumer contract, not this priced-record baseline.",
+    "Historical date queries and freshness promises: this baseline preserves observed_at without asserting that old observations are current market prices.",
+    "Structured memory/storage role binding and complete color/size/connectivity filtering are not current parser guarantees.",
+    "Real five-brand inventory, Apple Watch configuration completeness, and V1-to-V2 migration readiness require separate collector integration evidence."
+  ]
+}

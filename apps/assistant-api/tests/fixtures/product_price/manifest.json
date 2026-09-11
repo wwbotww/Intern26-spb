@@ -1,0 +1,82 @@
+{
+  "contract_id": "product-price-read-2026-09-11",
+  "status": "consumer_local_freeze_with_provisional_producer_dependencies",
+  "synthetic": true,
+  "purpose": "Offline consumer contract and legacy capability baseline; not inventory, live integration or model-quality evidence.",
+  "assistant_baseline_commit": "9efb621",
+  "producer_snapshot": {
+    "repository": "device-price-service",
+    "head_commit": "17ea0a20006939992db72f7460d4bf5395392306",
+    "working_tree_dirty": true,
+    "reviewed_on": "2026-09-11",
+    "reported_stage": "I locally completed; device native J-M pending",
+    "previous_migration": "96524222b3ec",
+    "device_migration": "b72c910e4f31",
+    "live_database_verified_by_this_stage": false,
+    "files": [
+      {
+        "path": "src/device_price_service/db/catalog_models.py",
+        "sha256": "5a39db35999a5fc832a33e085542744370ed0676c08ec9e38ac95d8fc94f69d7"
+      },
+      {
+        "path": "src/device_price_service/domain/catalog_models.py",
+        "sha256": "c9dd7a3319cbaa0904ebcc0b90ed32aa03b65b32023e0ba91cef45558623259f"
+      },
+      {
+        "path": "src/device_price_service/normalization/devices.py",
+        "sha256": "e08c618d42fe92f05960abce3f457410912ed699490c2b29b72a6238e82d3361"
+      },
+      {
+        "path": "src/device_price_service/normalization/fresh_food.py",
+        "sha256": "0843c8dbd63cf77c73062d135c4d2af2a039ced6bf6ecfae1ca98b8891ac236e"
+      },
+      {
+        "path": "src/device_price_service/validation/catalog_price_policy.py",
+        "sha256": "b9cd3e42359e53a130530f4a3b79385b5435bc5d33ee3c101d4d482060c02739"
+      },
+      {
+        "path": "migrations/versions/b72c910e4f31_device_product_and_availability_facts.py",
+        "sha256": "27b435edb78b8ceb616af0948c43acd2479f41054e373f3452eab0f97d4244d8"
+      },
+      {
+        "path": "src/device_price_service/crawlers/shanghai_fresh.py",
+        "sha256": "03b2dbe57c08b02b9026d93c42dc57e971d601613bc67026b06903a431f457f1",
+        "review_scope": "B shared-dataset identity and source-date binding"
+      },
+      {
+        "path": "src/device_price_service/crawlers/mofcom_fresh.py",
+        "sha256": "4fa89c762e9a959baa582661c4b65534f926b4c21d785059f39d79bf3df66bba",
+        "review_scope": "B source_commodity_id and shared-dataset identity"
+      },
+      {
+        "path": "src/device_price_service/services/catalog_crawl_pipeline.py",
+        "sha256": "7f322386fd78e5be3824a6c6641b06c6e73b6ed66a666749831c9e7afe5f9a06",
+        "review_scope": "B PRODUCT/PUBLIC_PRICE entity-key construction; not full pipeline acceptance"
+      }
+    ]
+  },
+  "datasets": [
+    {
+      "file": "read_records.json",
+      "sha256": "7d2ee1e0d4051d051553b1a0892dd453b39a8f86beed4e4176bc079ae0a4a17e",
+      "purpose": "Consumer-owned read projections, not raw SQL rows or public DTOs",
+      "records": ["device_priced", "fresh_retail_500g", "fresh_wholesale_kg", "device_availability"]
+    },
+    {
+      "file": "legacy_device_baseline.json",
+      "sha256": "c5cbf6de5f588f11057ebca82e9183706cb824f46d040282a314d4e27d2f50d1",
+      "purpose": "Explicit valid legacy behaviours and separate failing target guards",
+      "fixture_version": "product-price-legacy-baseline-v1",
+      "known_target_gaps": [
+        "device-gap-pro-must-not-substitute-max",
+        "device-gap-base-must-not-aggregate-pro"
+      ]
+    }
+  ],
+  "authorization": {
+    "requires_live_database": false,
+    "requires_network": false,
+    "requires_model": false,
+    "production_writes": false
+  }
+}

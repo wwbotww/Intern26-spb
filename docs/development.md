@@ -32,6 +32,7 @@ npm --prefix apps/chat-web run check:agent-types
 | 资费协议与确认通路 | [资费离线夹具](../apps/assistant-api/docs/local-development.md#资费协议离线演示)，18083 | [资费协议 Demo](../apps/chat-web/README.md#资费协议-demo)，默认代理 18083 | 产品/范围确认、报价依据、幂等和失败 |
 | 连接已批准的真实依赖 | [Assistant 配置与入口](../apps/assistant-api/README.md) + [RAG](../apps/rag-api/README.md) | [常规开发与真实后端](../apps/chat-web/README.md#常规开发与真实后端) | API/UI 模式、服务 Key、Origin/身份、数据覆盖 |
 | 验证部署边界，不接业务数据 | [Agent 合成部署演练](../deploy/agent/README.md) | 演练自带匹配 Web | HTTPS、双访客、备份/恢复、V1 回退 |
+| 验证 V2 价格固定 SQL，不接业务数据 | [MySQL 5.7 / 8.4 隔离门禁](../deploy/price-query/README.md) | 不需要 Web | V2-only、SELECT 权限、当前状态/单位/关联和查询上限 |
 
 业务 fixture 的五能力 Demo 不等于真实物流互通；严格资费夹具也只有 MockTransport。
 默认 Web 为 V1，Agent UI 与浏览器身份是构建时开关，不能只换后端。

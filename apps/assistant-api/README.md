@@ -16,6 +16,7 @@
 | 修改 Understanding、Routing、State、Loop 或失败行为 | [Agent 运行设计](docs/runtime.md) |
 | 配置、身份、状态库、备份恢复与排障 | [服务运维](docs/operations.md) |
 | 接模型 / 物流供应商 | [Query Model](docs/integrations/query-model.md)、[轨迹](docs/integrations/tracking.md)、[资费](docs/integrations/postage.md) |
+| 适配全品类价格 V2 数据 | [价格消费合同与内部查询](docs/integrations/product-price.md)、[MySQL 隔离门禁](../../deploy/price-query/README.md)（尚未装配到查询入口） |
 
 完整部署涉及 Web、网络、数据与镜像，归[跨服务运维](../../docs/operations.md)和
 [部署操作手册](../../deploy/agent/README.md)，不是单独启动本服务即可完成。
@@ -77,6 +78,8 @@ HTTP 连接池和数据库连接不能由多个层重复关闭。
 
 该复用解决已有两类查询；全品类 V2 数据并不天然符合 DevicePriceRecord，
 需要新的查询/结果边界，不能仅更改 SQL 表名。
+目标改造、价格资源生命周期调整及兼容门禁见
+[全品类价格实施计划](../../docs/product-price-implementation-plan.md)；目前尚未替换上述现有实现。
 
 ## 验证与扩展
 

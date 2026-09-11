@@ -35,6 +35,8 @@ eval ─────────── HTTP / 文件契约 → 被测系统
 - Web 按公开 Result 类型复用 Renderer；不消费 LangGraph State，服务端 checkpoint 才是事实状态。
 - Eval 独立验证公开结果；不导入业务实现来“复用答案”，避免实现错误同时污染评分。
 - 设备价格 V1 与全品类 V2 的业务语义不同，不能只改 SQL 表名复用旧查询。范围见[数据源边界](data-sources.md)。
+  拟通过统一查询核心与分类策略替换旧表依赖，详见[实施计划](product-price-implementation-plan.md)；
+  这仍是目标架构，不改变上面所述的当前复用关系。
 
 ## 跨端契约及维护者
 

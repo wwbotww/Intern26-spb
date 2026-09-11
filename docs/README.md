@@ -15,6 +15,7 @@
 | 如何选择部署栈、配置入口安全、发布交接 | [跨服务运维](operations.md) |
 | 如何维护旧 RAG / Assistant V1 / Web Compose | [V1 部署基线](deployment.md) |
 | 后续先做什么、依赖什么、怎样验收 | [路线图](roadmap.md) |
+| 如何把全品类 V2 接入 Agent 并替换设备旧表能力 | [全品类价格实施计划](product-price-implementation-plan.md) |
 | 为什么这样设计 | [ADR 索引](adr/README.md) |
 | 历史实验与发布依据是什么 | [压缩交付摘要](history/agent-delivery-summary.md) |
 | 面试与简历可讲什么 | [技术复盘](project-retrospective.md) |

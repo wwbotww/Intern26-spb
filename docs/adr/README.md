@@ -1,6 +1,7 @@
 # Agent Workflow 架构决策记录
 
-本目录保留已接受决策及其当时理由，不是实施状态表。`Accepted` 表示决策获采用，
+本目录保留已接受决策及其当时理由，也收录标明 `Proposed` 的待采纳提议，不是实施状态表。
+`Proposed` 不表示已实施；`Accepted` 表示决策获采用，
 不保证全部业务范围已验收；当前能力见[状态页](../current-status.md)。
 正文中的阶段测试/限制保留为历史，后续补充或取代以新 ADR 为准。
 
@@ -28,5 +29,6 @@
 | [0017](0017-browser-visitor-identity.md) | Accepted | 分离代理服务鉴权、访客 owner 与共享配额；核验后恢复本地历史，普通核验不重发 Cookie |
 | [0018](0018-quiescent-agent-storage-snapshots.md) | Accepted | 停服整库快照保存 owner / TTL / 幂等 / checkpoint；合作进程租约、新目录恢复、验证后发布，拒绝自动修复未完成 claim |
 | [0019](0019-controlled-deployment-and-offline-ci.md) | Accepted | 分离受控入口与合成 CI、绑定代理 / Web 模式、HTTPS 路由门禁、新卷恢复与不降级数据库的 V1 回退 |
+| [0020](0020-unified-product-price-query.md) | Accepted | 统一 V2 只读价格核心与分类策略、候选循环、旧协议/历史边界及无 V1 fallback 的设备能力替换 |
 
 修改已接受决策时新增 ADR 并标记旧记录为 `Superseded`，不要静默重写历史理由。

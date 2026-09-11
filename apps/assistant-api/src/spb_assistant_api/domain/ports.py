@@ -13,6 +13,7 @@ from .conversations import (
     IdempotencyReceipt,
 )
 from .device_price import DevicePriceRecord, DevicePriceSearchQuery
+from .product_price_query import PriceReadBatch, ProductPriceReadQuery
 from .intents import Intent
 from .models import ToolResult
 from .policy import PolicyQueryResult
@@ -47,6 +48,16 @@ class DevicePriceRepository(Protocol):
         self,
         query: DevicePriceSearchQuery,
     ) -> list[DevicePriceRecord]: ...
+
+    def readiness(self) -> str: ...
+
+    async def close(self) -> None: ...
+
+
+class ProductPriceReadRepository(Protocol):
+    async def initialize(self) -> None: ...
+
+    async def search(self, query: ProductPriceReadQuery) -> PriceReadBatch: ...
 
     def readiness(self) -> str: ...
 
