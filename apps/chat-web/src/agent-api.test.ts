@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   getAgentCapabilities,
+  isPublicIntent,
   streamAgentMessage,
   validateAgentStreamEvent,
 } from './agent-api'
@@ -54,6 +55,16 @@ const waitingResponse = {
 
 describe('Agent V2 client', () => {
   afterEach(() => vi.unstubAllGlobals())
+
+  it('accepts catalog price and historical device price as public types', () => {
+    expect(isPublicIntent('device_price')).toBe(true)
+    expect(isPublicIntent('product_price')).toBe(true)
+    expect(isPublicIntent('unknown')).toBe(false)
+    expect(isPublicIntent(null)).toBe(false)
+    expect(() => validateAgentStreamEvent('done', {
+      schema_version: '1', response: { ...waitingResponse, intent: 'product_price' },
+    })).toBeTruthy()
+  })
 
   it('parses versioned events across chunk boundaries and sends idempotency', async () => {
     const body = [

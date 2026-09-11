@@ -22,6 +22,7 @@ from .observability.metrics import ServiceMetrics
 from .observability.telemetry import create_workflow_telemetry
 from .query_model import create_query_understander
 from .settings import AssistantSettings
+from .services.product_price_query import ProductPriceQueryService
 from .tools.unavailable import UnavailableTool
 from .workflow.composition import create_persistent_agent
 
@@ -59,10 +60,12 @@ class _ConfiguredReadiness:
         persistence: AgentReadinessProbe,
         tracking: PostalTrackingGateway | None,
         legacy_tools: Mapping[QueryMode, AssistantTool],
+        product_price_service: ProductPriceQueryService | None = None,
     ) -> None:
         self._persistence = persistence
         self._tracking = tracking
         self._legacy_tools = legacy_tools
+        self._product_price = product_price_service
 
     async def check(self) -> Mapping[str, str]:
         checks = dict(await self._persistence.check())
@@ -70,6 +73,8 @@ class _ConfiguredReadiness:
             checks["capability.tracking"] = await self._tracking.readiness()
         for mode, tool in self._legacy_tools.items():
             checks[f"capability.{mode.value}"] = tool.readiness()
+        if self._product_price is not None:
+            checks["capability.product_price"] = self._product_price.readiness()
         return checks
 
 
@@ -80,6 +85,7 @@ def create_configured_agent_factory(
     metrics: ServiceMetrics,
     tracking_transport: httpx.AsyncBaseTransport | None = None,
     query_model_transport: httpx.AsyncBaseTransport | None = None,
+    product_price_service: ProductPriceQueryService | None = None,
 ) -> AgentApiDependencyFactory:
     # Revalidate even programmatically copied settings; fail before any I/O.
     settings = AssistantSettings.model_validate(settings.model_dump())
@@ -87,7 +93,8 @@ def create_configured_agent_factory(
         raise ValueError("受控 V2 尚未启用")
     tracking_config = configured_tracking(settings)
     borrowed = {
-        mode: tool for mode, tool in legacy_tools.items()
+        mode: tool
+        for mode, tool in legacy_tools.items()
         if not isinstance(tool, UnavailableTool)
     }
 
@@ -97,37 +104,53 @@ def create_configured_agent_factory(
             tracking = None
             if tracking_config is not None:
                 tracking = PostalTrackingGateway(
-                    tracking_config, transport=tracking_transport,
+                    tracking_config,
+                    transport=tracking_transport,
                 )
                 stack.push_async_callback(tracking.close)
             telemetry = await stack.enter_async_context(
                 create_workflow_telemetry(settings, metrics=metrics)
             )
             understander = await stack.enter_async_context(
-                create_query_understander(settings, transport=query_model_transport)
+                create_query_understander(
+                    settings,
+                    transport=query_model_transport,
+                    product_price_enabled=settings.price_data_model == "catalog_v2",
+                )
             )
-            components = await stack.enter_async_context(create_persistent_agent(
-                database_path=settings.agent_database_path,
-                managed_storage=settings.agent_managed_storage_enabled,
-                tracking_gateway=tracking,
-                # Missing shipping contracts remain absent, never Fake fallback.
-                policy_tool=borrowed.get(QueryMode.POLICY),
-                device_price_tool=borrowed.get(QueryMode.DEVICE_PRICE),
-                understander=understander,
-                telemetry=telemetry,
-                conversation_ttl=timedelta(
-                    seconds=settings.agent_conversation_ttl_seconds,
-                ),
-                request_timeout_seconds=settings.agent_request_timeout_seconds,
-            ))
+            components = await stack.enter_async_context(
+                create_persistent_agent(
+                    database_path=settings.agent_database_path,
+                    managed_storage=settings.agent_managed_storage_enabled,
+                    tracking_gateway=tracking,
+                    # Missing shipping contracts remain absent, never Fake fallback.
+                    policy_tool=borrowed.get(QueryMode.POLICY),
+                    device_price_tool=(
+                        borrowed.get(QueryMode.DEVICE_PRICE)
+                        if settings.price_data_model != "catalog_v2"
+                        else None
+                    ),
+                    product_price_service=product_price_service,
+                    understander=understander,
+                    telemetry=telemetry,
+                    conversation_ttl=timedelta(
+                        seconds=settings.agent_conversation_ttl_seconds,
+                    ),
+                    request_timeout_seconds=settings.agent_request_timeout_seconds,
+                )
+            )
             yield AgentApiDependencies(
                 service=components.service,
                 capabilities=components.runtime.capability_descriptors,
                 readiness_probe=_ConfiguredReadiness(
-                    components.readiness, tracking, borrowed,
+                    components.readiness,
+                    tracking,
+                    borrowed,
+                    product_price_service,
                 ),
                 janitor=components.janitor,
                 run_timeout_seconds=settings.agent_request_timeout_seconds + 5,
+                product_price_enabled=settings.price_data_model == "catalog_v2",
             )
 
     return dependencies

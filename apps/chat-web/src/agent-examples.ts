@@ -23,5 +23,6 @@ export const AGENT_EXAMPLES: readonly AgentExample[] = [
 
 export function availableAgentExamples(capabilities: readonly AgentCapability[]): readonly AgentExample[] {
   const available = new Set(capabilities.filter((item) => item.available).map((item) => item.intent))
-  return AGENT_EXAMPLES.filter((item) => available.has(item.intent))
+  return AGENT_EXAMPLES.map((item): AgentExample => item.intent === 'device_price' && available.has('product_price')
+    ? { ...item, intent: 'product_price' } : item).filter((item) => available.has(item.intent))
 }

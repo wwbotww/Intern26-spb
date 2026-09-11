@@ -73,6 +73,16 @@ synthetic development / draft；真实对照已用 20 次模型请求完成，�
 
 ## 人工审核冻结与 V2 对齐（Phase 5D）
 
+商品价格 D1/D2 另有 `datasets/query-understanding-product-price-development.jsonl`，
+是 24 条 synthetic development，不替换原 48 条样本，也不是 holdout。
+沿用上面的 prepare/export/score 流程，改用该数据集与一个新输出目录，并在 exporter 加 `--product-price`。
+规则模式不读凭据、不访问数据库/模型；公开 HTTP 和 Web 暂未开放该能力。
+商品类目、型号/规格、生鲜地区/口径、数量单位与时间以白名单字段指纹独立评分。
+Macro-F1 标签由 Gold 固定选择旧价格、新价格或混合类集合；报告记录 labels，不能跨集合直接比较提升。
+细节见[商品价格 Understanding](../apps/assistant-api/docs/integrations/product-price-understanding.md)。
+
+### 审核与冻结
+
 `understanding-review --dataset <候选 JSONL> --against <已见 JSONL> --output-dir <新目录>`
 生成污染 audit、全部 pending 的 review.json 与审核说明；`--against` 可重复。候选和参考
 均使用 `qu-case-v1`，候选在批准前保留 development。审核者人工核对完整 Gold、语义近

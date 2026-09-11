@@ -13,6 +13,7 @@ import httpx
 from ..domain.agent_errors import AgentOperationError
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.understanding import StructuredModelUnderstanding
+from ..domain.intents import Intent
 from .agent_http import AgentJsonHttpClient
 
 logger = logging.getLogger("spb_assistant_api.query_model")
@@ -37,6 +38,7 @@ class DeepSeekQueryUnderstandingModel:
         max_response_bytes: int = 65536,
         transport: httpx.AsyncBaseTransport | None = None,
         call_observer: Callable[[Mapping[str, Any]], None] | None = None,
+        product_price_enabled: bool = False,
     ) -> None:
         if not api_key.strip() or not model.strip():
             raise ValueError("模型名称和 API Key 不能为空")
@@ -46,6 +48,7 @@ class DeepSeekQueryUnderstandingModel:
         self._timeout = timeout_seconds
         self._max_tokens = max_tokens
         self._call_observer = call_observer
+        self._product_price_enabled = product_price_enabled
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._http = AgentJsonHttpClient(
             base_url=base_url,
@@ -81,7 +84,7 @@ class DeepSeekQueryUnderstandingModel:
                             {
                                 "role": "system",
                                 "content": self._system_prompt(
-                                    prompt, prompt_version
+                                    prompt, prompt_version, product_price_enabled=self._product_price_enabled,
                                 ),
                             },
                             {"role": "user", "content": message},
@@ -94,7 +97,7 @@ class DeepSeekQueryUnderstandingModel:
                     },
                 )
                 usage = _safe_usage(response.payload)
-                parsed = self._parse_completion(response.payload)
+                parsed = self._parse_completion(response.payload, product_price_enabled=self._product_price_enabled)
                 outcome = "success"
                 return parsed
         except asyncio.CancelledError:
@@ -134,16 +137,19 @@ class DeepSeekQueryUnderstandingModel:
                 )
 
     @staticmethod
-    def _system_prompt(prompt: str, prompt_version: str) -> str:
+    def _system_prompt(prompt: str, prompt_version: str, *, product_price_enabled: bool = False) -> str:
+        document = StructuredModelUnderstanding.model_json_schema()
+        excluded = "device_price" if product_price_enabled else "product_price"
+        document["$defs"]["Intent"]["enum"] = [item for item in document["$defs"]["Intent"]["enum"] if item != excluded]
         schema = json.dumps(
-            StructuredModelUnderstanding.model_json_schema(),
+            document,
             ensure_ascii=False,
             separators=(",", ":"),
         )
         return f"{prompt}\nPrompt version: {prompt_version}\nJSON Schema:\n{schema}"
 
     @staticmethod
-    def _parse_completion(payload: Any) -> dict[str, Any]:
+    def _parse_completion(payload: Any, *, product_price_enabled: bool = False) -> dict[str, Any]:
         if not isinstance(payload, dict):
             _contract_error("query_model_envelope_invalid")
         choices = payload.get("choices")
@@ -172,6 +178,9 @@ class DeepSeekQueryUnderstandingModel:
                 parse_constant=_reject_constant,
             )
             parsed = StructuredModelUnderstanding.model_validate(raw)
+            excluded = Intent.DEVICE_PRICE if product_price_enabled else Intent.PRODUCT_PRICE
+            if any(candidate.intent is excluded for candidate in parsed.candidates):
+                raise ValueError("price understanding profile mismatch")
         except (ValueError, TypeError, RecursionError):
             _contract_error("query_model_schema_invalid")
         # reasoning_content, provider IDs and any other envelope fields die here.

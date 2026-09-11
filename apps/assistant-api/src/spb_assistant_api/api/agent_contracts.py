@@ -9,11 +9,21 @@ from uuid import UUID
 
 from ..domain.conversations import ConversationMetadata
 from ..domain.intents import Intent
+from ..domain.product_price_execution import PriceSelectionInput
 from ..domain.tooling import ToolDescriptor
 
 
 PUBLIC_AGENT_SLOTS = frozenset(
-    {"question", "mail_no", "origin", "destination", "weight", "product_code", "postage_confirmation"}
+    {
+        "question",
+        "mail_no",
+        "origin",
+        "destination",
+        "weight",
+        "product_code",
+        "postage_confirmation",
+        "conditions.kind",
+    }
 )
 
 
@@ -37,6 +47,11 @@ class AgentConversationService(Protocol):
         message: str | None = None,
         explicit_intent: Intent | None = None,
         confirm_overwrite: bool = False,
+        price_selection: PriceSelectionInput | None = None,
+    ) -> Mapping[str, Any]: ...
+
+    async def read_snapshot(
+        self, *, conversation_id: UUID, owner_id: str
     ) -> Mapping[str, Any]: ...
 
     async def delete_conversation(
@@ -75,6 +90,7 @@ class AgentApiDependencies:
     run_timeout_seconds: float = 35.0
     janitor_interval_seconds: float = 300.0
     janitor_timeout_seconds: float = 30.0
+    product_price_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.run_timeout_seconds <= 0:
@@ -87,9 +103,7 @@ class AgentApiDependencies:
         for intent, descriptor in normalized.items():
             if intent is Intent.UNKNOWN or descriptor.intent is not intent:
                 raise ValueError("能力映射的 Intent 与 ToolDescriptor 不一致")
-            unsupported_slots = (
-                set(descriptor.required_slots) - PUBLIC_AGENT_SLOTS
-            )
+            unsupported_slots = set(descriptor.required_slots) - PUBLIC_AGENT_SLOTS
             if unsupported_slots:
                 names = ", ".join(sorted(unsupported_slots))
                 raise ValueError(f"V2 API 尚未声明以下必填槽位: {names}")
@@ -98,6 +112,10 @@ class AgentApiDependencies:
             "capabilities",
             MappingProxyType(normalized),
         )
+        if Intent.PRODUCT_PRICE in normalized:
+            if Intent.DEVICE_PRICE in normalized:
+                raise ValueError("新旧价格 Agent 意图不能同时启用")
+            object.__setattr__(self, "product_price_enabled", True)
 
 
 AgentApiDependencyFactory = Callable[

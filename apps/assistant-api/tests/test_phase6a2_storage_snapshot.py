@@ -179,7 +179,7 @@ def test_unsafe_source_is_not_advertised_as_a_valid_backup(tmp_path, mutation, c
         elif mutation == "orphan":
             connection.execute("INSERT INTO checkpoints(thread_id,checkpoint_ns,checkpoint_id) VALUES ('orphan','','id')")
         else:
-            connection.execute("INSERT INTO agent_conversations VALUES ('synthetic','owner','active',?,'start','update','expiry')", ("4" if mutation == "state" else "3",))
+            connection.execute("INSERT INTO agent_conversations VALUES ('synthetic','owner','active',?,'start','update','expiry')", ("5" if mutation == "state" else "3",))
             if mutation == "in_progress":
                 connection.execute("INSERT INTO agent_idempotency_receipts VALUES ('synthetic','key','hash','in_progress',NULL,'start',NULL)")
     with pytest.raises(StorageError) as failure:

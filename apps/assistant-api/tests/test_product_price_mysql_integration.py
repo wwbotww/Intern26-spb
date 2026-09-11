@@ -16,7 +16,7 @@ from .product_price_mysql_fixture import PriceMySQLFixture, V1_TABLES, V2_TABLES
 from spb_assistant_api.adapters.mysql_product_price import MySQLProductPriceRepository
 from spb_assistant_api.domain.exceptions import ProductPriceContractError
 from spb_assistant_api.domain.product_price import PriceRegion
-from spb_assistant_api.domain.product_price_query import DevicePriceReadQuery, FreshPriceReadQuery
+from spb_assistant_api.domain.product_price_query import DevicePriceReadQuery, FreshPriceReadQuery, SelectedPriceReadQuery
 
 
 def _repository(database: PriceMySQLFixture) -> MySQLProductPriceRepository:
@@ -51,6 +51,41 @@ def test_v2_only_schema_supports_device_fresh_and_reader_cannot_write(price_mysq
     with price_mysql.reader.connect() as connection, pytest.raises(DBAPIError) as error:
         connection.execute(text("UPDATE v2_price_observation SET current_price=1 WHERE id=501"))
     assert error.value.orig.args[0] == 1142
+
+
+@pytest.mark.parametrize("kind,listing,scope,code", [("device", 101, "NATIONAL", "CN"), ("fresh", 102, "CITY", "310100"), ("fresh", 103, "PROVINCE", "XJ_CORPS")])
+def test_exact_selected_read_uses_current_pointer_without_text_discovery(price_mysql, kind, listing, scope, code):
+    query = SelectedPriceReadQuery(category_kind=kind, source_listing_id=listing, region={"scope": scope, "code": code})
+    result = _search(price_mysql, query)
+    assert len(result.records) == 1 and not result.truncated
+    assert result.records[0].pointer.source_listing_id == listing
+    assert _search(price_mysql, query.model_copy(update={"source_listing_id": 999999})).records == ()
+    price_mysql.execute("DELETE FROM v2_price_current WHERE source_listing_id=:listing", listing=listing)
+    assert _search(price_mysql, query).records == ()
+
+
+def test_selected_read_observes_new_price_but_identity_changes_are_not_replaced(price_mysql):
+    from spb_assistant_api.domain.product_price_execution import PriceSelectionReference
+    from spb_assistant_api.domain.product_price_slots import ProductPriceCommand
+    from spb_assistant_api.services.product_price_query import ProductPriceQueryService
+
+    async def run():
+        repository = _repository(price_mysql)
+        try:
+            service = ProductPriceQueryService(repository)
+            query = SelectedPriceReadQuery(category_kind="device", source_listing_id=101, region={"scope": "NATIONAL", "code": "CN"})
+            first = (await service.search(query)).candidates[0].record
+            command = ProductPriceCommand(conditions={"kind": "device", "product_text": first.listing.identity.product_name}, selection=PriceSelectionReference.from_record(first))
+            price_mysql.clone("v2_price_observation", 501, 551, current_price="1300.00", unit_price="1300.000000", observed_at="2026-01-16 04:00:00")
+            price_mysql.execute("UPDATE v2_price_current SET price_observation_id=551, observed_at='2026-01-16 04:00:00' WHERE id=101")
+            refreshed = await service.quote_product(command)
+            assert refreshed.facts[0].record.observation.current_price == Decimal("1300.00")
+            price_mysql.execute("DELETE FROM v2_price_current WHERE id=101")
+            missing = await service.quote_product(command)
+            assert missing.reason_code == "price_selection_identity_changed" and not missing.facts
+        finally:
+            await repository.close()
+    asyncio.run(run())
 
 
 def test_old_tables_present_but_forbidden_do_not_change_v2_queries(price_mysql):
@@ -279,6 +314,47 @@ def test_source_link_belongs_to_observation_evidence_not_mutable_listing_url(pri
     )
     record = _search(price_mysql, FreshPriceReadQuery(terms=("黄瓜",))).records[0]
     assert str(record.listing.source.source_url) == evidence_url
+
+
+@pytest.mark.parametrize("old_tables_exist", [False, True])
+def test_shared_device_quote_core_uses_v2_sql_on_both_old_protocol_surfaces(price_mysql, old_tables_exist):
+    from spb_assistant_api.adapters.legacy_agent_tools import DevicePriceAssistantToolAdapter
+    from spb_assistant_api.domain.commands import DevicePriceCommand
+    from spb_assistant_api.services.product_price_query import ProductPriceQueryService
+    from spb_assistant_api.services.result_validator import AgentResultValidator
+    from spb_assistant_api.tools.v2_device_price import V2DevicePriceTool
+
+    if old_tables_exist:
+        for table in V1_TABLES:
+            price_mysql.execute(f"CREATE TABLE `{table}` (id BIGINT PRIMARY KEY)")
+
+    async def scenario():
+        repository = _repository(price_mysql)
+        try:
+            await repository.initialize()
+            service = ProductPriceQueryService(repository)
+            wrapper = V2DevicePriceTool(service=service)
+            question = "Apple Alpha 16 Pro 256GB 价格"
+            legacy = await wrapper.execute(question)
+            command = DevicePriceCommand(question=question)
+            agent = await DevicePriceAssistantToolAdapter(wrapper).execute(command)
+            AgentResultValidator().validate(command=command, result=agent)
+            assert legacy.status.value == agent.status.value == "success"
+            for evidence in (legacy.evidence[0], agent.data.evidence[0]):
+                assert evidence.price == "1200.00"
+                assert evidence.original_price == "1500.00"
+                assert evidence.official_sku_id == ""  # No made-up identifier.
+                assert evidence.source_url == "https://www.apple.com.cn/synthetic/price-query/101"
+            assert (await service.quote_device("Apple Alpha 16 Pro Max 价格")).status == "no_match"
+            state = await service.quote_device("Apple Alpha Watch 价格")
+            assert state.status == "matched" and state.candidates[0].record.observation.current_price is None
+            old_state = await wrapper.execute("Apple Alpha Watch 价格")
+            assert old_state.evidence == () and old_state.reason_code == "current_price_unavailable"
+            assert len((await service.search(FreshPriceReadQuery(terms=("合成",)))).candidates) == 2
+        finally:
+            await repository.close()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("unsafe", [

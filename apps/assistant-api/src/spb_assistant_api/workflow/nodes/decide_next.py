@@ -9,7 +9,7 @@ from ...domain.agent_actions import (
 )
 from ...domain.agent_events import AgentEventType
 from ..node_utils import agent_event
-from ..policy import WorkflowPolicy
+from ..policy import WorkflowPolicy, is_price_clarification
 from ..state import AgentState
 
 
@@ -18,6 +18,7 @@ def create_decide_node(policy: WorkflowPolicy):
         step_count = int(state.get("step_count", 0)) + 1
         decision = policy.decide({**state, "step_count": step_count})
         action = decision.action
+        price_clarification = is_price_clarification(action, state)
         phase = "responding"
         reply = ""
         required_inputs: list[dict[str, object]] = []
@@ -83,6 +84,8 @@ def create_decide_node(policy: WorkflowPolicy):
             failure = decision.failure.model_dump(mode="json")
             update["last_error"] = failure
             update["failure"] = failure
+        if price_clarification:
+            update["price_clarification_count"] = int(state.get("price_clarification_count", 0)) + 1
         return update
 
     return decide_next

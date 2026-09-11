@@ -14,19 +14,46 @@ from pydantic import (
 )
 
 Intent = Literal[
-    "policy", "device_price", "tracking", "delivery_time", "postage", "unknown"
+    "policy", "device_price", "product_price", "tracking", "delivery_time", "postage", "unknown"
 ]
 INTENTS = (
     "policy",
     "device_price",
+    "product_price",
     "tracking",
     "delivery_time",
     "postage",
     "unknown",
 )
-Slot = Literal["mail_no", "origin", "destination", "weight_kg"]
-SLOTS = ("mail_no", "origin", "destination", "weight_kg")
-MissingSlot = Literal["mail_no", "origin", "destination", "weight"]
+
+
+def understanding_intent_labels(expected: set[str]) -> tuple[str, ...]:
+    """Fixed business label sets for legacy, unified-price or mixed Gold.
+
+    Never infer the label universe from predictions (which would move the
+    denominator when an implementation makes a mistake).
+    """
+    return tuple(intent for intent in INTENTS if (
+        (intent != "product_price" or "product_price" in expected)
+        and (intent != "device_price" or "product_price" not in expected or "device_price" in expected)
+    ))
+
+
+Slot = Literal[
+    "mail_no", "origin", "destination", "weight_kg", "price_category", "product_text", "brand",
+    "capacity", "memory", "color", "commodity", "variety", "price_region", "market", "price_nature",
+    "source_scope", "price_unit", "price_quantity", "price_time",
+]
+SLOTS = ("mail_no", "origin", "destination", "weight_kg", "price_category", "product_text", "brand",
+         "capacity", "memory", "color", "commodity", "variety", "price_region", "market", "price_nature",
+         "source_scope", "price_unit", "price_quantity", "price_time")
+MissingSlot = Literal[
+    "mail_no", "origin", "destination", "weight", "conditions.kind",
+    "conditions.product_text", "conditions.brand", "conditions.commodity", "conditions.variety",
+    "conditions.region_text", "conditions.market_text", "conditions.price_nature", "conditions.source_scope",
+    "conditions.requested_unit", "conditions.specification", "conditions.specification.capacity",
+    "conditions.specification.memory", "conditions.specification.color", "time",
+]
 Code = Annotated[
     str, StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,95}$")
 ]
@@ -44,7 +71,7 @@ class UnderstandingInput(Contract):
     active_intent: Intent | None = None
     explicit_intent: Intent | None = None
     expected_slots: list[MissingSlot] = Field(
-        default_factory=list, max_length=4
+        default_factory=list, max_length=16
     )
 
     @model_validator(mode="after")
@@ -60,11 +87,11 @@ class UnderstandingInput(Contract):
 
 def canonical_slot(name: str, value: str) -> str:
     value = value.strip()
-    if not value or len(value) > 128:
+    if not value or len(value) > 255:
         raise ValueError("invalid_slot_value")
     if name == "mail_no":
         return value.upper()
-    if name == "weight_kg":
+    if name in {"weight_kg", "price_quantity"}:
         try:
             number = Decimal(value)
         except InvalidOperation:
@@ -111,6 +138,7 @@ class UnderstandingGold(Contract):
         ) != len(self.missing_slots):
             raise ValueError("duplicate_gold_missing_slots")
         allowed = {
+            "product_price": set(SLOTS) - {"mail_no", "origin", "destination", "weight_kg"},
             "tracking": {"mail_no"},
             "delivery_time": {"origin", "destination"},
             "postage": {"origin", "destination", "weight_kg"},
@@ -120,6 +148,13 @@ class UnderstandingGold(Contract):
         allowed_missing = {
             "weight" if name == "weight_kg" else name for name in allowed
         }
+        if self.intent == "product_price":
+            allowed_missing = {
+                "conditions.kind", "conditions.product_text", "conditions.brand", "conditions.commodity", "conditions.variety",
+                "conditions.region_text", "conditions.market_text", "conditions.price_nature", "conditions.source_scope",
+                "conditions.requested_unit", "conditions.specification", "conditions.specification.capacity",
+                "conditions.specification.memory", "conditions.specification.color", "time",
+            }
         if not set(self.missing_slots or []) <= allowed_missing:
             raise ValueError("gold_missing_slots_do_not_match_intent")
         self.slot_values = {

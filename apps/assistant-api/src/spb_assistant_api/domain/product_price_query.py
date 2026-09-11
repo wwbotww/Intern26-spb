@@ -10,7 +10,7 @@ from pydantic import (
     TypeAdapter, field_validator, model_validator,
 )
 
-from .product_price import PriceCode, PriceRegion, PriceText, ProductPriceReadRecord
+from .product_price import PriceCode, PriceId, PriceRegion, PriceText, ProductPriceReadRecord
 
 
 SearchTerm = Annotated[
@@ -46,8 +46,18 @@ class FreshPriceReadQuery(_ReadQuery):
     listing_limit: int = Field(default=20, strict=True, ge=1, le=100)
 
 
+class SelectedPriceReadQuery(BaseModel):
+    """Exact current-pointer reread; never rerun bounded fuzzy discovery for a choice."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["selected"] = "selected"
+    category_kind: Literal["device", "fresh"]
+    source_listing_id: PriceId
+    region: PriceRegion
+
+
 ProductPriceReadQuery = Annotated[
-    DevicePriceReadQuery | FreshPriceReadQuery, Field(discriminator="kind")
+    DevicePriceReadQuery | FreshPriceReadQuery | SelectedPriceReadQuery, Field(discriminator="kind")
 ]
 PRODUCT_PRICE_READ_QUERY = TypeAdapter(ProductPriceReadQuery)
 

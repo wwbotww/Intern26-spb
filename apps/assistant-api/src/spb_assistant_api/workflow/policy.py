@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID, uuid5
 
@@ -24,6 +25,7 @@ from ..domain.commands import (
     DevicePriceCommand,
     PolicyCommand,
     PostageCommand,
+    ProductPriceCommand,
     TrackingCommand,
 )
 from ..domain.failures import AgentFailure, FailureCategory
@@ -34,6 +36,7 @@ from ..domain.slots import (
     DevicePriceSlots,
     PolicySlots,
     PostageSlots,
+    ProductPriceSlots,
     SlotPayload,
     TrackingSlots,
 )
@@ -46,6 +49,8 @@ from ..domain.tooling import (
 from ..domain.understanding import ControlDirective
 from ..domain.agent_errors import AgentOperationError
 from ..services.postage_preflight import POSTAGE_CONFIRMATION, PostagePreflight
+from ..services.product_price_preflight import PRICE_AMBIGUITY_SLOTS, PRICE_SLOT_LABELS, price_required_input
+from .price_candidates import resolve_selection, validate_candidates
 
 
 _SLOTS_ADAPTER = TypeAdapter(SlotPayload)
@@ -68,6 +73,13 @@ class RecoveryDecision:
     retry: bool
 
 
+def is_price_clarification(action: NextAction, state: Mapping[str, Any]) -> bool:
+    return (
+        isinstance(action, CollectSlotsAction) and action.intent is Intent.PRODUCT_PRICE
+        or isinstance(action, ClarifyIntentAction) and state.get("active_intent") == Intent.PRODUCT_PRICE.value
+    )
+
+
 class WorkflowPolicy:
     """Pure, deterministic policy for the bounded agent workflow."""
 
@@ -76,11 +88,22 @@ class WorkflowPolicy:
         descriptors: Mapping[Intent, ToolDescriptor],
         *,
         postage_preflight: PostagePreflight | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._descriptors = dict(descriptors)
         self._postage_preflight = postage_preflight
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def decide(self, state: Mapping[str, Any]) -> WorkflowDecision:
+        decision = self._decide(state)
+        if is_price_clarification(decision.action, state) and (
+            int(state.get("price_clarification_count", 0)) >= 3 or int(state.get("tool_call_count", 0)) >= 2
+        ):
+            return self._failure(FailureCategory.LOOP_BUDGET_EXCEEDED,
+                                 "price_query_budget_exceeded", "本次价格查询已达到澄清或查询次数上限，请重新提问。")
+        return decision
+
+    def _decide(self, state: Mapping[str, Any]) -> WorkflowDecision:
         if state.get("last_result") is not None:
             AgentResult.model_validate(state["last_result"])
             return WorkflowDecision(action=RespondAction())
@@ -156,6 +179,29 @@ class WorkflowPolicy:
             )
 
         missing_slots = list(state.get("missing_slots", []))
+        if intent is Intent.PRODUCT_PRICE:
+            if any(item in ambiguities for item in ("price_unsupported_time", "price_unsupported_unit")):
+                return self._failure(
+                    FailureCategory.INVALID_INPUT, "price_scope_unsupported",
+                    "当前支持最新可用商品报价；无法按所述历史时间、趋势或包装单位查询，请调整条件。",
+                )
+            missing_slots = list(dict.fromkeys([
+                *missing_slots, *(PRICE_AMBIGUITY_SLOTS[item] for item in ambiguities if item in PRICE_AMBIGUITY_SLOTS),
+            ]))
+            missing_slots = list(dict.fromkeys([*missing_slots, *state.get("price_result_slots", [])]))
+            if state.get("price_candidates") and not missing_slots and not state.get("price_selected_token"):
+                try:
+                    candidates = validate_candidates(state, self._clock())
+                except AgentOperationError as error:
+                    return WorkflowDecision(action=RespondAction(), failure=error.failure)
+                return WorkflowDecision(action=CollectSlotsAction(
+                    intent=intent, prompt="请选择当前候选，或补充更精确的条件；未列出的候选不代表不存在。",
+                    required_inputs=[RequiredInput(name="price_selection", label="商品候选", type="choice",
+                        choices=[item.label for item in candidates.choices],
+                        price_candidates=[{"candidate_token": item.token, "label": item.label,
+                            "expires_at": candidates.expires_at.isoformat()} for item in candidates.choices],
+                        validation_hint="可以回复序号；候选仅对本次查询短期有效。")],
+                ))
         if intent is Intent.POSTAGE and self._postage_preflight is not None:
             try:
                 self._postage_preflight.validate_state(state)
@@ -190,6 +236,9 @@ class WorkflowPolicy:
 
         try:
             command = self._build_command(intent, state.get("slots"))
+            if isinstance(command, ProductPriceCommand) and state.get("price_selected_token"):
+                command = ProductPriceCommand(**command.model_dump(exclude={"selection"}),
+                    selection=resolve_selection(state, state["price_selected_token"], self._clock()))
             if isinstance(command, PostageCommand) and self._postage_preflight is not None:
                 command = self._postage_preflight.prepare(command)
         except AgentOperationError as error:
@@ -261,7 +310,7 @@ class WorkflowPolicy:
         if (
             not same_logical_call
             and int(state.get("tool_call_count", 0))
-            >= int(state.get("max_tool_calls", 1))
+            >= (2 if intent is Intent.PRODUCT_PRICE else int(state.get("max_tool_calls", 1)))
         ):
             return self._failure(
                 FailureCategory.LOOP_BUDGET_EXCEEDED,
@@ -270,6 +319,10 @@ class WorkflowPolicy:
             )
 
         attempt = int(state.get("retry_count", 0)) + 1
+        if intent is Intent.PRODUCT_PRICE:
+            # Query-wide retry allowance is distinct from per-call attempt numbers.
+            attempt = max((item.attempt + 1 for item in prior_calls
+                           if item.tool_call_id == call_id and item.status.value == "failed"), default=1)
         if attempt > descriptor.max_attempts:
             return self._failure(
                 FailureCategory.LOOP_BUDGET_EXCEEDED,
@@ -329,6 +382,11 @@ class WorkflowPolicy:
         slots = _SLOTS_ADAPTER.validate_python(raw_slots)
         if intent is Intent.POLICY and isinstance(slots, PolicySlots):
             return PolicyCommand(question=slots.question)
+        if intent is Intent.PRODUCT_PRICE and isinstance(slots, ProductPriceSlots):
+            values = {"conditions": slots.conditions}
+            if slots.time is not None:
+                values["time"] = slots.time
+            return ProductPriceCommand(**values)
         if (
             intent is Intent.DEVICE_PRICE
             and isinstance(slots, DevicePriceSlots)
@@ -375,6 +433,8 @@ class WorkflowPolicy:
             if confirmation_required
             else ""
         )
+        if name in PRICE_SLOT_LABELS:
+            return price_required_input(name, confirmation_hint=confirmation_hint)
         if name == "product_code" and self._postage_preflight is not None:
             return RequiredInput(
                 name=name, label="询价产品", type="choice",
@@ -423,6 +483,7 @@ class WorkflowPolicy:
         conflict_slots: set[str] | None = None,
     ) -> str:
         labels = {
+            **PRICE_SLOT_LABELS,
             "origin": "寄件地区",
             "destination": "收件地区",
             "weight": "重量",

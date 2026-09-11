@@ -1,8 +1,8 @@
 """Synthetic A1 capability baseline shared by legacy and typed Agent adapters.
 
 The fixture contains explicit expectations, not snapshots generated from the
-implementation. Known wrong identity matches remain strict xfails until stage C;
-they must never be copied into the V2 replacement's accepted behaviour.
+implementation. Stage C identity fixes share the same frozen expected outputs;
+the old incorrect matches must never become accepted behaviour.
 """
 
 from __future__ import annotations
@@ -150,19 +150,11 @@ def test_legacy_device_capability_baseline(
 @pytest.mark.parametrize(
     "case",
     [
-        pytest.param(
-            case,
-            id=case["id"],
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=AssertionError,
-                reason=f"Planned stage {case['planned_stage']}: {case['reason']}",
-            ),
-        )
+        pytest.param(case, id=case["id"])
         for case in BASELINE["known_gaps"]
     ],
 )
-def test_target_identity_guards_not_yet_met_by_legacy_tool(
+def test_target_identity_guards_fixed_by_shared_matching_strategy(
     case: dict[str, Any], surface: str
 ) -> None:
     _check_case(case, surface)

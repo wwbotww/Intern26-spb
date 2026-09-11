@@ -20,28 +20,73 @@
         "operationId": "establishBrowserSession",
         "summary": "Establish or explicitly reset an anonymous browser identity",
         "description": "Only registered when browser session mode is enabled, and accessible only through its authenticated proxy service role. Exact Origin is mandatory. Missing cookie creates identity; invalid or expired cookie is rejected unless reset=true. Refresh and signing-key rotation preserve the absolute expiry. Cookie is HttpOnly, SameSite=Strict, Path=/, no Domain and Secure (__Host-spb-agent); explicit HTTP loopback development uses spb-agent-local. A reset does not revoke an already copied old token. All responses are no-store. The returned reference is not an authorization credential.",
-        "parameters": [{ "name": "Origin", "in": "header", "required": true, "schema": { "type": "string" } }],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrowserSessionRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BrowserSessionRequest"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "Verified anonymous identity; credential is issued only in Set-Cookie",
-            "headers": { "Set-Cookie": { "schema": { "type": "string" }, "description": "Opaque signed HttpOnly credential; never log or persist in client JavaScript" } },
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BrowserSessionResponse" } } }
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Opaque signed HttpOnly credential; never log or persist in client JavaScript"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BrowserSessionResponse"
+                }
+              }
+            }
           },
-          "400": { "description": "Duplicate security headers" },
-          "401": { "description": "Service authentication or browser cookie invalid / expired" },
-          "403": { "description": "Wrong service role or rejected Origin / Fetch Metadata" },
-          "422": { "description": "Invalid bootstrap schema" },
-          "429": { "description": "Shared gateway rate limit exceeded" }
+          "400": {
+            "description": "Duplicate security headers"
+          },
+          "401": {
+            "description": "Service authentication or browser cookie invalid / expired"
+          },
+          "403": {
+            "description": "Wrong service role or rejected Origin / Fetch Metadata"
+          },
+          "422": {
+            "description": "Invalid bootstrap schema"
+          },
+          "429": {
+            "description": "Shared gateway rate limit exceeded"
+          }
         }
       }
     },
     "/v2/agent/capabilities": {
       "get": {
-        "parameters": [{ "$ref": "#/components/parameters/BrowserSessionReference" }],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/BrowserSessionReference"
+          },
+          {
+            "$ref": "#/components/parameters/AgentClientContract"
+          }
+        ],
         "operationId": "listAgentCapabilities",
         "summary": "List public Agent capabilities",
         "responses": {
@@ -95,7 +140,9 @@
         "operationId": "sendAgentMessage",
         "summary": "Create or continue an Agent workflow",
         "parameters": [
-          { "$ref": "#/components/parameters/BrowserSessionReference" },
+          {
+            "$ref": "#/components/parameters/BrowserSessionReference"
+          },
           {
             "name": "Idempotency-Key",
             "in": "header",
@@ -115,6 +162,9 @@
               "minLength": 1,
               "maxLength": 64
             }
+          },
+          {
+            "$ref": "#/components/parameters/AgentClientContract"
           }
         ],
         "requestBody": {
@@ -139,13 +189,27 @@
               "text/event-stream": {
                 "schema": {
                   "oneOf": [
-                    { "$ref": "#/components/schemas/AgentStreamStatusEvent" },
-                    { "$ref": "#/components/schemas/AgentStreamStateEvent" },
-                    { "$ref": "#/components/schemas/AgentStreamInputRequiredEvent" },
-                    { "$ref": "#/components/schemas/AgentStreamResultEvent" },
-                    { "$ref": "#/components/schemas/AgentStreamDeltaEvent" },
-                    { "$ref": "#/components/schemas/AgentStreamDoneEvent" },
-                    { "$ref": "#/components/schemas/AgentStreamErrorEvent" }
+                    {
+                      "$ref": "#/components/schemas/AgentStreamStatusEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentStreamStateEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentStreamInputRequiredEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentStreamResultEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentStreamDeltaEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentStreamDoneEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AgentStreamErrorEvent"
+                    }
                   ]
                 },
                 "x-sse-event-order": "status, state, input_required|result, delta?, done; error is terminal"
@@ -192,7 +256,9 @@
         "operationId": "deleteAgentConversation",
         "summary": "Delete a workflow and its checkpoints",
         "parameters": [
-          { "$ref": "#/components/parameters/BrowserSessionReference" },
+          {
+            "$ref": "#/components/parameters/BrowserSessionReference"
+          },
           {
             "name": "conversation_id",
             "in": "path",
@@ -214,15 +280,69 @@
             "$ref": "#/components/responses/Conflict"
           }
         }
+      },
+      "get": {
+        "operationId": "readAgentConversation",
+        "summary": "Read an owned durable snapshot without executing or extending candidate expiry",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/BrowserSessionReference"
+          },
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/AgentClientContract"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Durable state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
       }
     }
   },
   "components": {
     "parameters": {
       "BrowserSessionReference": {
-        "name": "X-Agent-Session", "in": "header", "required": false,
+        "name": "X-Agent-Session",
+        "in": "header",
+        "required": false,
         "description": "Required only for the configured browser proxy role, together with a valid signed cookie. Must equal bootstrap session_ref; 409 on missing or stale reference. This is not a bearer credential. Unsafe browser methods also require the configured exact Origin; cross-site Fetch Metadata is rejected.",
-        "schema": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        "schema": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "AgentClientContract": {
+        "name": "X-Agent-Contract",
+        "in": "header",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "const": "product-price-v1"
+        },
+        "description": "Required for browser clients in catalog_v2 mode. Missing/old contract returns 409 before SSE or state writes. Service credentials and V1 are unchanged."
       }
     },
     "securitySchemes": {
@@ -238,15 +358,31 @@
     },
     "schemas": {
       "BrowserSessionRequest": {
-        "type": "object", "additionalProperties": false,
-        "properties": { "reset": { "type": "boolean", "default": false } }
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reset": {
+            "type": "boolean",
+            "default": false
+          }
+        }
       },
       "BrowserSessionResponse": {
-        "type": "object", "additionalProperties": false,
-        "required": ["session_ref", "expires_at"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "session_ref",
+          "expires_at"
+        ],
         "properties": {
-          "session_ref": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "expires_at": { "type": "string", "format": "date-time" }
+          "session_ref": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "Intent": {
@@ -254,6 +390,7 @@
         "enum": [
           "policy",
           "device_price",
+          "product_price",
           "tracking",
           "delivery_time",
           "postage",
@@ -265,6 +402,7 @@
         "enum": [
           "policy",
           "device_price",
+          "product_price",
           "tracking",
           "delivery_time",
           "postage"
@@ -300,6 +438,11 @@
           {
             "required": [
               "explicit_intent"
+            ]
+          },
+          {
+            "required": [
+              "price_selection"
             ]
           }
         ],
@@ -340,7 +483,7 @@
               }
             ],
             "default": null,
-            "description": "unknown is not accepted as an explicit user choice."
+            "description": "unknown is not accepted. In catalog_v2 mode, use product_price; device_price remains a historical result type."
           },
           "confirm_overwrite": {
             "type": "boolean",
@@ -351,6 +494,18 @@
             "type": "boolean",
             "default": false,
             "description": "When true, returns the versioned text/event-stream projection documented on the 200 response."
+          },
+          "price_selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceSelectionInput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Requires conversation_id; excludes message, explicit_intent and confirm_overwrite. Token is bound to owner/conversation/query/conditions and expires within 10 minutes."
           }
         }
       },
@@ -388,17 +543,32 @@
               "type": "string"
             },
             "default": []
+          },
+          "price_candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PriceCandidateOption"
+            },
+            "maxItems": 20,
+            "default": []
           }
         }
       },
       "AgentSourceResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["source_type", "source_name"],
+        "required": [
+          "source_type",
+          "source_name"
+        ],
         "properties": {
           "source_type": {
             "type": "string",
-            "enum": ["fake_gateway", "external_api", "unknown"]
+            "enum": [
+              "fake_gateway",
+              "external_api",
+              "unknown"
+            ]
           },
           "source_name": {
             "type": "string",
@@ -410,12 +580,24 @@
             "default": ""
           },
           "queried_at": {
-            "anyOf": [{"type": "string", "format": "date-time"}, {"type": "null"}],
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null
           },
           "history_completeness": {
             "type": "string",
-            "enum": ["complete", "partial", "unknown"],
+            "enum": [
+              "complete",
+              "partial",
+              "unknown"
+            ],
             "default": "unknown"
           }
         }
@@ -575,7 +757,7 @@
               }
             ],
             "default": null,
-            "description": "Provisional discriminated result payload; finalized after external API review."
+            "description": "For product_price success/partial, validate ProductPriceResponseData (strict whitelist); no_match has null data. Other result types retain their existing payloads."
           },
           "reason_code": {
             "type": "string",
@@ -583,16 +765,50 @@
           },
           "provenance": {
             "type": "array",
-            "items": {"$ref": "#/components/schemas/AgentSourceResponse"},
+            "items": {
+              "$ref": "#/components/schemas/AgentSourceResponse"
+            },
             "default": [],
             "description": "Allowlisted tracking sources, including no_match. Empty for historical responses and other capabilities. Configuration declarations, not provider authentication or freshness guarantees."
           },
           "quote_basis": {
-            "anyOf": [{"$ref": "#/components/schemas/PostageQuoteBasisResponse"}, {"type": "null"}],
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PostageQuoteBasisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Allowlisted basis for successful postage only. Absent/null means unknown legacy basis; never infer currency, fees, pricing principal or source. Source time must match data.queried_at."
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "product_price"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "data": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ProductPriceResponseData"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
       },
       "AgentResponse": {
         "type": "object",
@@ -1123,6 +1339,439 @@
             "$ref": "#/components/schemas/ErrorDetail"
           }
         }
+      },
+      "ProductDeviceIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "device",
+            "title": "Kind",
+            "type": "string"
+          },
+          "brand": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Brand",
+            "type": "string"
+          },
+          "product_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Product Name",
+            "type": "string"
+          },
+          "specification": {
+            "additionalProperties": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxProperties": 23,
+            "title": "Specification",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "brand",
+          "product_name",
+          "specification"
+        ],
+        "title": "ProductDeviceIdentity",
+        "type": "object"
+      },
+      "ProductFreshIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "fresh",
+            "title": "Kind",
+            "type": "string"
+          },
+          "commodity_name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Commodity Name",
+            "type": "string"
+          },
+          "source_specification": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Source Specification",
+            "type": "string"
+          },
+          "market_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Market Name"
+          }
+        },
+        "required": [
+          "kind",
+          "commodity_name",
+          "source_specification"
+        ],
+        "title": "ProductFreshIdentity",
+        "type": "object"
+      },
+      "ProductPriceItem": {
+        "additionalProperties": false,
+        "properties": {
+          "identity": {
+            "discriminator": {
+              "mapping": {
+                "device": "#/components/schemas/ProductDeviceIdentity",
+                "fresh": "#/components/schemas/ProductFreshIdentity"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ProductDeviceIdentity"
+              },
+              {
+                "$ref": "#/components/schemas/ProductFreshIdentity"
+              }
+            ],
+            "title": "Identity"
+          },
+          "quote": {
+            "$ref": "#/components/schemas/ProductQuote"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProductSource"
+          },
+          "region": {
+            "$ref": "#/components/schemas/ProductRegion"
+          },
+          "queried_at": {
+            "format": "date-time",
+            "title": "Queried At",
+            "type": "string"
+          },
+          "freshness": {
+            "enum": [
+              "unknown",
+              "fresh",
+              "stale"
+            ],
+            "title": "Freshness",
+            "type": "string"
+          },
+          "last_known_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductQuote"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "identity",
+          "quote",
+          "source",
+          "region",
+          "queried_at",
+          "freshness"
+        ],
+        "title": "ProductPriceItem",
+        "type": "object"
+      },
+      "ProductQuote": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "priced",
+              "availability_only"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "currency": {
+            "const": "CNY",
+            "default": "CNY",
+            "title": "Currency",
+            "type": "string"
+          },
+          "current_price": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9]{1,18}\\.[0-9]{2,6}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Price"
+          },
+          "original_price": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9]{1,18}\\.[0-9]{2,6}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Price"
+          },
+          "original_price_type": {
+            "enum": [
+              "NONE",
+              "CROSSED_OUT",
+              "MSRP",
+              "EXPLICIT_ORIGINAL"
+            ],
+            "title": "Original Price Type",
+            "type": "string"
+          },
+          "availability": {
+            "enum": [
+              "ON_SALE",
+              "OUT_OF_STOCK",
+              "RESERVATION",
+              "PRE_SALE",
+              "COMING_SOON",
+              "OFF_SHELF",
+              "UNKNOWN"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "price_nature": {
+            "enum": [
+              "RETAIL_OFFER",
+              "RETAIL_AVERAGE",
+              "WHOLESALE_AVERAGE"
+            ],
+            "title": "Price Nature",
+            "type": "string"
+          },
+          "quoted_unit": {
+            "enum": [
+              "CNY_PER_PIECE",
+              "CNY_PER_500G",
+              "CNY_PER_KG"
+            ],
+            "title": "Quoted Unit",
+            "type": "string"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductUnitPrice"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "time_precision": {
+            "enum": [
+              "DAY",
+              "INSTANT",
+              "UNKNOWN"
+            ],
+            "title": "Time Precision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "current_price",
+          "original_price",
+          "original_price_type",
+          "availability",
+          "price_nature",
+          "quoted_unit",
+          "unit_price",
+          "observed_at",
+          "time_precision"
+        ],
+        "title": "ProductQuote",
+        "type": "object"
+      },
+      "ProductRegion": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "enum": [
+              "NATIONAL",
+              "PROVINCE",
+              "CITY",
+              "DISTRICT",
+              "DELIVERY_ZONE"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "code": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "code"
+        ],
+        "title": "ProductRegion",
+        "type": "object"
+      },
+      "ProductSource": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "profile": {
+            "pattern": "^[A-Z0-9_.-]{1,64}$",
+            "title": "Profile",
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "maxLength": 2083,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "profile",
+          "url"
+        ],
+        "title": "ProductSource",
+        "type": "object"
+      },
+      "ProductUnitPrice": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "pattern": "^[0-9]{1,18}\\.[0-9]{2,6}$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "CNY_PER_PIECE",
+              "CNY_PER_KG"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "unit"
+        ],
+        "title": "ProductUnitPrice",
+        "type": "object"
+      },
+      "ProductPriceResponseData": {
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "const": "product_price",
+            "default": "product_price",
+            "title": "Type",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "1",
+            "default": "1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProductPriceItem"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "title": "ProductPriceResponseData",
+        "type": "object"
+      },
+      "PriceCandidateOption": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_token": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "title": "Candidate Token",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_token",
+          "label",
+          "expires_at"
+        ],
+        "title": "PriceCandidateOption",
+        "type": "object"
+      },
+      "PriceSelectionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_token": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "title": "Candidate Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_token"
+        ],
+        "title": "PriceSelectionInput",
+        "type": "object"
       }
     },
     "responses": {

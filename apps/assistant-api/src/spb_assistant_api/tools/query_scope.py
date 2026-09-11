@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from ..domain.models import ToolResult, ToolStatus
-from .device_query import DEVICE_ALIASES, normalize_text
+from ..domain.device_query import DEVICE_ALIASES, normalize_text
 
 
 PRICE_MARKERS = ("参考价", "价格", "多少钱", "售价", "价钱")

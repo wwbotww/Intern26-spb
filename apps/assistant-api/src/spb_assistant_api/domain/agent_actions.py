@@ -4,11 +4,13 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from .commands import AgentCommand
 from .intents import Intent
 from .primitives import MailNumber, MessageText
+from .product_price_execution import PriceSelectionInput
+from .product_price_execution import CandidateToken
 from .understanding import ControlDirective
 
 
@@ -16,6 +18,14 @@ class AgentMessageInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: MessageText
+
+
+class PriceCandidatePresentation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    candidate_token: CandidateToken
+    label: str = Field(min_length=1, max_length=255)
+    expires_at: AwareDatetime
 
 
 class RequiredInput(BaseModel):
@@ -26,6 +36,7 @@ class RequiredInput(BaseModel):
     type: Literal["string", "number", "region", "choice"] = "string"
     validation_hint: str = ""
     choices: list[str] = Field(default_factory=list)
+    price_candidates: list[PriceCandidatePresentation] = Field(default_factory=list, max_length=20)
 
 
 class ClarificationRequest(BaseModel):
@@ -53,11 +64,14 @@ class AgentResumeInput(BaseModel):
     confirm_overwrite: bool = False
     turn_id: UUID | None = None
     deadline_at: datetime | None = None
+    price_selection: PriceSelectionInput | None = None
 
     @model_validator(mode="after")
     def require_user_value(self) -> "AgentResumeInput":
-        if self.message is None and self.selected_intent is None:
+        if self.message is None and self.selected_intent is None and self.price_selection is None:
             raise ValueError("恢复 Workflow 时必须提供消息或确认意图")
+        if self.price_selection is not None and (self.message is not None or self.selected_intent is not None or self.confirm_overwrite):
+            raise ValueError("候选选择不能与改题或覆盖条件混合提交")
         if (
             self.deadline_at is not None
             and (

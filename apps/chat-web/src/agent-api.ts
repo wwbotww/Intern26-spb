@@ -1,4 +1,5 @@
 import { parseSseBlock } from './api'
+import { validatePriceCandidates, validateProductPrice } from './product-price-contract'
 import type {
   BrowserSessionResponse,
   AgentCapability,
@@ -85,15 +86,16 @@ export async function bootstrapAgentBrowserSession(
 }
 
 function browserSessionHeaders(): Record<string, string> {
-  if (!browserSessionEnabled()) return {}
+  if (!browserSessionEnabled()) return { 'X-Agent-Contract': 'product-price-v1' }
   if (!browserIdentity || Date.parse(browserIdentity.expires_at) <= Date.now()) {
     clearAgentBrowserIdentity()
     throw new AgentApiError('browser_session_required', '请先核验浏览器访客身份。', 401)
   }
-  return { 'X-Agent-Session': browserIdentity.session_ref }
+  return { 'X-Agent-Session': browserIdentity.session_ref, 'X-Agent-Contract': 'product-price-v1' }
 }
 
 const intents = new Set<Intent>([
+  'product_price',
   'policy',
   'device_price',
   'tracking',
@@ -102,6 +104,7 @@ const intents = new Set<Intent>([
   'unknown',
 ])
 const publicIntents = new Set<PublicIntent>([
+  'product_price',
   'policy',
   'device_price',
   'tracking',
@@ -204,9 +207,13 @@ function intentValue(value: unknown, context: string): Intent {
   return candidate
 }
 
+export function isPublicIntent(value: unknown): value is PublicIntent {
+  return typeof value === 'string' && publicIntents.has(value as PublicIntent)
+}
+
 function publicIntentValue(value: unknown, context: string): PublicIntent {
-  const candidate = stringValue(value, context) as PublicIntent
-  if (!publicIntents.has(candidate)) {
+  const candidate = stringValue(value, context)
+  if (!isPublicIntent(candidate)) {
     return invalidContract(`${context} 不受支持。`)
   }
   return candidate
@@ -232,10 +239,16 @@ function requiredInput(value: unknown): RequiredInput {
   if (!inputTypes.has(type)) {
     return invalidContract('required_input.type 不受支持。')
   }
+  let candidates
+  try {
+    candidates = validatePriceCandidates(item.price_candidates)
+    if (candidates.length && (item.name !== 'price_selection' || type !== 'choice')) throw new Error()
+  } catch { return invalidContract('价格候选未通过契约校验。') }
   return {
     name: stringValue(item.name, 'required_input.name'),
     label: stringValue(item.label, 'required_input.label'),
     type,
+    ...(item.price_candidates === undefined ? {} : { price_candidates: candidates }),
     validation_hint:
       item.validation_hint === undefined
         ? ''
@@ -247,7 +260,7 @@ function requiredInput(value: unknown): RequiredInput {
   }
 }
 
-function requiredInputs(value: unknown): RequiredInput[] {
+export function requiredInputs(value: unknown): RequiredInput[] {
   if (!Array.isArray(value)) {
     return invalidContract('required_inputs 必须是数组。')
   }
@@ -326,6 +339,12 @@ export function validateAgentResult(value: unknown): AgentResult | null {
   }
   const data = item.data
   if (data !== null && data !== undefined) record(data, 'result.data')
+  if (item.type === 'product_price') {
+    try {
+      if (status === 'success' || status === 'partial') validateProductPrice(data)
+      else if (data != null) throw new Error()
+    } catch { return invalidContract('商品价格结果未通过契约校验。') }
+  }
   const basis = postageQuoteBasis(item.quote_basis)
   if (basis) {
     const quote = record(data, 'postage.data')
@@ -557,6 +576,14 @@ function capability(value: unknown): AgentCapability {
     ),
     required_inputs: requiredInputs(item.required_inputs),
   }
+}
+
+export async function getAgentSnapshot(conversationId: string, signal?: AbortSignal): Promise<AgentResponse> {
+  const response = await fetch(`/api/v2/agent/conversations/${encodeURIComponent(conversationId)}`, {
+    headers: { Accept: 'application/json', ...browserSessionHeaders() }, credentials: 'same-origin', cache: 'no-store', signal,
+  })
+  if (!response.ok) throw await responseError(response)
+  return validateAgentResponse(await response.json())
 }
 
 export async function getAgentCapabilities(

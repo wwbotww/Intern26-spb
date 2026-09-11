@@ -46,8 +46,9 @@ API V1/V2、价格数据 V1/V2 和 State 版本不是同一版本线，见[数�
 
 采集侧参考独立 `device-price-service` 仓库的 `docs/V2_DEVICE_NATIVE_COLLECTION_PLAN.md`
 及 `docs/V2_GENERAL_CATALOG_DEVELOPMENT_PLAN.md`，不在本仓库复制生产者计划。
-2026-09-11 后续检查时，采集侧已报告阶段 I 本地完成，J～M 待实施；相关代码尚有未提交修改，
-真实设备 V2 采集及公司库新迁移未确认。消费者审查快照和字段冻结边界见
+2026-09-11 A 冻结时采集侧阶段 I 本地完成；后续 D1/D2 核对已确认目标库升级并存在五品牌原生 V2 数据，
+M 验收记录仍保留 6 组 iMac 重复身份待处理，部分源码/记录尚未提交。实时核对证据唯一写入状态页。
+消费者原审查快照和字段冻结边界见
 [价格消费合同](../apps/assistant-api/docs/integrations/product-price.md)，不能把代码存在当成数据库已升级。
 
 ## 2. 目标模块边界
@@ -79,7 +80,7 @@ V1 device_price → 设备协议适配器 ────────────�
 | --- | --- |
 | 查询与事实模型 | `domain/product_price.py`、`product_price_query.py`、`ports.py`；后续修改 `intents.py`、`slots.py`、`commands.py`、`results.py` |
 | V2 数据读取 | `adapters/mysql_product_price.py`、`product_price_rows.py`；替换完成后移除旧 `mysql_price.py` 的生产依赖 |
-| 共用业务核心 | `services/product_price_query.py` 的候选读取起点；后续新增 `tools/product_price.py`，抽取并复用 `tools/device_query.py` 中的纯解析/匹配逻辑 |
+| 共用业务核心 | `services/product_price_query.py`、`device_price_matching.py`、`domain/device_query.py`；旧协议包装器 `tools/v2_device_price.py`，D 再接统一 ProductPriceTool |
 | 理解与执行 | `services/query_understanding.py`、`slot_merger.py`、`result_validator.py`、`agent_tools.py`；`workflow/` 策略、节点、状态和迁移 |
 | 装配与兼容 | `api/app.py`、`configured_agent.py`、`workflow/composition.py`、`adapters/legacy_agent_tools.py` 及受控部署配置 |
 | 跨端 | `api/agent_schemas.py`、`api/agent_contracts.py`、公开投影；根 OpenAPI、Web 类型/校验/组件、Eval 独立镜像 |
@@ -105,6 +106,10 @@ B/C 实施时必须保持：
 ### 4.1 拟定类型边界
 
 以下是目标类型边界，字段与接口设计选择见消费合同；公开 schema 到 D 阶段实现时再同步生成。
+
+D1/D2 已实现的条件字段、组件开关和 HTTP 临时门禁见
+[Understanding 组件](../apps/assistant-api/docs/integrations/product-price-understanding.md)。
+该组件可离线生成 Command 和补槽决定；结果驱动的真实 Tool/候选循环、公开 Data/卡片和 State 仍须 D3～D6 配套交付。
 
 | 类型 | 内容与责任 |
 | --- | --- |
@@ -340,7 +345,10 @@ npm --prefix apps/chat-web run check:agent-types
 API 实施时使用现有 `generate:agent-types` 命令更新生成物，随后运行 `check:agent-types`。
 双模式构建和合成部署沿用 [CI 工作流](../.github/workflows/agent-ci.yml)；
 B 的 MySQL 隔离命令见[价格 SQL 门禁](../deploy/price-query/README.md)。
-D 的价格离线黑盒入口待实施后补充，不能把 FakeEngine 测试标为 V2 SQL 已验收。
+D 的价格离线黑盒已纳入 `python -m apps.assistant-api.tests.ci_offline_eval --output /tmp/agent-eval`，
+新增数据集为 `eval/datasets/agent-product-price-workflow-development-v1.jsonl`。
+公开协议、状态兼容和发布顺序见[协调发布设计](../apps/assistant-api/docs/integrations/product-price-public-release.md)，
+不能把合成 API 或 FakeEngine 测试标为真实 V2 SQL 已验收。
 
 最终完成清单：
 
@@ -359,20 +367,27 @@ D 的价格离线黑盒入口待实施后补充，不能把 FakeEngine 测试标
 
 | ID | 事项与本地审查状态 | 负责人角色 | 阻塞与可先做部分 |
 | --- | --- | --- | --- |
-| PRICE-G01 | 未提交源码快照已定位；正式 commit、目标库 b72 迁移仍待确认 | 采集侧 + Agent | 阻塞真实兼容验收；B 合成查询可先做 |
-| PRICE-G02 | 规格键/有效 match 语义已有源码依据；J/K 建档样例、扩展维度和跨版本历史仍待确认 | 采集侧 | 阻塞对应设备真实范围 C/E；同 revision 历史和已冻结字段先回归 |
+| PRICE-G01 | 2026-09-11 已实查目标库 b72c910e4f31，消费必需投影可读；生产者 L 为 7191523，后续 M 修改与最终验收仍待收口 | 采集侧 + Agent | 迁移/基础投影缺口解除；不等于完整源码交付或全库语义验收 |
+| PRICE-G02 | 规格键/有效 match 已有源码和有限真实样本依据；完整五品牌扩展维度、跨版本历史仍待确认 | 采集侧 | 有限样本可先消费，完整 C/E 真实范围与历史不据此关闭 |
 | PRICE-G03 | 无金额静态模型/迁移已审查；运行期确认与公司库状态推进待确认 | 采集侧 | B 可验证合同夹具；不能证明真实下架流水线已工作 |
-| PRICE-G04 | 两个生鲜来源的单位/来源日已本地冻结；真实样例与修订读取需联调 | 采集侧 + Agent | 清晰来源可先接入；不扩大未确认范围 |
+| PRICE-G04 | 两个生鲜来源的少量真实样本已通过当前 SQL/映射合同；日期仍为 8 月，修订/更广市场范围未验 | 采集侧 + Agent | 可推进已有范围；不能把旧来源日伪装为当日价 |
 | PRICE-G05 | 更新周期、freshness 阈值与覆盖维护人待确认 | 数据维护方 | 可先显示原观察时间与 freshness 未知；正式 freshness 验收需确认 |
 | PRICE-G06 | 本地 MySQL 5.7/8 的 V2-only SELECT 与 schema 探测已验证；公司库同等权限仍待确认 | 环境维护方 | B 本地门禁解除；E 仍需真实权限，不借管理员权限扩大 Agent 账号 |
-| PRICE-G07 | 合成设备基线已建立；真实五品牌同证据样例和覆盖仍待交接 | 采集侧 + Agent | 合成 C 先行；阻塞 E 全替换完成声明 |
+| PRICE-G07 | 合成设备基线已建立；四品牌少量事实已实查，小米 redmi 搜索无匹配；完整五品牌同证据覆盖仍待交接 | 采集侧 + Agent | 部分只读合同证据已有；仍阻塞 E 全替换完成声明 |
 | PRICE-G08 | 客户端门禁/历史策略已本地冻结；活跃会话、升级窗口与回退处理待核对 | 应用维护方 | D 做实现/夹具；E 前确认真实窗口 |
-| PRICE-G09 | 已复现 Pro 请求被 Pro Max 替代；strict xfail 保留目标负例 | Agent | C 修复；不得作为合法兼容行为保留 |
-| PRICE-G10 | 已复现基本款因同系列名混入 Pro；strict xfail 保留目标负例 | Agent | C 修复；阻塞设备替换验收 |
+| PRICE-G09 | 2026-09-11 C 已修复 Pro→Pro Max 替代；同一策略的新旧双入口普通回归通过 | Agent | 本地缺口关闭；不代表未发布的生产代码已修复 |
+| PRICE-G10 | 2026-09-11 C 已修复基本款混入 Pro；原 Gold 不变、strict xfail 已转通过 | Agent | 本地缺口关闭；真实发布仍按 E 验收 |
 | PRICE-G11 | 同 revision 历史合同已冻结，当前 Repository 保守不返回历史；correction 终点选择与有界检索尚未实现 | Agent + 采集侧 | 不阻塞 B 当前事实通路；补齐并测试后才开放最近有价历史，不排序猜测或用历史补当前金额 |
+| PRICE-G12 | 生产者 M 记录 6 组 iMac 重复来源身份，尚待限定数据修复确认；Agent 不合并/删除业务数据 | 采集侧 | 阻塞对应配置的完整替换验收，不阻塞独立组件开发 |
+| PRICE-G13 | 旧 API 容器中新诊断进程无法创建工作线程；本次真实验收只覆盖同步 SQL/映射，不改线上资源限制 | 应用/环境维护方 | E 前复核线程/进程容量与新 Runtime 生命周期；不能以同步探针代替异步部署验收 |
+| PRICE-G14 | D3 生鲜品名/市场/来源规格采用精确文本条件，来源地区使用审核目录；市场别名、品种规范化、更广地名表达与其真实覆盖尚未核对 | Agent + 采集侧 | 先用可证明的精确条件通路；不猜市场 ID、不把区县缩成全市；后续补映射需证据和正负回归 |
 
-开发交接以状态页为准：B 的当前事实读取和 V2-only 集成门禁通过后，进入 **C 的设备硬匹配与薄协议适配**。
-不要先全局重命名 `device_price`，也不要把候选召回直接当成最终设备报价；可选历史按 PRICE-G11 独立保留。
+开发交接以状态页为准：D3 内部闭环见[执行设计](../apps/assistant-api/docs/integrations/product-price-agent-loop.md)，
+D4～D7 的白名单 DTO、结构化候选、客户端门禁、Web/Eval 与 State 4 配套实现见[协调发布设计](../apps/assistant-api/docs/integrations/product-price-public-release.md)。
+本轮按用户授权推进限定范围 E 发布；五品牌完整语义、V2-only 生产权限、历史和旧 SQL 清理不能因此自动关闭。
+内部 ProductPriceData 含事实标识，不得直接序列化为公开 DTO；远程 CI 与目标部署必须各有实际证据。
+不要只重命名 `device_price` 就宣称 D 完成；
+旧设备协议对无金额状态的受限投影与旧依赖清单见消费合同。可选历史按 PRICE-G11 独立保留。
 未获得真实访问条件时可以完成 B/C/D 的隔离通路，但状态保持“离线完成、真实验收待办”。
 
 完成后可写入[技术复盘](project-retrospective.md)的素材包括：统一读取核心与分类策略、

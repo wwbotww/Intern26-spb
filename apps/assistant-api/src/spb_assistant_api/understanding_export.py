@@ -43,7 +43,13 @@ Code = Annotated[
     str, StringConstraints(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,95}$")
 ]
 Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-MissingSlot = Literal["mail_no", "origin", "destination", "weight"]
+MissingSlot = Literal[
+    "mail_no", "origin", "destination", "weight", "conditions.kind",
+    "conditions.product_text", "conditions.brand", "conditions.commodity", "conditions.variety",
+    "conditions.region_text", "conditions.market_text", "conditions.price_nature", "conditions.source_scope",
+    "conditions.requested_unit", "conditions.specification", "conditions.specification.capacity",
+    "conditions.specification.memory", "conditions.specification.color", "time",
+]
 
 
 class ExportInput(BaseModel):
@@ -52,7 +58,7 @@ class ExportInput(BaseModel):
     active_intent: Intent | None = None
     explicit_intent: Intent | None = None
     expected_slots: list[MissingSlot] = Field(
-        default_factory=list, max_length=4
+        default_factory=list, max_length=16
     )
 
     @model_validator(mode="after")
@@ -178,7 +184,8 @@ class _BudgetedModel:
 
 
 def _project(result: QueryUnderstandingResult, *, needs_model: bool) -> dict:
-    # Only four hard entities; no query/question, raw text, candidates or provenance.
+    # Only allowlisted semantic values are fingerprinted. No raw question,
+    # source IDs, token, connection information or free-form provenance.
     payload = result.slots.model_dump(mode="json") if result.slots else {}
     values = {}
     if payload.get("mail_no"):
@@ -199,6 +206,24 @@ def _project(result: QueryUnderstandingResult, *, needs_model: bool) -> dict:
         ):
             raise ValueError("invalid_weight_projection")
         values["weight_kg"] = format(number.normalize(), "f")
+    if payload.get("intent") == "product_price":
+        conditions = payload["conditions"]
+        values["price_category"] = conditions["kind"]
+        for source, target in {
+            "product_text": "product_text", "brand": "brand", "commodity": "commodity",
+            "variety": "variety", "region_text": "price_region", "market_text": "market",
+            "price_nature": "price_nature", "source_scope": "source_scope",
+        }.items():
+            if conditions.get(source):
+                values[target] = conditions[source]
+        for name in ("capacity", "memory", "color"):
+            if value := conditions.get("specification", {}).get(name):
+                values[name] = value
+        if unit := conditions.get("requested_unit"):
+            values["price_unit"] = unit["unit"]
+            values["price_quantity"] = format(Decimal(str(unit["quantity"])).normalize(), "f")
+        if constraint := payload.get("time"):
+            values["price_time"] = constraint["kind"]
     return {
         "intent": result.selected_intent.value,
         "candidate_intents": [item.intent.value for item in result.candidates],
@@ -228,6 +253,14 @@ def _implementation_digest() -> str:
         "services/query_understanding.py",
         "services/region_resolver.py",
         "services/slot_merger.py",
+        "services/product_price_understanding.py",
+        "services/fresh_price_scope.py",
+        "services/product_price_slot_merger.py",
+        "domain/product_price_slots.py",
+        "domain/product_price.py",
+        "domain/device_price_quote.py",
+        "domain/device_query.py",
+        "domain/slot_merge.py",
         "domain/understanding.py",
         "domain/slots.py",
         "domain/intents.py",
@@ -250,6 +283,7 @@ async def export_understanding(
     max_model_calls: int = 0,
     settings: AssistantSettings | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    product_price_enabled: bool = False,
 ) -> dict:
     if (
         mode not in {"rules", "hybrid"}
@@ -261,6 +295,8 @@ async def export_understanding(
         raise ValueError("rules_mode_has_no_model_budget")
     if mode == "hybrid" and (not allow_live_model or max_model_calls < 1):
         raise ValueError("hybrid_requires_explicit_authorization_and_budget")
+    if not product_price_enabled and any(Intent.PRODUCT_PRICE in {case.input.active_intent, case.input.explicit_intent} for case in request.cases):
+        raise ValueError("product_price_context_requires_component_opt_in")
     # Rules never even construct settings or load any local credentials.
     resolved = (settings or AssistantSettings()) if mode == "hybrid" else None
     if resolved and (
@@ -282,13 +318,14 @@ async def export_understanding(
     @asynccontextmanager
     async def understander_context():
         if resolved is None:
-            yield HybridQueryUnderstander()
+            yield HybridQueryUnderstander(rules=RuleBasedQueryUnderstander(product_price_enabled=product_price_enabled))
         else:
             async with create_query_understander(
                 resolved,
                 transport=transport,
                 decorate_model=decorate,
                 call_observer=observe,
+                product_price_enabled=product_price_enabled,
             ) as understander:
                 yield understander
 
@@ -298,10 +335,8 @@ async def export_understanding(
         )
         output.flush()  # Keep completed observations when later work is interrupted.
 
-    prompt = DeepSeekQueryUnderstandingModel._system_prompt(
-        StructuredLlmQueryUnderstander.prompt,
-        StructuredLlmQueryUnderstander.prompt_version,
-    )
+    prompt_text, prompt_version = StructuredLlmQueryUnderstander.prompt_profile(product_price_enabled=product_price_enabled)
+    prompt = DeepSeekQueryUnderstandingModel._system_prompt(prompt_text, prompt_version, product_price_enabled=product_price_enabled)
     emit(
         {
             "type": "manifest",
@@ -317,15 +352,16 @@ async def export_understanding(
             else "live",
             "created_at": datetime.now(UTC).isoformat(),
             "producer_version": __version__,
-            "rules_version": RuleBasedQueryUnderstander.parser_version,
+            "rules_version": RuleBasedQueryUnderstander(product_price_enabled=product_price_enabled).parser_version,
             "parser_version": HybridQueryUnderstander.parser_version,
-            "prompt_version": StructuredLlmQueryUnderstander.prompt_version
+            "prompt_version": prompt_version
             if resolved
             else None,
             "implementation_sha256": _implementation_digest(),
             "configuration_sha256": _digest(
                 {
                     "mode": mode,
+                    "product_price_enabled": product_price_enabled,
                     "max_model_calls": max_model_calls,
                     "serial": True,
                     "model_settings": {
@@ -426,6 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--mode", choices=("rules", "hybrid"), default="rules")
     parser.add_argument("--allow-live-model", action="store_true")
     parser.add_argument("--max-model-calls", type=int, default=0)
+    parser.add_argument("--product-price", action="store_true", help="启用 D1/D2 商品价格组件验收；不开放 HTTP 或调用业务工具")
     args = parser.parse_args(argv)
     try:
         if args.requests.stat().st_size > 16 * 1024 * 1024:
@@ -445,6 +482,7 @@ def main(argv: list[str] | None = None) -> int:
                     mode=args.mode,
                     allow_live_model=args.allow_live_model,
                     max_model_calls=args.max_model_calls,
+                    product_price_enabled=args.product_price,
                 )
             )
         print(json.dumps(result))

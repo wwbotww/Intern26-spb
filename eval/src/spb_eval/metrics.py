@@ -640,6 +640,7 @@ def calculate_assistant_metrics(
 
 _MISSING = object()
 _PUBLIC_INTENTS = {
+    "product_price",
     "policy",
     "device_price",
     "tracking",
@@ -939,6 +940,7 @@ def calculate_agent_metrics(
 
     by_intent: dict[str, dict[str, Any]] = {}
     for intent in (
+        "product_price",
         "policy",
         "device_price",
         "tracking",

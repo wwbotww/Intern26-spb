@@ -21,3 +21,5 @@ class SlotMergeResult(BaseModel):
     provenance: list[SlotProvenance] = Field(default_factory=list)
     conflicts: list[SlotConflict] = Field(default_factory=list)
     changed_slots: list[str] = Field(default_factory=list)
+    invalidated_slots: list[str] = Field(default_factory=list)
+    invalidate_price_candidates: bool = False

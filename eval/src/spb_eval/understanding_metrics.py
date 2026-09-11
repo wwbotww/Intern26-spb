@@ -8,6 +8,7 @@ from pydantic import Field
 from .understanding_dataset import digest
 from .understanding_schema import (
     INTENTS,
+    understanding_intent_labels,
     SLOTS,
     Contract,
     UnderstandingCase,
@@ -68,6 +69,15 @@ def calculate_understanding_metrics(
     thresholds: UnderstandingThresholds | None = None,
 ) -> tuple[dict, list[dict]]:
     thresholds = thresholds or UnderstandingThresholds()
+    # Preserve the frozen legacy five-business-intent comparison. The unified
+    # price component replaces device_price, rather than adding an unused zero
+    # class to every historical macro-F1 report. Mixed datasets retain both.
+    expected_intents = {
+        intent for case in cases
+        for intent in (case.gold.intent, *case.gold.candidate_intents)
+        if intent is not None
+    }
+    labels = understanding_intent_labels(expected_intents)
     confusion = {label: Counter() for label in INTENTS}
     slot_counts = {name: Counter(tp=0, fp=0, fn=0) for name in SLOTS}
     sources, statuses, model_outcomes, failure_codes = (
@@ -206,7 +216,7 @@ def calculate_understanding_metrics(
             counter["passed"] += not reasons
 
     per_class = {}
-    for label in INTENTS:
+    for label in labels:
         tp = confusion[label][label]
         fn = sum(confusion[label].values()) - tp
         fp = sum(
@@ -236,9 +246,9 @@ def calculate_understanding_metrics(
             "excluded_multi_ambiguous_or_control": len(cases) - label_count,
             "accuracy": _ratio(label_correct, label_count),
             "macro_f1": mean(item["f1"] for item in per_class.values()),
-            "labels": list(INTENTS),
+            "labels": list(labels),
             "per_class": per_class,
-            "confusion": {label: dict(confusion[label]) for label in INTENTS},
+            "confusion": {label: dict(confusion[label]) for label in labels},
             "classes_with_support": sum(
                 item["support"] > 0 for item in per_class.values()
             ),

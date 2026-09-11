@@ -1,4 +1,4 @@
-import { validateAgentResult } from './agent-api'
+import { requiredInputs, validateAgentResult } from './agent-api'
 import type {
   AgentSessionSnapshot,
   AgentUiMessage,
@@ -66,6 +66,7 @@ export function loadAgentSession(
     }
     if (value.messages.length > MAX_MESSAGES) return null
     for (const message of value.messages) {
+      requiredInputs(message.requiredInputs) // Validate without rewriting historical defaults.
       if (message.result !== undefined) {
         message.result = validateAgentResult(message.result)
       }
@@ -78,6 +79,7 @@ export function loadAgentSession(
       ![
         'policy',
         'device_price',
+        'product_price',
         'tracking',
         'delivery_time',
         'postage',

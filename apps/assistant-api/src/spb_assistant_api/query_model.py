@@ -10,6 +10,7 @@ from .adapters.deepseek_understanding import DeepSeekQueryUnderstandingModel
 from .domain.ports import StructuredQueryUnderstandingModel
 from .services.query_understanding import (
     HybridQueryUnderstander,
+    RuleBasedQueryUnderstander,
     StructuredLlmQueryUnderstander,
 )
 from .settings import AssistantSettings
@@ -20,6 +21,7 @@ async def create_query_understander(
     settings: AssistantSettings,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
+    product_price_enabled: bool = False,
     decorate_model: Callable[
         [StructuredQueryUnderstandingModel], StructuredQueryUnderstandingModel
     ]
@@ -29,7 +31,7 @@ async def create_query_understander(
     """Own the optional provider lifecycle outside Domain, Service and Graph."""
 
     if not settings.query_model_enabled:
-        yield HybridQueryUnderstander()
+        yield HybridQueryUnderstander(rules=RuleBasedQueryUnderstander(product_price_enabled=product_price_enabled))
         return
 
     model = DeepSeekQueryUnderstandingModel(
@@ -42,11 +44,14 @@ async def create_query_understander(
         max_response_bytes=settings.query_model_max_response_bytes,
         transport=transport,
         call_observer=call_observer,
+        product_price_enabled=product_price_enabled,
     )
     try:
         yield HybridQueryUnderstander(
+            rules=RuleBasedQueryUnderstander(product_price_enabled=product_price_enabled),
             model_fallback=StructuredLlmQueryUnderstander(
-                decorate_model(model) if decorate_model else model
+                decorate_model(model) if decorate_model else model,
+                product_price_enabled=product_price_enabled,
             )
         )
     finally:

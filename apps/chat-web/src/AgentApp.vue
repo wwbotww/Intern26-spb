@@ -8,6 +8,8 @@ import {
   clearAgentBrowserIdentity,
   deleteAgentConversation,
   getAgentCapabilities,
+  getAgentSnapshot,
+  isPublicIntent,
   streamAgentMessage,
 } from './agent-api'
 import type {
@@ -39,14 +41,18 @@ interface CapabilityPresentation {
 }
 
 
-const intentOrder: PublicIntent[] = [
+const allIntents: PublicIntent[] = [
   'tracking',
   'delivery_time',
   'postage',
   'policy',
   'device_price',
+  'product_price',
 ]
+const intentOrder = computed(() => allIntents.filter((intent) =>
+  intent !== (capabilities.value.some((item) => item.intent === 'product_price') ? 'device_price' : 'product_price')))
 const presentation: Record<PublicIntent, CapabilityPresentation> = {
+  product_price: { icon: '价', description: '查询电子设备及生鲜报价，区分来源、地区、单位与数据日期。' },
   tracking: {
     icon: '轨',
     description: '识别或补充 13 位邮件号，查询轨迹节点与本次数据来源。',
@@ -71,6 +77,7 @@ const presentation: Record<PublicIntent, CapabilityPresentation> = {
 const fallbackNames: Record<PublicIntent, string> = {
   policy: '政策查询',
   device_price: '设备价格',
+  product_price: '商品价格',
   tracking: '邮件轨迹',
   delivery_time: '寄递时限',
   postage: '邮费试算',
@@ -179,7 +186,7 @@ function applyResponse(
   assistant.content = response.reply
   assistant.state = responseState(response)
   assistant.intent =
-    response.intent && response.intent !== 'unknown' ? response.intent : null
+    isPublicIntent(response.intent) ? response.intent : null
   assistant.nextAction = response.next_action
   assistant.requiredInputs = response.required_inputs
   assistant.result = response.result
@@ -201,7 +208,7 @@ function applyEvent(
     conversationId.value = event.data.conversation_id
     assistant.requestId = event.data.request_id
     assistant.intent =
-      event.data.intent && event.data.intent !== 'unknown'
+      isPublicIntent(event.data.intent)
         ? event.data.intent
         : null
     assistant.nextAction = event.data.next_action
@@ -231,7 +238,7 @@ function applyEvent(
     }
     if (!event.data.retryable) pendingRequest.value = null
     if (
-      ['conversation_expired', 'conversation_not_available'].includes(
+      ['conversation_expired', 'conversation_not_available', 'price_query_restart_required'].includes(
         event.data.code,
       )
     ) {
@@ -299,7 +306,7 @@ async function executeRequest(
         assistant.requestId = error.requestId ?? assistant.requestId
         if (!error.retryable) pendingRequest.value = null
         if (
-          ['conversation_expired', 'conversation_not_available'].includes(
+          ['conversation_expired', 'conversation_not_available', 'price_query_restart_required'].includes(
             error.code,
           )
         ) {
@@ -391,6 +398,10 @@ function submitStructured(payload: {
     },
     payload.message,
   )
+}
+
+function selectPrice(payload: { token: string; label: string }): void {
+  void submitRequest({ price_selection: { candidate_token: payload.token } }, `选择商品：${payload.label}`)
 }
 
 
@@ -529,6 +540,7 @@ async function initialize(reset = false): Promise<void> {
       conversationId.value = snapshot?.conversationId ?? null
       pendingRequest.value = snapshot?.pendingRequest ?? null
       selectedIntent.value = snapshot?.selectedIntent ?? null
+      await restoreDurableSnapshot()
       const interrupted = messages.value.find((item) => item.id === pendingRequest.value?.assistantMessageId)
       if (interrupted) {
         interrupted.state = 'error'
@@ -543,6 +555,7 @@ async function initialize(reset = false): Promise<void> {
       persist()
     } else {
       capabilities.value = await getAgentCapabilities(capabilityController.signal)
+      await restoreDurableSnapshot()
     }
   } catch (error) {
     if (disposed || (error instanceof DOMException && error.name === 'AbortError')) return
@@ -557,6 +570,29 @@ async function initialize(reset = false): Promise<void> {
     capabilityLoading.value = false
     identityChecking.value = false
     if (!disposed) queueScroll()
+  }
+}
+
+
+async function restoreDurableSnapshot(): Promise<void> {
+  if (!conversationId.value || !capabilities.value.some((item) => item.intent === 'product_price')) return
+  // An uncertain in-flight request keeps its exact idempotency key for manual retry.
+  // Reading a prior stop must never overwrite a newer, unacknowledged request.
+  if (pendingRequest.value) return
+  try {
+    const response = await getAgentSnapshot(conversationId.value, capabilityController?.signal)
+    const last = lastAssistant.value
+    if (last) applyResponse(last, response)
+  } catch (error) {
+    if (error instanceof AgentApiError && ['price_query_restart_required', 'conversation_expired', 'conversation_not_available'].includes(error.code)) {
+      const last = lastAssistant.value
+      if (last && !last.result) { last.requiredInputs = []; last.state = 'error'; last.error = error.message }
+      conversationId.value = null
+      selectedIntent.value = null
+      notice.show(error.message)
+      return
+    }
+    throw error
   }
 }
 
@@ -732,6 +768,7 @@ onBeforeUnmount(() => {
         :inputs="activeInputs"
         :pending="pending"
         @submit="submitStructured"
+        @select-price="selectPrice"
         @select-intent="selectRequiredIntent"
       />
       <AgentComposer

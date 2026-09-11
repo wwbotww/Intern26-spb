@@ -38,7 +38,7 @@ AgentActionRoute = Literal[
     "validate_result",
     "compose_response",
 ]
-ValidationRoute = Literal["recover", "compose_response"]
+ValidationRoute = Literal["recover", "decide_next", "compose_response"]
 _ACTION_ADAPTER = TypeAdapter(NextAction)
 
 
@@ -61,6 +61,8 @@ def route_after_validation(state: AgentState) -> ValidationRoute:
     phase = state.get("phase")
     if phase == "recovering":
         return "recover"
+    if phase == "ready" and state.get("active_intent") == "product_price":
+        return "decide_next"
     if phase == "responding":
         return "compose_response"
     raise ValueError(f"校验节点产生了不可路由状态: {phase!r}")

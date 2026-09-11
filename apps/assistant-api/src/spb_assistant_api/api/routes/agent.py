@@ -54,17 +54,28 @@ IdempotencyKey = Annotated[
 _DISPLAY_NAMES: dict[Intent, str] = {
     Intent.POLICY: "政策查询",
     Intent.DEVICE_PRICE: "设备价格查询",
+    Intent.PRODUCT_PRICE: "商品价格查询",
     Intent.TRACKING: "邮件轨迹查询",
     Intent.DELIVERY_TIME: "寄递时限查询",
     Intent.POSTAGE: "邮费试算",
 }
 _REQUIRED_INPUTS: dict[str, RequiredInput] = {
+    "conditions.kind": RequiredInput(
+        name="conditions.kind",
+        label="商品类目",
+        type="choice",
+        choices=["电子设备", "生鲜水果"],
+    ),
     "product_code": RequiredInput(
-        name="product_code", label="询价产品", type="choice",
+        name="product_code",
+        label="询价产品",
+        type="choice",
         validation_hint="请根据对话中当前目录提供的选项选择产品，不自动选择默认产品",
     ),
     "postage_confirmation": RequiredInput(
-        name="postage_confirmation", label="报价范围确认", type="choice",
+        name="postage_confirmation",
+        label="报价范围确认",
+        type="choice",
         validation_hint="在补齐条件后确认本次基础询价范围",
     ),
     "question": RequiredInput(
@@ -101,6 +112,7 @@ _REQUIRED_INPUTS: dict[str, RequiredInput] = {
 _DECLARED_SLOTS: dict[Intent, tuple[str, ...]] = {
     Intent.POLICY: ("question",),
     Intent.DEVICE_PRICE: ("question",),
+    Intent.PRODUCT_PRICE: ("conditions.kind",),
     Intent.TRACKING: ("mail_no",),
     Intent.DELIVERY_TIME: ("origin", "destination"),
     Intent.POSTAGE: ("origin", "destination", "weight"),
@@ -135,9 +147,7 @@ _MESSAGE_ERROR_RESPONSES = {
 _SSE_RESPONSE = {
     "description": "Workflow completed, paused, or streamed as V2 events",
     "content": {
-        "application/json": {
-            "schema": {"$ref": "#/components/schemas/AgentResponse"}
-        },
+        "application/json": {"schema": {"$ref": "#/components/schemas/AgentResponse"}},
         "text/event-stream": {
             "schema": {
                 "type": "string",
@@ -176,11 +186,39 @@ def _dependencies(request: Request) -> AgentApiDependencies:
     return dependencies
 
 
+def _require_client_contract(
+    request: Request, dependencies: AgentApiDependencies
+) -> None:
+    # Service credentials retain their existing contract; browser clients must be
+    # upgraded with the server. This check happens before any stream/run/write.
+    if (
+        dependencies.product_price_enabled
+        and getattr(request.state, "browser_session_manager", None) is not None
+        and request.headers.get("X-Agent-Contract") != "product-price-v1"
+    ):
+        _raise_internal_error(
+            request,
+            code="agent_client_upgrade_required",
+            message="页面版本已更新，请刷新后重试",
+            status_code=409,
+        )
+
+
+def _public_capabilities(dependencies: AgentApiDependencies):
+    hidden = (
+        Intent.DEVICE_PRICE
+        if dependencies.product_price_enabled
+        else Intent.PRODUCT_PRICE
+    )
+    return {
+        intent: name for intent, name in _DISPLAY_NAMES.items() if intent is not hidden
+    }
+
+
 def _readiness_state(value: object) -> str:
     return (
         value
-        if isinstance(value, str)
-        and value in {"ready", "not_ready", "degraded"}
+        if isinstance(value, str) and value in {"ready", "not_ready", "degraded"}
         else "not_ready"
     )
 
@@ -190,7 +228,13 @@ def _request_id(request: Request) -> str:
 
 
 def _owner_id(request: Request) -> str:
-    return str(getattr(request.state, "agent_owner_id", getattr(request.state, "client_id", "unknown")))
+    return str(
+        getattr(
+            request.state,
+            "agent_owner_id",
+            getattr(request.state, "client_id", "unknown"),
+        )
+    )
 
 
 def _creation_request_hash(payload: AgentMessageRequest) -> str:
@@ -212,6 +256,8 @@ def _creation_request_hash(payload: AgentMessageRequest) -> str:
 
 
 def _public_message(category: FailureCategory, code: str) -> str:
+    if code == "price_query_restart_required":
+        return "此价格查询无法继续，请新建会话重新查询；历史结果仍可查看"
     if code == "conversation_not_available":
         return "会话不存在或不可访问"
     if code == "conversation_expired":
@@ -243,6 +289,8 @@ def _public_message(category: FailureCategory, code: str) -> str:
 
 
 def _status_code(category: FailureCategory, code: str) -> int:
+    if code == "price_query_restart_required":
+        return status.HTTP_409_CONFLICT
     if code == "conversation_not_available":
         return status.HTTP_404_NOT_FOUND
     if category is FailureCategory.STATE_CONFLICT:
@@ -284,9 +332,7 @@ def _agent_error_detail(
     failure = error.failure
     headers = None
     if failure.retry_after_seconds is not None:
-        headers = {
-            "Retry-After": str(max(1, math.ceil(failure.retry_after_seconds)))
-        }
+        headers = {"Retry-After": str(max(1, math.ceil(failure.retry_after_seconds)))}
     return (
         _status_code(failure.category, failure.code),
         {
@@ -330,12 +376,10 @@ async def _execute_agent_message(
     conversation_id = payload.conversation_id
     async with asyncio.timeout(dependencies.run_timeout_seconds):
         if conversation_id is None:
-            metadata = (
-                await dependencies.service.create_conversation_idempotently(
-                    owner_id=owner_id,
-                    idempotency_key=idempotency_key,
-                    request_hash=_creation_request_hash(payload),
-                )
+            metadata = await dependencies.service.create_conversation_idempotently(
+                owner_id=owner_id,
+                idempotency_key=idempotency_key,
+                request_hash=_creation_request_hash(payload),
             )
             conversation_id = metadata.conversation_id
         async with request.app.state.capacity:
@@ -346,6 +390,11 @@ async def _execute_agent_message(
                 message=payload.message,
                 explicit_intent=payload.explicit_intent,
                 confirm_overwrite=payload.confirm_overwrite,
+                **(
+                    {"price_selection": payload.price_selection}
+                    if payload.price_selection is not None
+                    else {}
+                ),
             )
     return AgentResponse.from_runtime(
         request_id=_request_id(request),
@@ -363,13 +412,9 @@ def _record_agent_response(
     duration = perf_counter() - started
     intent = response.intent.value if response.intent else "unknown"
     interrupt_reason = (
-        response.next_action.value
-        if response.phase.value == "waiting_user"
-        else None
+        response.next_action.value if response.phase.value == "waiting_user" else None
     )
-    failure_category = (
-        response.failure.category.value if response.failure else None
-    )
+    failure_category = response.failure.category.value if response.failure else None
     request.app.state.metrics.observe_agent_run(
         transport=transport,
         outcome=response.phase.value,
@@ -654,8 +699,9 @@ async def _stream_agent_events(
 @router.get("/capabilities", response_model=list[AgentCapability])
 async def list_agent_capabilities(request: Request) -> list[AgentCapability]:
     dependencies = _dependencies(request)
+    _require_client_contract(request, dependencies)
     values: list[AgentCapability] = []
-    for intent, display_name in _DISPLAY_NAMES.items():
+    for intent, display_name in _public_capabilities(dependencies).items():
         descriptor = dependencies.capabilities.get(intent)
         slot_names = (
             descriptor.required_slots
@@ -668,14 +714,10 @@ async def list_agent_capabilities(request: Request) -> list[AgentCapability]:
                 display_name=display_name,
                 available=descriptor is not None,
                 capability_version=(
-                    descriptor.capability_version
-                    if descriptor is not None
-                    else None
+                    descriptor.capability_version if descriptor is not None else None
                 ),
                 required_inputs=[
-                    RequiredInputResponse.from_domain(
-                        _REQUIRED_INPUTS[slot_name]
-                    )
+                    RequiredInputResponse.from_domain(_REQUIRED_INPUTS[slot_name])
                     for slot_name in slot_names
                 ],
             )
@@ -694,14 +736,10 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
     probed: Mapping[str, object] = {}
     probe = dependencies.readiness_probe
     if probe is None:
-        checks.update(
-            {"persistence": "not_ready", "checkpoint": "not_ready"}
-        )
+        checks.update({"persistence": "not_ready", "checkpoint": "not_ready"})
     else:
         try:
-            async with asyncio.timeout(
-                min(5.0, dependencies.run_timeout_seconds)
-            ):
+            async with asyncio.timeout(min(5.0, dependencies.run_timeout_seconds)):
                 probed = await probe.check()
         except TimeoutError:
             logger.warning("agent readiness probe timed out")
@@ -716,12 +754,8 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
             probed = {}
         checks.update(
             {
-                "persistence": _readiness_state(
-                    probed.get("persistence")
-                ),
-                "checkpoint": _readiness_state(
-                    probed.get("checkpoint")
-                ),
+                "persistence": _readiness_state(probed.get("persistence")),
+                "checkpoint": _readiness_state(probed.get("checkpoint")),
             }
         )
 
@@ -737,11 +771,13 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
     else:
         checks["janitor"] = scheduler.readiness
 
-    for intent in _DISPLAY_NAMES:
+    for intent in _public_capabilities(dependencies):
         key = f"capability.{intent.value}"
         checks[key] = (
-            _readiness_state(probed[key]) if key in probed else "ready"
-        ) if intent in dependencies.capabilities else "disabled"
+            (_readiness_state(probed[key]) if key in probed else "ready")
+            if intent in dependencies.capabilities
+            else "disabled"
+        )
 
     critical_ready = (
         checks["agent_api"] == "ready"
@@ -749,7 +785,7 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
         and checks["checkpoint"] == "ready"
         and any(
             checks[f"capability.{intent.value}"] == "ready"
-            for intent in _DISPLAY_NAMES
+            for intent in _public_capabilities(dependencies)
         )
     )
     metrics = request.app.state.metrics
@@ -758,7 +794,7 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
             component=component,
             ready=checks[component] == "ready",
         )
-    for intent in _DISPLAY_NAMES:
+    for intent in _public_capabilities(dependencies):
         metrics.set_agent_readiness(
             component=f"capability_{intent.value}",
             ready=checks[f"capability.{intent.value}"] == "ready",
@@ -770,9 +806,7 @@ async def agent_ready(request: Request) -> AgentHealthResponse | Response:
     )
     response = AgentHealthResponse(
         status=(
-            "not_ready"
-            if not critical_ready
-            else "degraded" if degraded else "ok"
+            "not_ready" if not critical_ready else "degraded" if degraded else "ok"
         ),
         service="spb-assistant-agent-v2",
         version=__version__,
@@ -799,6 +833,17 @@ async def send_agent_message(
     idempotency_key: IdempotencyKey,
 ) -> AgentResponse | StreamingResponse:
     dependencies = _dependencies(request)
+    _require_client_contract(request, dependencies)
+    if (
+        dependencies.product_price_enabled
+        and payload.explicit_intent is Intent.DEVICE_PRICE
+    ):
+        _raise_internal_error(
+            request,
+            code="agent_price_intent_upgraded",
+            message="请使用商品价格查询入口重新发起查询",
+            status_code=409,
+        )
     if payload.conversation_id is None:
         if payload.message is None:
             _raise_internal_error(
@@ -925,6 +970,49 @@ async def send_agent_message(
         raise AssertionError("unreachable") from error
     finally:
         request.app.state.metrics.agent_runs_in_flight.dec()
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=AgentResponse,
+    responses=_MESSAGE_ERROR_RESPONSES,
+)
+async def read_agent_conversation(
+    request: Request, conversation_id: UUID
+) -> AgentResponse:
+    dependencies = _dependencies(request)
+    _require_client_contract(request, dependencies)
+    try:
+        async with asyncio.timeout(dependencies.run_timeout_seconds):
+            output = await dependencies.service.read_snapshot(
+                conversation_id=conversation_id, owner_id=_owner_id(request)
+            )
+        return AgentResponse.from_runtime(
+            request_id=_request_id(request), output=output
+        )
+    except AgentOperationError as error:
+        _raise_agent_error(request, error)
+    except TimeoutError:
+        _raise_internal_error(
+            request,
+            code="agent_snapshot_timeout",
+            message="会话读取超时，请稍后重试",
+            status_code=504,
+        )
+    except (ValidationError, ValueError):
+        _raise_internal_error(
+            request,
+            code="agent_response_contract_violation",
+            message="会话内容未通过契约校验",
+            status_code=502,
+        )
+    except Exception:
+        _raise_internal_error(
+            request,
+            code="agent_snapshot_unavailable",
+            message="会话读取暂时不可用",
+            status_code=503,
+        )
 
 
 @router.delete(

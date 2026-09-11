@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 from uuid import UUID
+from .product_price_contract import ProductPriceResponseData, PriceCandidateOption
 
 from pydantic import (
     BaseModel,
@@ -27,6 +28,7 @@ AssistantExpectedOutcome = Literal[
     "need_more_info",
 ]
 AgentIntent = Literal[
+    "product_price",
     "policy",
     "device_price",
     "tracking",
@@ -36,6 +38,7 @@ AgentIntent = Literal[
 ]
 AgentControl = Literal["none", "cancel", "restart"]
 AgentPublicIntent = Literal[
+    "product_price",
     "policy",
     "device_price",
     "tracking",
@@ -78,6 +81,7 @@ AgentFailureCategory = Literal[
     "internal_error",
 ]
 _AGENT_PUBLIC_INTENTS = {
+    "product_price",
     "policy",
     "device_price",
     "tracking",
@@ -351,6 +355,11 @@ class AgentUnderstandingEvalCase(BaseModel):
         return self
 
 
+class PriceSelectionObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    candidate_token: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{43}$")]
+
+
 class AgentEvalTurn(BaseModel):
     """One public V2 message and its black-box expectations."""
 
@@ -359,6 +368,7 @@ class AgentEvalTurn(BaseModel):
     message: NonEmptyText | None = None
     explicit_intent: AgentPublicIntent | None = None
     confirm_overwrite: bool = False
+    price_selection: PriceSelectionObservation | None = None
     expected_phase: AgentTerminalPhase
     expected_intent: AgentIntent | None = None
     expected_next_action: AgentNextAction
@@ -373,8 +383,10 @@ class AgentEvalTurn(BaseModel):
 
     @model_validator(mode="after")
     def validate_public_expectations(self) -> "AgentEvalTurn":
-        if self.message is None and self.explicit_intent is None:
+        if self.message is None and self.explicit_intent is None and self.price_selection is None:
             raise ValueError("Agent turn 必须提供 message 或 explicit_intent")
+        if self.price_selection is not None and (self.message is not None or self.explicit_intent is not None or self.confirm_overwrite):
+            raise ValueError("候选选择不能与新条件混合提交")
         self.expected_required_inputs = list(
             dict.fromkeys(self.expected_required_inputs)
         )
@@ -439,6 +451,7 @@ class AgentRequiredInputObservation(BaseModel):
     type: Literal["string", "number", "region", "choice"]
     validation_hint: str = ""
     choices: list[str] = Field(default_factory=list)
+    price_candidates: list[PriceCandidateOption] = Field(default_factory=list, max_length=20)
 
 
 class AgentSourceObservation(BaseModel):
@@ -519,6 +532,11 @@ class AgentResultObservation(BaseModel):
 
     @model_validator(mode="after")
     def validate_quote_basis(self) -> "AgentResultObservation":
+        if self.type == "product_price":
+            if self.status in {"success", "partial"}:
+                ProductPriceResponseData.model_validate(self.data)
+            elif self.data is not None:
+                raise ValueError("非报价结果不能包含商品价格数据")
         basis = self.quote_basis
         if basis is not None:
             if self.type != "postage" or self.status != "success" or self.data is None:

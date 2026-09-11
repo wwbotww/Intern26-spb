@@ -13,6 +13,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   submit: [payload: { message: string; confirmOverwrite: boolean }]
   'select-intent': [intent: PublicIntent]
+  'select-price': [payload: { token: string; label: string }]
 }>()
 
 const values = reactive<Record<string, string>>({})
@@ -22,8 +23,12 @@ const intentInput = computed(() =>
   props.inputs.find((item) => item.name === 'intent' && item.type === 'choice'),
 )
 const fieldInputs = computed(() =>
-  props.inputs.filter((item) => item.name !== 'intent'),
+  props.inputs.filter((item) => item.name !== 'intent' && item.name !== 'price_selection'),
 )
+const priceCandidates = computed(() => props.inputs.find((item) => item.name === 'price_selection')?.price_candidates ?? [])
+function selectPrice(token: string, label: string, expires: string): void {
+  if (!props.pending && Date.parse(expires) > Date.now()) emit('select-price', { token, label })
+}
 const complete = computed(() =>
   Boolean(slotReply(fieldInputs.value, values)),
 )
@@ -49,6 +54,7 @@ function intentLabel(intent: string): string {
     {
       policy: '政策查询',
       device_price: '设备价格',
+      product_price: '商品价格',
       tracking: '邮件轨迹',
       delivery_time: '寄递时限',
       postage: '邮费试算',
@@ -59,7 +65,7 @@ function intentLabel(intent: string): string {
 
 function chooseIntent(value: string): void {
   if (
-    ['policy', 'device_price', 'tracking', 'delivery_time', 'postage'].includes(
+    ['policy', 'device_price', 'product_price', 'tracking', 'delivery_time', 'postage'].includes(
       value,
     )
   ) {
@@ -97,6 +103,14 @@ function submit(): void {
         @click="chooseIntent(choice)"
       >
         {{ intentLabel(choice) }}
+      </button>
+    </div>
+
+    <div v-if="priceCandidates.length" class="agent-intent-choices" aria-label="选择商品候选">
+      <button v-for="candidate in priceCandidates" :key="candidate.candidate_token" type="button"
+        :disabled="pending || Date.parse(candidate.expires_at) <= Date.now()"
+        @click="selectPrice(candidate.candidate_token, candidate.label, candidate.expires_at)">
+        {{ candidate.label }}{{ Date.parse(candidate.expires_at) <= Date.now() ? '（已过期，请重新查询）' : '' }}
       </button>
     </div>
 

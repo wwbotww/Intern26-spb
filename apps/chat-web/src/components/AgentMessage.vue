@@ -23,7 +23,8 @@ const intentLabel = computed(() =>
   props.message.intent
     ? {
         policy: '政策查询',
-        device_price: '设备价格',
+      device_price: '设备价格',
+      product_price: '商品价格',
         tracking: '邮件轨迹',
         delivery_time: '寄递时限',
         postage: '邮费试算',

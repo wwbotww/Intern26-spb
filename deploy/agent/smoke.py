@@ -177,6 +177,11 @@ class Drill:
                     require(content.status_code == 200 and PROXY_KEY not in content.text and SIGNING_KEY not in content.text, "no server keys in assets")
                 pending = self.send(first, "查邮件轨迹", "pending-create")
                 require(pending["phase"] == "waiting_user", "persistent interrupt")
+                snapshot_path = "/api/v2/agent/conversations/" + pending["conversation_id"]
+                snapshot = first.get(snapshot_path)
+                require(snapshot.status_code == 200 and snapshot.json()["required_inputs"] == pending["required_inputs"], "owned read-only snapshot through proxy")
+                require(second.get(snapshot_path).status_code == 404, "snapshot owner isolation")
+                require(first.patch(snapshot_path).status_code == 405, "snapshot method allowlist")
                 done = self.send(first, "查邮件轨迹 1234567890123", "done-create")
                 require(done["phase"] == "completed" and self.execution_nodes() == 1, "one initial tool execution")
                 spoof = second.post("/api/v2/agent/messages", json={"message": "1234567890123", "conversation_id": pending["conversation_id"]}, headers={

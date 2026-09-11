@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
+from datetime import datetime
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -79,6 +81,7 @@ class AgentGraphDependencies:
     executor: ToolExecutor
     validator: AgentResultValidator
     postage_preflight: PostagePreflight | None = None
+    price_clock: Callable[[], datetime] | None = None
 
 
 def build_agent_graph(
@@ -98,7 +101,7 @@ def build_agent_graph(
         "decide_next": create_decide_node(dependencies.policy),
         "clarify": clarify_agent_input,
         "execute_tool": create_execute_tool_node(dependencies.executor),
-        "validate_result": create_validate_result_node(dependencies.validator),
+        "validate_result": create_validate_result_node(dependencies.validator, clock=dependencies.price_clock),
         "recover": create_recover_node(dependencies.policy),
         "compose_response": compose_agent_response,
     }
@@ -128,6 +131,7 @@ def build_agent_graph(
         route_after_validation,
         {
             "recover": "recover",
+            "decide_next": "decide_next",
             "compose_response": "compose_response",
         },
     )

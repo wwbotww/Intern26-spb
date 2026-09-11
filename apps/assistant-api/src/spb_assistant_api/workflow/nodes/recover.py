@@ -25,7 +25,8 @@ def create_recover_node(
         decision = policy.recover(
             failure,
             retry_count=retry_count,
-            max_retries=int(state.get("max_retries", 1)),
+            max_retries=(min(1, int(state.get("max_retries", 1)))
+                         if state.get("active_intent") == "product_price" else int(state.get("max_retries", 1))),
         )
         retry_number = retry_count + 1
         delay_seconds = (

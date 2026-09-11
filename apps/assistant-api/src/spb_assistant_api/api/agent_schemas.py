@@ -20,6 +20,8 @@ from ..domain.agent_actions import RequiredInput
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.intents import Intent
 from ..domain.results import AgentResult, AgentResultStatus, SourceReference
+from ..domain.product_price_execution import PriceSelectionInput
+from .product_price_schemas import ProductPriceResponseData, PriceCandidateOption
 
 
 MessageText = Annotated[
@@ -32,6 +34,7 @@ PublicResultType = Literal[
     "tracking",
     "delivery_time",
     "postage",
+    "product_price",
 ]
 
 
@@ -67,13 +70,25 @@ class AgentMessageRequest(BaseModel):
     explicit_intent: Intent | None = None
     confirm_overwrite: bool = False
     stream: bool = False
+    price_selection: PriceSelectionInput | None = None
 
     @model_validator(mode="after")
     def validate_user_input(self) -> "AgentMessageRequest":
-        if self.message is None and self.explicit_intent is None:
+        if (
+            self.message is None
+            and self.explicit_intent is None
+            and self.price_selection is None
+        ):
             raise ValueError("必须提供 message 或 explicit_intent")
         if self.explicit_intent is Intent.UNKNOWN:
             raise ValueError("explicit_intent 不能是 unknown")
+        if self.price_selection is not None and (
+            self.conversation_id is None
+            or self.message is not None
+            or self.explicit_intent is not None
+            or self.confirm_overwrite
+        ):
+            raise ValueError("价格选择只能恢复已有会话，不能同时改题或覆盖条件")
         return self
 
 
@@ -85,6 +100,9 @@ class RequiredInputResponse(BaseModel):
     type: Literal["string", "number", "region", "choice"]
     validation_hint: str = ""
     choices: list[str] = Field(default_factory=list)
+    price_candidates: list[PriceCandidateOption] = Field(
+        default_factory=list, max_length=20
+    )
 
     @classmethod
     def from_domain(cls, value: RequiredInput) -> "RequiredInputResponse":
@@ -97,9 +115,7 @@ class AgentSourceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_type: Literal["fake_gateway", "external_api", "unknown"]
-    source_name: Annotated[
-        str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
-    ]
+    source_name: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
     source_profile: Annotated[
         str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{0,128}$")
     ] = ""
@@ -137,7 +153,9 @@ class PostageSourceResponse(BaseModel):
 
     source_type: Literal["fake_gateway", "external_api"]
     source_name: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
-    source_profile: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")]
+    source_profile: Annotated[
+        str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]{1,128}$")
+    ]
     queried_at: AwareDatetime
 
 
@@ -145,8 +163,16 @@ class PostageFeeResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal[
-        "registration", "insurance", "declared_value", "inspection", "customs",
-        "fuel", "return_receipt", "password_delivery", "printing", "handling",
+        "registration",
+        "insurance",
+        "declared_value",
+        "inspection",
+        "customs",
+        "fuel",
+        "return_receipt",
+        "password_delivery",
+        "printing",
+        "handling",
     ]
     amount: PublicQuoteAmount
     included_in_amount: Literal["yes", "no", "unknown"]
@@ -185,16 +211,25 @@ class AgentResultResponse(BaseModel):
 
     @model_validator(mode="after")
     def validate_quote_basis(self) -> "AgentResultResponse":
+        if self.type == "product_price":
+            if self.status in {AgentResultStatus.SUCCESS, AgentResultStatus.PARTIAL}:
+                ProductPriceResponseData.model_validate(self.data)
+            elif self.data is not None:
+                raise ValueError("非报价结果不能包含商品价格数据")
         basis = self.quote_basis
         if basis is not None:
             if self.type != "postage" or self.status != "success" or self.data is None:
                 raise ValueError("报价依据仅能出现在成功资费结果中")
             if (self.data.get("currency"), self.data.get("product_code")) != (
-                basis.currency, basis.product_code,
+                basis.currency,
+                basis.product_code,
             ):
                 raise ValueError("报价依据必须与资费数据一致")
             _PUBLIC_QUOTE_AMOUNT.validate_python(self.data.get("amount"))
-            if _PUBLIC_QUOTE_TIME.validate_python(self.data.get("queried_at")) != basis.source.queried_at:
+            if (
+                _PUBLIC_QUOTE_TIME.validate_python(self.data.get("queried_at"))
+                != basis.source.queried_at
+            ):
                 raise ValueError("报价依据观察时间必须与数据一致")
         return self
 
@@ -202,7 +237,13 @@ class AgentResultResponse(BaseModel):
     def from_domain(cls, value: AgentResult) -> "AgentResultResponse":
         if value.intent is Intent.UNKNOWN:
             raise ValueError("AgentResult 不能使用 unknown 意图")
-        data = value.data.model_dump(mode="json") if value.data is not None else None
+        data = None
+        if value.intent is Intent.PRODUCT_PRICE and value.data is not None:
+            data = ProductPriceResponseData.from_domain(value.data).model_dump(
+                mode="json"
+            )
+        elif value.data is not None:
+            data = value.data.model_dump(mode="json")
         quote_basis = None
         if value.intent is Intent.POSTAGE and data is not None:
             internal_basis = data.pop("quote_basis", None)
@@ -213,16 +254,24 @@ class AgentResultResponse(BaseModel):
                 context = internal_basis["context"]
                 source = value.provenance[0]
                 quote_basis = PostageQuoteBasisResponse(
-                    amount_kind=context["amount_kind"], currency=context["currency"],
-                    product_code=context["product_code"], scope=context["scope"],
+                    amount_kind=context["amount_kind"],
+                    currency=context["currency"],
+                    product_code=context["product_code"],
+                    scope=context["scope"],
                     is_estimate=internal_basis["is_estimate"],
-                    fees=[PostageFeeResponse(
-                        kind=fee.kind, amount=format(fee.amount, ".2f"),
-                        included_in_amount=fee.included_in_amount,
-                    ) for fee in value.data.quote_basis.fees],
+                    fees=[
+                        PostageFeeResponse(
+                            kind=fee.kind,
+                            amount=format(fee.amount, ".2f"),
+                            included_in_amount=fee.included_in_amount,
+                        )
+                        for fee in value.data.quote_basis.fees
+                    ],
                     source=PostageSourceResponse(
-                        source_type=source.source_type, source_name=source.source_name,
-                        source_profile=source.source_profile, queried_at=source.queried_at,
+                        source_type=source.source_type,
+                        source_name=source.source_name,
+                        source_profile=source.source_profile,
+                        queried_at=source.queried_at,
                     ),
                 )
         return cls(
@@ -234,7 +283,9 @@ class AgentResultResponse(BaseModel):
             provenance=[
                 AgentSourceResponse.from_tracking_source(source)
                 for source in value.provenance
-            ] if value.intent is Intent.TRACKING else [],
+            ]
+            if value.intent is Intent.TRACKING
+            else [],
         )
 
 
@@ -282,10 +333,7 @@ class AgentResponse(BaseModel):
                 raise ValueError("只有 completed 响应可以包含 result")
             if self.intent is None or self.result.type != self.intent.value:
                 raise ValueError("result.type 必须与响应 intent 一致")
-        if (
-            self.phase is AgentPhase.WAITING_USER
-            and not self.required_inputs
-        ):
+        if self.phase is AgentPhase.WAITING_USER and not self.required_inputs:
             raise ValueError("waiting_user 响应必须包含 required_inputs")
         return self
 
@@ -305,17 +353,13 @@ class AgentResponse(BaseModel):
         intent = Intent(str(raw_intent)) if raw_intent else None
         raw_result = output.get("result")
         result = (
-            AgentResultResponse.from_domain(
-                AgentResult.model_validate(raw_result)
-            )
+            AgentResultResponse.from_domain(AgentResult.model_validate(raw_result))
             if raw_result is not None
             else None
         )
         raw_failure = output.get("failure")
         failure = (
-            AgentFailureResponse.from_domain(
-                AgentFailure.model_validate(raw_failure)
-            )
+            AgentFailureResponse.from_domain(AgentFailure.model_validate(raw_failure))
             if raw_failure is not None
             else None
         )
@@ -328,8 +372,7 @@ class AgentResponse(BaseModel):
             reply=str(output.get("reply", "")),
             next_action=_next_action(phase, required_inputs),
             required_inputs=[
-                RequiredInputResponse.from_domain(item)
-                for item in required_inputs
+                RequiredInputResponse.from_domain(item) for item in required_inputs
             ],
             result=result,
             failure=failure,
@@ -360,9 +403,7 @@ class AgentHealthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: Literal["ok", "degraded", "not_ready"]
-    service: Literal["spb-assistant-agent-v2"] = (
-        "spb-assistant-agent-v2"
-    )
+    service: Literal["spb-assistant-agent-v2"] = "spb-assistant-agent-v2"
     version: str
     phase: Literal[4] = 4
     checks: dict[str, AgentReadinessState]

@@ -112,15 +112,17 @@ def _export(path, request, observations, mode="rules"):
     return rows
 
 
-def test_macro_f1_counts_missing_prediction_and_false_unknown_separately():
-    cases = [_case(intent, intent) for intent in INTENTS]
+@pytest.mark.parametrize("excluded", ["product_price", "device_price", None])
+def test_macro_f1_counts_missing_prediction_and_false_unknown_separately(excluded):
+    labels = [intent for intent in INTENTS if intent != excluded]
+    cases = [_case(intent, intent) for intent in labels]
     observations = {case.id: _observation(case) for case in cases}
     observations["policy"] = _observation(cases[0], intent="tracking")
     del observations["delivery_time"]
     summary, rows = calculate_understanding_metrics(cases, observations)
-    assert summary["intent"]["accuracy"] == pytest.approx(4 / 6)
+    assert summary["intent"]["accuracy"] == pytest.approx((len(labels) - 2) / len(labels))
     assert summary["intent"]["macro_f1"] == pytest.approx(
-        (1 + 2 / 3 + 1 + 1) / 6
+        (len(labels) - 3 + 2 / 3) / len(labels)
     )
     assert summary["intent"]["per_class"]["tracking"]["fp"] == 1
     assert summary["intent"]["per_class"]["delivery_time"]["fn"] == 1
@@ -453,7 +455,7 @@ def test_development_corpus_is_coverage_not_holdout_and_eval_stays_independent()
     )
     assert len(cases) == 48
     assert {case.gold.intent for case in cases if case.gold.intent} == set(
-        INTENTS
+        intent for intent in INTENTS if intent != "product_price"
     )
     assert all(
         case.provenance == "synthetic" and case.annotation_status == "draft"

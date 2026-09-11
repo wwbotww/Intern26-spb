@@ -27,6 +27,7 @@ from ..domain.product_price_query import (
     PRODUCT_PRICE_READ_QUERY,
     PriceReadBatch,
     ProductPriceReadQuery,
+    SelectedPriceReadQuery,
 )
 from .product_price_rows import to_product_price_record
 
@@ -367,7 +368,20 @@ class MySQLProductPriceRepository:
         rows: list[Any] = []
         truncated = False
         with self._engine.connect() as connection, connection.begin():
-            if isinstance(query, DevicePriceReadQuery):
+            if isinstance(query, SelectedPriceReadQuery):
+                parameters = {
+                    "selected_listing_id": query.source_listing_id,
+                    "region_scope": query.region.scope, "region_code": query.region.code,
+                    "match_at": datetime.now(timezone.utc).replace(tzinfo=None),
+                }
+                rows = self._execute(connection,
+                    (DEVICE_SQL if query.category_kind == "device" else FRESH_SQL)
+                    + "\n AND sl.id = :selected_listing_id"
+                    + " AND pc.region_scope = :region_scope AND pc.region_code = :region_code"
+                    + "\nORDER BY po.id LIMIT 2", parameters, stop, deadline)
+                if len(rows) > 1:
+                    raise ProductPriceContractError("所选价格身份存在重复当前事实")
+            elif isinstance(query, DevicePriceReadQuery):
                 filters, parameters = _term_filter(("ci.name", "ci.series_name", "ci.model_number"), query.terms)
                 parameters["match_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
                 if query.brand_code is not None:
@@ -415,7 +429,8 @@ class MySQLProductPriceRepository:
                 rows = rows[:query.listing_limit]
         self._check_deadline(stop, deadline)
         read_at = datetime.now(timezone.utc)
-        records = tuple(to_product_price_record(row, kind=query.kind, read_at=read_at) for row in rows)
+        kind = query.category_kind if isinstance(query, SelectedPriceReadQuery) else query.kind
+        records = tuple(to_product_price_record(row, kind=kind, read_at=read_at) for row in rows)
         self._check_deadline(stop, deadline)
         try:
             return PriceReadBatch(records=records, truncated=truncated)

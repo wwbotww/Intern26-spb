@@ -6,6 +6,7 @@ import DeliveryTimeResult from './DeliveryTimeResult.vue'
 import EvidenceResult from './EvidenceResult.vue'
 import PostageResult from './PostageResult.vue'
 import TrackingResult from './TrackingResult.vue'
+import ProductPriceResult from './ProductPriceResult.vue'
 
 
 const props = defineProps<{ result: AgentResult }>()
@@ -21,6 +22,7 @@ const data = computed(() => props.result.data ?? {})
   />
   <DeliveryTimeResult v-else-if="result.type === 'delivery_time'" :data="data" />
   <PostageResult v-else-if="result.type === 'postage'" :data="data" :status="result.status" :basis="result.quote_basis ?? null" />
+  <ProductPriceResult v-else-if="result.type === 'product_price'" :data="data" />
   <EvidenceResult
     v-else
     :type="result.type"

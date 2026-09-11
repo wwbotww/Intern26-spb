@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from .primitives import MailNumber, MessageText
+from .product_price_slots import ProductPriceSlots
 
 
 RegionCode = Annotated[
@@ -122,7 +123,8 @@ SlotPayload = Annotated[
     | DeliveryTimeSlots
     | PostageSlots
     | PolicySlots
-    | DevicePriceSlots,
+    | DevicePriceSlots
+    | ProductPriceSlots,
     Field(discriminator="intent"),
 ]
 

@@ -324,7 +324,7 @@ class AgentApiClient:
         timeout_seconds: float,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        headers = {"Accept": "application/json"}
+        headers = {"Accept": "application/json", "X-Agent-Contract": "product-price-v1"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         self._client = httpx.AsyncClient(
@@ -370,6 +370,8 @@ class AgentApiClient:
             payload["message"] = turn.message
         if turn.explicit_intent is not None:
             payload["explicit_intent"] = turn.explicit_intent
+        if turn.price_selection is not None:
+            payload["price_selection"] = turn.price_selection.model_dump(mode="json")
         try:
             response = await self._client.post(
                 "v2/agent/messages",

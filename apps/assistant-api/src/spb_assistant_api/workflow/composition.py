@@ -40,6 +40,9 @@ from ..services.postage_preflight import PostagePreflight
 from ..tools.delivery_time import DeliveryTimeTool
 from ..tools.postage import PostageTool
 from ..tools.tracking import TrackingTool
+from ..tools.product_price import ProductPriceTool
+from ..services.product_price_query import ProductPriceQueryService
+from ..services.query_understanding import RuleBasedQueryUnderstander
 from .conversation_service import (
     ConversationJanitor,
     ConversationRunCoordinator,
@@ -64,6 +67,7 @@ def create_agent_runtime(
     postage_preflight: PostagePreflight | None = None,
     policy_tool: AssistantTool | None = None,
     device_price_tool: AssistantTool | None = None,
+    product_price_service: ProductPriceQueryService | None = None,
     understander: QueryUnderstander | None = None,
     recursion_limit: int = 24,
     max_steps: int = 8,
@@ -82,6 +86,10 @@ def create_agent_runtime(
 
     resolved_clock = clock or (lambda: datetime.now(UTC))
     tools: list[AgentTool] = []
+    if product_price_service is not None:
+        if device_price_tool is not None:
+            raise ValueError("不能同时装配新旧价格 Agent 意图")
+        tools.append(ProductPriceTool(product_price_service))
     if tracking_gateway is not None:
         tools.append(TrackingTool(tracking_gateway))
     if delivery_time_gateway is not None:
@@ -93,7 +101,7 @@ def create_agent_runtime(
     if device_price_tool is not None:
         tools.append(DevicePriceAssistantToolAdapter(device_price_tool))
     registry = AgentToolRegistry(tools)
-    policy = WorkflowPolicy(registry.descriptors, postage_preflight=postage_preflight)
+    policy = WorkflowPolicy(registry.descriptors, postage_preflight=postage_preflight, clock=resolved_clock)
     executor = ToolExecutor(
         AgentCommandDispatcher(registry),
         receipts,
@@ -103,11 +111,13 @@ def create_agent_runtime(
         checkpointer=checkpointer,
         telemetry=telemetry,
         dependencies=AgentGraphDependencies(
-            understander=understander or HybridQueryUnderstander(),
+            understander=understander or HybridQueryUnderstander(
+                rules=RuleBasedQueryUnderstander(product_price_enabled=product_price_service is not None)),
             policy=policy,
             executor=executor,
             validator=AgentResultValidator(),
             postage_preflight=postage_preflight,
+            price_clock=resolved_clock,
         ),
     )
     return StatefulAgentRuntime(
@@ -143,6 +153,7 @@ async def create_persistent_agent(
     postage_preflight: PostagePreflight | None = None,
     policy_tool: AssistantTool | None = None,
     device_price_tool: AssistantTool | None = None,
+    product_price_service: ProductPriceQueryService | None = None,
     understander: QueryUnderstander | None = None,
     conversation_ttl: timedelta = timedelta(minutes=30),
     recursion_limit: int = 24,
@@ -175,6 +186,7 @@ async def create_persistent_agent(
                 postage_preflight=postage_preflight,
                 policy_tool=policy_tool,
                 device_price_tool=device_price_tool,
+                product_price_service=product_price_service,
                 understander=understander,
                 recursion_limit=recursion_limit,
                 max_steps=max_steps,

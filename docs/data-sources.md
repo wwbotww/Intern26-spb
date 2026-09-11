@@ -12,8 +12,8 @@
 | 价格数据 V1 / V2 | 设备品牌/产品/SKU 价格结构 / 全品类 listing 与观察结构 |
 | Agent State / receipt 版本 | checkpoint 与执行收据的恢复兼容合同 |
 
-Agent V2 目前通过兼容 Tool 仍消费价格数据 V1。
-支持 API V2 **不表示**已经适配全品类价格 V2，更不表示所有规范商品数据均已填充。
+默认 Agent V2 通过兼容 Tool 消费价格数据 V1；catalog_v2 的显式受控配置通过同一报价核心消费 V2。
+支持 API V2 **不表示**选择了价格数据 V2，更不表示所有规范商品数据均已填充或统一商品意图已经开放。
 
 ## 2. 数据职责
 
@@ -21,7 +21,7 @@ Agent V2 目前通过兼容 Tool 仍消费价格数据 V1。
 | --- | --- | --- | --- |
 | 政策文档与向量 | 本仓库 offline-pipeline | rag-api / packages/contracts | 离线可建表/写入，RAG 只读 |
 | 设备价格 V1 | 独立 device-price-service，不在本 uv workspace | Assistant MySQLPriceRepository / DevicePriceRecord | Assistant 仅 SELECT，不采集/修复数据 |
-| 全品类价格 V2 | 同一独立价格数据项目 | 当前 Assistant 未接入 | 扩展前确认 read model，不复用写入权限 |
+| 全品类价格 V2 | 同一独立价格数据项目 | MySQLProductPriceRepository / ProductPriceQueryService；设备受控薄适配，生鲜仍为内部读取 | 仅 SELECT；真实兼容仍需 E 核验，不复用写入权限 |
 | Agent 会话 | Agent Runtime + 元数据/收据仓储 | LangGraph / 会话服务 | 专用 SQLite，与业务价格库分开 |
 | Eval 数据/报告 | 审核者与独立 Eval | HTTP/文件契约 | 私有样本/运行报告不提交，不直接读业务库 |
 
@@ -37,8 +37,8 @@ RAG 的连接、collection、schema 和 embedding 要一起核对；
 
 顺序：产品级硬身份约束 → 相似度排序 → 该产品内规格过滤。
 目标要求明确型号/Pro/容量不符不能用“相似价格”替代；历史型号未覆盖时 no_match 是正确结果。
-迁移基线已发现旧实现的 Pro/Pro Max 替代与基本款/Pro 混合缺陷，
-详见[消费合同中的已知缺陷](../apps/assistant-api/docs/integrations/product-price.md)，须在设备替换阶段修复。
+迁移基线暴露的 Pro/Pro Max 替代与基本款/Pro 混合缺陷由共享策略修复，
+详见[消费合同中的回归边界](../apps/assistant-api/docs/integrations/product-price.md)，不能据本地修复推定部署已更新。
 参考价格不等于成交价或定损结算结果，观察时间不应改成回答时间。
 
 排障区分四层：数据库连接 → 业务表/列/关联 → 有效现价记录 → 指定型号/规格可匹配。
@@ -49,6 +49,8 @@ RAG 的连接、collection、schema 和 embedding 要一起核对；
 
 此前数据检查显示 V2 与 V1 可位于同一 MySQL schema，通过 v2_ 表区分；
 这里的“V2 数据库”是逻辑数据模型称呼，不要求另建数据库。
+后续只读核对已确认原服务器配置连接的 V2 五品牌和生鲜数据存在，迁移及有限消费样本结果见状态页。
+本地示例 DSN 不代表服务器实际配置；不能将占位主机的连接失败解释为原数据库为空。
 已有全品类观察包含批发/零售类来源；不能直接把它们映射成手机 SKU。
 
 V2 要区分来源 listing/revision/observation 与规范 brand/catalog_item/item_variant。

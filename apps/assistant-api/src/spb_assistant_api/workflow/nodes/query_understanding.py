@@ -25,6 +25,9 @@ def create_understand_node(
     merger = slot_merger or SlotMerger()
 
     async def understand(state: AgentState) -> dict[str, object]:
+        if state.get("active_intent") == Intent.PRODUCT_PRICE.value and (state.get("price_selected_token") or state.get("last_error")):
+            # A separately typed selection is resolved by server policy, never QU/LLM.
+            return {"phase": "ready", "latest_message": "", "ambiguities": [], "missing_slots": []}
         active_raw = state.get("active_intent")
         explicit_raw = state.get("explicit_intent")
         active = Intent(active_raw) if active_raw else None
@@ -54,6 +57,9 @@ def create_understand_node(
 
         if result.control is not ControlDirective.NONE:
             return {
+                "price_candidates": None,
+                "price_selected_token": None,
+                "price_result_slots": [],
                 "latest_message": "",
                 "explicit_intent": None,
                 "active_intent": None,
@@ -93,6 +99,7 @@ def create_understand_node(
         incoming = result.slots
         existing = state.get("slots")
         postage_update: dict[str, object] = {}
+        price_update: dict[str, object] = {}
         if postage_preflight is not None and isinstance(incoming, PostageSlots):
             # Re-extract product locally; a model cannot invent an executable code.
             message = state.get("latest_message", "")
@@ -148,6 +155,7 @@ def create_understand_node(
             if confirmed_switch:
                 existing = None
                 existing_provenance = []
+                price_update = {"price_candidates": None, "price_selected_token": None, "price_result_slots": []}
             active_value = (
                 None if selected is Intent.UNKNOWN else selected.value
             )
@@ -172,6 +180,8 @@ def create_understand_node(
                     )
                     resolved_slots = merged.slots.model_dump(mode="json")
                     resolved_provenance = merged.provenance
+                    if merged.invalidate_price_candidates:
+                        price_update = {"price_candidates": None, "price_selected_token": None, "price_result_slots": []}
                     for conflict in merged.conflicts:
                         ambiguities.append(f"slot_conflict:{conflict.slot}")
                         missing.append(conflict.slot)
@@ -216,6 +226,7 @@ def create_understand_node(
         ]
         return {
             **postage_update,
+            **price_update,
             "latest_message": "",
             "explicit_intent": None,
             "active_intent": active_value,

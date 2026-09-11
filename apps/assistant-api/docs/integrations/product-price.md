@@ -10,11 +10,13 @@
 
 ## 1. 依据、范围与未冻结部分
 
-生产者为独立 `device-price-service`。本次审查 HEAD 为
+生产者为独立 `device-price-service`。A/B 冻结时审查 HEAD 为
 `17ea0a20006939992db72f7460d4bf5395392306`，但相关设备功能仍包含未提交源码；
 manifest 用相关文件摘要定位这份审查快照，不能只凭 HEAD 宣称生产版本一致。
-其 `docs/V2_PHASE_I_BUILD_REPORT.md` 报告阶段 I 本地 MySQL 验证完成；
-本次没有复跑该验证、连接公司库或执行迁移。设备原生采集 J～M 及真实覆盖仍待推进。
+当时其 `docs/V2_PHASE_I_BUILD_REPORT.md` 报告阶段 I 本地 MySQL 验证完成，尚未做公司库核对。
+后续 D1/D2 工作中已核对生产者 `7191523` 之后的 M 验收文档及目标库增量迁移，
+并用当前消费 SQL/行映射做有界真实只读检查；结果和未关闭的 iMac 身份/运行期缺口见状态页。
+不反向修改 A manifest 以伪装原夹具来自新采集，也不把有限样本当作全库验收。
 
 | 范围 | 本地冻结内容 | 仍须生产者/环境确认 |
 | --- | --- | --- |
@@ -29,6 +31,9 @@ manifest 用相关文件摘要定位这份审查快照，不能只凭 HEAD 宣�
 CI 不需要生产者仓库、业务网络、数据库凭据或模型 Key。
 
 ## 2. Repository 必须交付的投影
+
+D1/D2 的自然语言条件和补槽规则另见[商品价格 Understanding](product-price-understanding.md)。
+它与下列读取事实不是同一个 DTO；公开 Tool/结果/State 的后续开放边界保持不变。
 
 `ProductPriceReadRecord` 是经过适配的内部只读记录，不是 API 的直接返回值。
 它包含完成一致性读取时的 `read_at`、listing 快照、current 指针、观察，以及可选最近有价历史。
@@ -148,11 +153,12 @@ listing URL、crawl 请求/最终 URL 都要符合固定来源白名单和数据
 | --- | --- | --- |
 | `DevicePriceReadQuery` | 1～8 个搜索词，每个最多 100 字符；可选品牌/类目；最多 20 个产品，每产品最多 50 条事实 | 先产品、再产品内规格，有固定排序；文本召回不是最终硬身份匹配 |
 | `FreshPriceReadQuery` | 同样的搜索词预算；可选商品码、地区、市场、批零口径；最多 100 条 listing/地区事实 | 不依赖标准商品建档；不跨地区或批零口径合并报价 |
+| `SelectedPriceReadQuery` | 服务器选择引用中的类目、listing ID 与地区；固定 SQL 最多检查两行 | 只读该身份当前指针，重复行拒绝；不重新模糊搜索、不替换相似商品 |
 | `PriceReadBatch` | 同 listing/地区或 observation 不重复；超限使用额外一条探测并标记 `truncated` | `truncated` 表示候选不完整，不声称库中没有其他候选 |
-| `ProductPriceQueryResult` | `candidates` / `no_match`，逐事实保留 freshness | 仅返回经过合同验证的候选；最终设备排序、规格选择和公开结果在 C/D 实施 |
+| `ProductPriceQueryResult` | `candidates` / `no_match`，逐事实保留 freshness | 仅返回经过合同验证的召回候选；设备再进入 quote_device，生鲜的公开结果在 D 实施 |
 
 搜索词去重并转小写，以绑定参数传入；LIKE 的 `%`、`_`、`!` 按字面转义。
-文本条件用于宽召回，设备必须继续经过 C 的硬身份策略；不得将被截断候选直接当成完整最低价范围。
+文本条件用于宽召回，设备必须继续经过共享硬身份策略；不得将被截断候选直接当成完整最低价范围。
 
 [Query Service](../../src/spb_assistant_api/services/product_price_query.py)借用 Repository，
 复验类目、可选过滤与预算，不创建或关闭连接池。Repository 在一次不中断执行中使用
@@ -164,6 +170,60 @@ readiness 用实际必需投影的 `LIMIT 0` 检查表、列与读取权限，�
 不检查生产迁移版本、全表覆盖或 freshness，也不让 `SELECT 1` 代表兼容通过。
 加载到候选投影的金额、单位、来源和关联错误必须失败，不能悄悄删行后返回 `no_match`。
 完全孤立、无法召回的全库记录不在每次聊天扫描；此类完整性审计属于 E 的独立只读诊断。
+
+### 3.5 设备报价与旧协议投影
+
+`ProductPriceQueryService.quote_device` 返回[内部设备报价结果](../../src/spb_assistant_api/domain/device_price_quote.py)，
+不借用 V1 `DevicePriceRecord` 承载 V2。设备解析位于 Domain，
+[共享匹配策略](../../src/spb_assistant_api/services/device_price_matching.py)接受泛型事实：
+品牌/产品级家族、型号数字、字母数字及已识别的 Pro/Max/Plus/Ultra/SE 后缀先作硬约束，
+再作产品排序，最后过滤产品内规格。已识别的型号变体必须一致，不能用高相似度放过额外 Max/Pro。
+SKU 标题、容量、内存与尺寸不补进产品身份；同分候选仍保留为候选，不宣称唯一型号或最低价。
+
+`DevicePriceSpecificationFilter` 为内部调用提供显式容量、内存、颜色、连接方式、尺寸、版本、
+制造商料号及具名扩展规格条件；容量不能命中内存字段，不存在的属性不能猜测。
+目前自然语言继续使用冻结的设备解析范围，颜色等新槽位的提取与确认属于 D，
+不能把内部可筛选字段说成已接入 Agent Understanding。
+
+| 内部结果 | 旧设备卡片协议的受控投影 |
+| --- | --- |
+| `matched`，包含 priced 事实 | 数值证据卡，原价可空，官方 SKU 未提供时旧字段保持空字符串，不用数据库 ID 代替 |
+| `matched`，完整结果只有无金额状态 | 内部仍是命中；旧协议用 `no_match` 表达“无数值报价”，reason_code=current_price_unavailable，正文说明已找到的状态、规格、来源与观察时间，价格证据为空 |
+| `matched`，priced 与无金额状态混合 | `partial`，只将 priced 投影成数值卡，正文单列无金额规格及其证据时间 |
+| 召回不完整，或仅状态子集因展示上限被截断 | 不能据此断言无报价；缺少可呈现的报价时返回 `need_more_info` / price_candidates_incomplete |
+| 完整召回仍无型号/规格命中 | 正常 `no_match`，区分型号与规格原因；不会换相近型号报价 |
+
+上表是旧 HTTP/Agent 设备 DTO 的表达限制，不改变 Repository/Service 对“状态命中”的定义。
+不能把 `current_price_unavailable` 当成商品不存在，也不能用历史金额、零或空字符串假装价格。
+D3 的内部 `product_price` 结果保留金额/状态分型与结果澄清循环；D4～D7 已交付[公开白名单](product-price-public-release.md)，
+仍不能把内部读取事实直接序列化给 Web。候选选择/重读见[执行设计](product-price-agent-loop.md)。
+来源阈值明确超期时提示非实时；缺阈值保留 `unknown`。召回截断和纯展示截断分别标记，均不承诺全规格覆盖。
+
+### 3.6 受控装配与旧依赖退出
+
+`ASSISTANT_PRICE_DATA_MODEL` 明确选择 `device_v1`（默认）或 `catalog_v2`，二者与 HTTP V1/V2 无关。
+选择 catalog_v2 后缺 DSN 就保持能力未配置；缺表、无数据或错误均不自动读 V1。
+它使用同一个 `ASSISTANT_MYSQL_DSN`，仅改变消费模型，不迁移数据或扩大账号权限。
+V2 产品/规格预算分别用 `ASSISTANT_PRICE_V2_PRODUCT_LIMIT`、`ASSISTANT_PRICE_V2_PER_PRODUCT_LIMIT`，
+默认 10/20、硬上限 20/50；展示上限不得超出总候选预算，旧 candidate_limit 只用于 V1。
+
+[配置组合根](../../src/spb_assistant_api/configured_price.py)创建一个 Repository/Service；
+应用生命周期初始化 Repository，V1 包装器和既有 Agent 设备适配器借用它，退出先停消费者再关闭 Repository。
+启动异常也清理，清理异常不掩盖已发生的主异常。默认生产装配、物流与政策不因新增选项而切换。
+当前 catalog_v2 只用于隔离验证或明确批准的受控环境；D 的状态/客户端迁移完成前，
+**不要直接对现有持久 Agent 会话切换该选项**。真实库/发布仍由 E 门禁约束。
+
+C5 的旧依赖清单如下，保留是限定迁移窗口，不是 V2 的运行 fallback：
+
+| 仍保留的旧路径 | 当前调用方与退出条件 |
+| --- | --- |
+| `adapters/mysql_price.py`、DevicePriceRepository/Record/SearchQuery | 默认 device_v1 装配及其单元测试；E 完成目标覆盖与回退验证后移除生产 SQL 路径 |
+| `tools/device_price.py` | 默认旧价格与 agent_demo 的合成设备入口；已删除重复身份/排序实现，与 V2 使用同一策略；Demo 在 D 同步迁移 |
+| `domain/tools/adapters` 包的旧导出 | 仍服务上述调用方；E 清理时一起处理，不留下隐藏旧查询入口 |
+| DevicePriceEvidence/Data 与旧 Agent decoder | 旧协议和历史记录仍需读取，不能跟旧 SQL 一并删除；是否仍保留按 D/E 兼容策略决定 |
+
+Parser 的旧 `tools/device_query.py` 已迁移到 `domain/device_query.py`，调用方全部更新，
+不保留第二份解析实现；此前版本可从 Git 历史恢复。
 
 ## 4. 设备兼容基线与已知缺陷
 
@@ -178,19 +238,20 @@ readiness 用实际必需投影的 `LIMIT 0` 检查表、列与读取权限，�
 | 金额/来源 | 当前价、明确/未知原价、来源 URL 回退、官方标识、UTC 观察时间 |
 | 状态/失败 | 有金额的下架/缺货/未知状态；缺型号不查询、正常无匹配、依赖不可用映射 |
 
-两项已确认缺陷单列为 strict xfail，限定 AssertionError，**不属于被接受的兼容行为**：
+两项已确认缺陷在 A 曾单列 strict xfail，**不属于被接受的兼容行为**：
 
 - `device-gap-pro-must-not-substitute-max`：只有 Pro Max 时，Pro 请求可能错误命中。
 - `device-gap-base-must-not-aggregate-pro`：共享系列名同分时，基本款结果可能混入 Pro。
 
-C 阶段必须修复目标身份规则并将上述测试转为通过；修复导致 XPASS 会让当前严格测试报错，
-提醒开发者同时更新缺口和测试标记。不得通过修改预期为错误结果来“消除失败”。
+C 的共享硬身份策略修复后，以上目标已改为普通通过的回归；原 fixture 的 expected 和摘要不改。
+[V2 等价测试](../../tests/test_product_price_device_equivalence.py)让同一组事实经过新包装器与既有 Agent 适配器，
+验证行为而不是比较不同抓取日的价格数值。不得通过修改预期为错误结果来“消除失败”。
 无金额、完整颜色/尺寸筛选、内存与存储角色的结构化绑定、历史和真实新鲜度不属于旧实现已保证的能力。
 
 ## 5. A 阶段冻结的 Agent/API 设计边界
 
-本节冻结实施选择，尚未注册 Intent、修改公开 OpenAPI、切换旧客户端或升级 State。
-实际公开模型到 D 阶段才生效；不能把内部 ReadRecord 直接序列化给浏览器。
+本节保留并更新 A 冻结的公开实施选择。D1～D7 已配套内部循环、公开白名单、Web/Eval 与 State 4；
+不能把内部 ReadRecord 直接序列化给浏览器，实际 CI/上线证据见状态页。
 
 | 边界 | 冻结选择 |
 | --- | --- |
@@ -202,7 +263,7 @@ C 阶段必须修复目标身份规则并将上述测试转为通过；修复导
 | 选择输入 | 新增 `price_selection: {candidate_token: string}`；至少 message / explicit_intent / 合法待恢复选择之一，不开放任意 slots 字典 |
 | 选择展示 | 在现有 RequiredInput 增加类型化 price 候选项（label/token），不把 JSON 编码塞进 choices 字符串 |
 | 候选身份 | 服务器生成不透明高熵 token，关联 owner/query/约束指纹/候选集；有效期不超过会话 TTL，D 默认拟为 10 分钟 |
-| 客户端契约 | 采用 `X-Agent-Contract: product-price-1`。会话推进/快照读取在打开 SSE 或返回新类型前检查；缺失/不匹配返回 HTTP 409、既有错误信封及 agent_client_upgrade_required |
+| 客户端契约 | 采用 `X-Agent-Contract: product-price-v1`。catalog_v2 浏览器能力目录/会话推进/快照读取在打开 SSE 或返回新类型前检查；缺失/不匹配返回 HTTP 409、既有错误信封及 agent_client_upgrade_required；服务身份/V1 原认证不变 |
 | 不受门禁影响 | V1、健康检查和访客身份接口；Agent 元信息入口可提供契约发现。代理/CORS、Web 全部会话请求和 Eval 必须同步 |
 | 恢复 | 旧完成 device_price 结果原样解码；旧 pending 无法安全恢复时保留历史，提示新会话，不改指纹或自动执行 |
 
@@ -221,6 +282,9 @@ C 阶段必须修复目标身份规则并将上述测试转为通过；修复导
 - `legacy_device_baseline.json`：合成有效行为与单列已知缺陷；保留显式期待，不用未来实现生成 Gold。
 - `manifest.json`：绑定夹具、审查源码快照和本地冻结身份；数据变更需重审、更新摘要。
   测试不在运行时读取另一工作树，也不要求其未提交源码一直存在。
+- `product_price_device_fixture.py`：将 A 的同一合成证据表达为 V2 事实，不把示例 URL 当作真实 SQL 来源白名单证明。
+  `test_product_price_device_equivalence.py` / `test_product_price_device_quote.py` 验报价与旧协议边界，
+  `test_product_price_composition.py` 验 HTTP 共用资源、无 fallback 和异常清理。
 
 上面三个 A 阶段测试验证字段和消费者防线，本身不执行 MySQL SQL。
 真实 SQL 的合成验收入口、隔离数据库限制和固定 MySQL 镜像见

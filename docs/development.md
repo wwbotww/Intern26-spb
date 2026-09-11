@@ -33,6 +33,7 @@ npm --prefix apps/chat-web run check:agent-types
 | 连接已批准的真实依赖 | [Assistant 配置与入口](../apps/assistant-api/README.md) + [RAG](../apps/rag-api/README.md) | [常规开发与真实后端](../apps/chat-web/README.md#常规开发与真实后端) | API/UI 模式、服务 Key、Origin/身份、数据覆盖 |
 | 验证部署边界，不接业务数据 | [Agent 合成部署演练](../deploy/agent/README.md) | 演练自带匹配 Web | HTTPS、双访客、备份/恢复、V1 回退 |
 | 验证 V2 价格固定 SQL，不接业务数据 | [MySQL 5.7 / 8.4 隔离门禁](../deploy/price-query/README.md) | 不需要 Web | V2-only、SELECT 权限、当前状态/单位/关联和查询上限 |
+| 验证商品价格理解，不接模型/数据库 | [D1/D2 组件](../apps/assistant-api/docs/integrations/product-price-understanding.md) | 尚不开放 HTTP/Web | 商品/寄递重量区分、联合条件、冲突及候选失效信号 |
 
 业务 fixture 的五能力 Demo 不等于真实物流互通；严格资费夹具也只有 MockTransport。
 默认 Web 为 V1，Agent UI 与浏览器身份是构建时开关，不能只换后端。

@@ -1,3 +1,5 @@
+"""Pure device query normalization shared by price entry points."""
+
 from __future__ import annotations
 
 import re

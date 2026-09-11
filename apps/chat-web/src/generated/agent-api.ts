@@ -10,9 +10,9 @@ export interface BrowserSessionResponse {
   "expires_at": string
 }
 
-export type Intent = "policy" | "device_price" | "tracking" | "delivery_time" | "postage" | "unknown"
+export type Intent = "policy" | "device_price" | "product_price" | "tracking" | "delivery_time" | "postage" | "unknown"
 
-export type PublicIntent = "policy" | "device_price" | "tracking" | "delivery_time" | "postage"
+export type PublicIntent = "policy" | "device_price" | "product_price" | "tracking" | "delivery_time" | "postage"
 
 export type AgentPhase = "new" | "understanding" | "clarifying" | "collecting" | "ready" | "executing" | "validating" | "recovering" | "responding" | "waiting_user" | "completed" | "handoff" | "failed"
 
@@ -22,6 +22,7 @@ export interface AgentMessageRequest {
   "explicit_intent"?: Intent | null
   "confirm_overwrite"?: boolean
   "stream"?: boolean
+  "price_selection"?: PriceSelectionInput | null
 }
 
 export interface RequiredInput {
@@ -30,6 +31,7 @@ export interface RequiredInput {
   "type": "string" | "number" | "region" | "choice"
   "validation_hint"?: string
   "choices"?: Array<string>
+  "price_candidates"?: Array<PriceCandidateOption>
 }
 
 export interface AgentSourceResponse {
@@ -180,4 +182,75 @@ export interface ErrorDetail {
 
 export interface ErrorResponse {
   "detail": ErrorDetail
+}
+
+export interface ProductDeviceIdentity {
+  "kind": "device"
+  "brand": string
+  "product_name": string
+  "specification": Record<string, string>
+}
+
+export interface ProductFreshIdentity {
+  "kind": "fresh"
+  "commodity_name": string
+  "source_specification": string
+  "market_name"?: string | null
+}
+
+export interface ProductPriceItem {
+  "identity": ProductDeviceIdentity | ProductFreshIdentity
+  "quote": ProductQuote
+  "source": ProductSource
+  "region": ProductRegion
+  "queried_at": string
+  "freshness": "unknown" | "fresh" | "stale"
+  "last_known_price"?: ProductQuote | null
+}
+
+export interface ProductQuote {
+  "kind": "priced" | "availability_only"
+  "currency"?: "CNY"
+  "current_price": string | null
+  "original_price": string | null
+  "original_price_type": "NONE" | "CROSSED_OUT" | "MSRP" | "EXPLICIT_ORIGINAL"
+  "availability": "ON_SALE" | "OUT_OF_STOCK" | "RESERVATION" | "PRE_SALE" | "COMING_SOON" | "OFF_SHELF" | "UNKNOWN"
+  "price_nature": "RETAIL_OFFER" | "RETAIL_AVERAGE" | "WHOLESALE_AVERAGE"
+  "quoted_unit": "CNY_PER_PIECE" | "CNY_PER_500G" | "CNY_PER_KG"
+  "unit_price": ProductUnitPrice | null
+  "observed_at": string
+  "time_precision": "DAY" | "INSTANT" | "UNKNOWN"
+}
+
+export interface ProductRegion {
+  "scope": "NATIONAL" | "PROVINCE" | "CITY" | "DISTRICT" | "DELIVERY_ZONE"
+  "code": string
+}
+
+export interface ProductSource {
+  "name": string
+  "profile": string
+  "url": string
+}
+
+export interface ProductUnitPrice {
+  "amount": string
+  "unit": "CNY_PER_PIECE" | "CNY_PER_KG"
+}
+
+export interface ProductPriceResponseData {
+  "type"?: "product_price"
+  "schema_version"?: "1"
+  "items": Array<ProductPriceItem>
+  "truncated": boolean
+}
+
+export interface PriceCandidateOption {
+  "candidate_token": string
+  "label": string
+  "expires_at": string
+}
+
+export interface PriceSelectionInput {
+  "candidate_token": string
 }

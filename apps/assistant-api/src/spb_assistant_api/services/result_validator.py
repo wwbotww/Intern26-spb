@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 from ..domain.agent_errors import AgentOperationError
 from ..domain.commands import (
@@ -10,6 +11,7 @@ from ..domain.commands import (
     PolicyCommand,
     PostageCommand,
     TrackingCommand,
+    ProductPriceCommand,
 )
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.postage import PostageSource
@@ -24,6 +26,9 @@ from ..domain.results import (
 )
 from ..domain.slots import RegionRef, RegionResolution
 from ..domain.tooling import CommandModel
+from ..domain.tooling import argument_fingerprint
+from ..domain.product_price_execution import ProductPriceData, PriceSelectionReference
+from .product_price_query import ProductPriceQueryService
 
 
 def _violation(code: str, message: str) -> AgentOperationError:
@@ -58,7 +63,53 @@ class AgentResultValidator:
             self._validate_delivery_time(command, result)
         elif isinstance(command, PostageCommand):
             self._validate_postage(command, result)
+        elif isinstance(command, ProductPriceCommand):
+            self._validate_product_price(command, result)
         return result
+
+    @staticmethod
+    def _validate_product_price(command: ProductPriceCommand, result: AgentResult) -> None:
+        data = result.data
+        success = result.status in {AgentResultStatus.SUCCESS, AgentResultStatus.PARTIAL}
+        if data is None:
+            if success or result.status is AgentResultStatus.NEED_MORE_INFO and not result.missing_slots:
+                raise _violation("price_data_missing", "价格结果缺少事实或可执行的补充条件")
+            return
+        try:
+            data = ProductPriceData.model_validate(data.model_dump())
+            if data.command_fingerprint != argument_fingerprint(command):
+                raise ValueError("price command scope mismatch")
+            if data.mode == "candidates":
+                if result.status is not AgentResultStatus.NEED_MORE_INFO or command.selection is not None:
+                    raise ValueError("price candidate status mismatch")
+            elif not success:
+                raise ValueError("quote status mismatch")
+            if success and command.selection is None:
+                separate = command.conditions.kind == "fresh" and command.conditions.source_scope == "separate_sources"
+                if (len(data.facts) > 1 or data.truncated) and not separate:
+                    raise ValueError("ambiguous prices need explicit selection")
+            if command.selection and (len(data.facts) != 1 or data.truncated):
+                raise ValueError("selected quote must contain exactly one current identity")
+            if len(result.provenance) != len(data.facts):
+                raise ValueError("missing per-fact sources")
+            for fact, source in zip(data.facts, result.provenance, strict=True):
+                record = fact.record
+                if not ProductPriceQueryService.matches_conditions(command, fact):
+                    raise ValueError("price fact does not satisfy conditions")
+                if command.selection and PriceSelectionReference.from_record(record) != command.selection:
+                    raise ValueError("price selection substituted")
+                if (source.source_type, source.source_name, source.source_profile, source.source_url, source.queried_at) != (
+                    record.listing.source.source_type, record.listing.source.channel_name, record.listing.source.channel_code,
+                    str(record.listing.source.source_url), record.read_at,
+                ):
+                    raise ValueError("price source provenance mismatch")
+                china = ZoneInfo("Asia/Shanghai")
+                if success and command.time.kind == "today" and (
+                    record.observation.observed_at.astimezone(china).date() != record.read_at.astimezone(china).date()
+                ) and (result.status is not AgentResultStatus.PARTIAL or result.reason_code != "price_today_not_available"):
+                    raise ValueError("old observations cannot satisfy today's price")
+        except (ValueError, TypeError, AttributeError):
+            raise _violation("price_result_contract_invalid", "价格结果不符合命令、身份或来源契约") from None
 
     @staticmethod
     def _validate_policy(result: AgentResult) -> None:

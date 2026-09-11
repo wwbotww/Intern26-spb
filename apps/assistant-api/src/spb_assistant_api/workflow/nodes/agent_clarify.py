@@ -16,10 +16,12 @@ from ...domain.agent_actions import (
 )
 from ...domain.agent_events import AgentEventType
 from ...domain.intents import Intent
+from ...domain.agent_errors import AgentOperationError
 from ...services.postage_preflight import POSTAGE_CONFIRMATION
 from ..node_utils import agent_event
 from ..migrations import CURRENT_AGENT_STATE_SCHEMA
 from ..state import AgentState
+from ..price_candidates import ordinal_token
 
 
 def clarify_agent_input(state: AgentState) -> dict[str, object]:
@@ -33,6 +35,22 @@ def clarify_agent_input(state: AgentState) -> dict[str, object]:
             required_inputs=action.required_inputs,
         )
         resumed = interrupt(request.model_dump(mode="json"))
+        if action.intent is Intent.PRODUCT_PRICE:
+            payload = AgentResumeInput.model_validate(resumed)
+            token = payload.price_selection.candidate_token if payload.price_selection else None
+            selection_failure = None
+            if token is None and state.get("price_candidates") is not None and payload.message:
+                try:
+                    token = ordinal_token(state, payload.message)
+                except AgentOperationError as error:
+                    selection_failure = error.failure.model_dump(mode="json")
+            update = _resume_update(
+                state, message=payload.message or "", explicit_intent=None,
+                event_intent=action.intent, turn_id=payload.turn_id, deadline_at=payload.deadline_at,
+                confirm_overwrite=payload.confirm_overwrite, intent_confirmed=False,
+            )
+            update.update(price_selected_token=token, last_result=None, last_error=selection_failure)
+            return update
         message, turn_id, deadline_at, confirm_overwrite = _slot_resume(
             resumed,
             action.intent,

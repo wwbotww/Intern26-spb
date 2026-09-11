@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from contextlib import AsyncExitStack, asynccontextmanager
+from functools import partial
+from types import TracebackType
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -13,8 +16,9 @@ from .. import __version__
 from ..adapters.mysql_price import MySQLPriceRepository
 from ..adapters.rag_policy import RagPolicyClient
 from ..configured_agent import configured_tracking, create_configured_agent_factory
+from ..configured_price import configured_product_price
 from ..domain.models import QueryMode
-from ..domain.ports import AssistantTool
+from ..domain.ports import AssistantTool, ProductPriceReadRepository
 from ..middleware.operations import OperationsConfig, OperationsMiddleware
 from ..observability.metrics import ServiceMetrics
 from ..services.dispatcher import (
@@ -36,9 +40,33 @@ from .routes.metrics import router as metrics_router
 from .routes.browser_session import router as browser_session_router
 
 
+logger = logging.getLogger(__name__)
+
+
+async def _close_owned_resource(
+    close: Callable[[], Awaitable[None]],
+    exc_type: type[BaseException] | None,
+    error: BaseException | None,
+    traceback: TracebackType | None,
+) -> bool:
+    try:
+        await close()
+    except Exception:
+        if error is None:
+            raise
+        # Preserve the startup/request error. Do not log exception text that
+        # might contain a dependency URL or database connection information.
+        logger.error("owned dependency cleanup failed after lifecycle error")
+    return False
+
+
 def _default_tools(
     settings: AssistantSettings,
+    *,
+    product_price_tool: AssistantTool | None = None,
 ) -> dict[QueryMode, AssistantTool]:
+    if product_price_tool is not None and settings.price_data_model != "catalog_v2":
+        raise ValueError("V2 价格 Tool 必须显式选择 catalog_v2")
     tools: dict[QueryMode, AssistantTool] = {
         QueryMode.POLICY: UnavailableTool(POLICY_TOOL_NAME),
         QueryMode.DEVICE_PRICE: UnavailableTool(DEVICE_PRICE_TOOL_NAME),
@@ -60,7 +88,7 @@ def _default_tools(
             source=policy_source
         )
     mysql_dsn = settings.mysql_dsn.get_secret_value().strip()
-    if mysql_dsn:
+    if mysql_dsn and settings.price_data_model == "device_v1":
         repository = MySQLPriceRepository(
             dsn=mysql_dsn,
             pool_size=settings.mysql_pool_size,
@@ -77,6 +105,9 @@ def _default_tools(
             result_limit=settings.price_result_limit,
             match_threshold=settings.price_match_threshold,
         )
+    if product_price_tool is not None:
+        # This wrapper borrows the application-owned V2 query service.
+        tools[QueryMode.DEVICE_PRICE] = product_price_tool
     return tools
 
 
@@ -87,17 +118,29 @@ def create_app(
     agent_api: AgentApiDependencies | None = None,
     agent_api_factory: AgentApiDependencyFactory | None = None,
     metrics: ServiceMetrics | None = None,
+    product_price_repository: ProductPriceReadRepository | None = None,
 ) -> FastAPI:
     if agent_api is not None and agent_api_factory is not None:
         raise ValueError("agent_api 与 agent_api_factory 不能同时提供")
     resolved_settings = settings or AssistantSettings()
+    if tools is not None and product_price_repository is not None:
+        raise ValueError("tools 与 product_price_repository 不能同时提供")
     if resolved_settings.agent_enabled:
         configured_tracking(resolved_settings)
     service_metrics = metrics if metrics is not None else ServiceMetrics()
+    product_price = (
+        configured_product_price(
+            resolved_settings, repository=product_price_repository,
+        )
+        if tools is None else None
+    )
     resolved_tools = (
         tools
         if tools is not None
-        else _default_tools(resolved_settings)
+        else _default_tools(
+            resolved_settings,
+            product_price_tool=product_price.tool if product_price is not None else None,
+        )
     )
     registry = ToolRegistry(resolved_tools)
     dispatcher = QueryDispatcher(registry)
@@ -110,6 +153,7 @@ def create_app(
             settings=resolved_settings,
             legacy_tools=resolved_tools,
             metrics=service_metrics,
+            product_price_service=product_price.service if product_price is not None else None,
         )
 
     @asynccontextmanager
@@ -139,20 +183,28 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
-            await registry.initialize()
-            if agent_api_factory is not None:
-                async with agent_api_factory() as dependencies:
+            async with AsyncExitStack() as stack:
+                if product_price is not None:
+                    # Register cleanup before startup, including partial init.
+                    stack.push_async_exit(partial(_close_owned_resource, product_price.repository.close))
+                stack.push_async_exit(partial(_close_owned_resource, registry.close))
+                # Policy clients are allocated while composing tools. Their
+                # cleanup must be registered even if price startup fails first.
+                if product_price is not None:
+                    await product_price.repository.initialize()
+                await registry.initialize()
+                if agent_api_factory is not None:
+                    dependencies = await stack.enter_async_context(agent_api_factory())
                     async with activate_agent_api(app, dependencies):
                         yield
-            elif agent_api is not None:
-                async with activate_agent_api(app, agent_api):
+                elif agent_api is not None:
+                    async with activate_agent_api(app, agent_api):
+                        yield
+                else:
                     yield
-            else:
-                yield
         finally:
             if agent_api_factory is not None:
                 app.state.agent_api = None
-            await registry.close()
 
     app = FastAPI(
         title="China Post Claims Assistant API",

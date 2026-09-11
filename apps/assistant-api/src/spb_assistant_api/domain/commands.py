@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .primitives import MailNumber, MessageText
 from .postage import PostagePricingContext, exact_weight_grams
+from .product_price_slots import ProductPriceCommand
 from .slots import RegionRef, RegionResolution, WeightValue
 
 
@@ -88,6 +89,7 @@ AgentCommand = Annotated[
     | DevicePriceCommand
     | TrackingCommand
     | DeliveryTimeCommand
-    | PostageCommand,
+    | PostageCommand
+    | ProductPriceCommand,
     Field(discriminator="intent"),
 ]

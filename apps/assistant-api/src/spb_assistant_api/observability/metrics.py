@@ -321,6 +321,7 @@ _INTENTS = frozenset(
     {
         "policy",
         "device_price",
+        "product_price",
         "tracking",
         "delivery_time",
         "postage",
@@ -357,6 +358,7 @@ _READINESS_COMPONENTS = frozenset(
         "janitor",
         "capability_policy",
         "capability_device_price",
+        "capability_product_price",
         "capability_tracking",
         "capability_delivery_time",
         "capability_postage",

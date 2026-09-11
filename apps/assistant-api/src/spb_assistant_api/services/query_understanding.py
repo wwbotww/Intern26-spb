@@ -33,6 +33,10 @@ from .region_resolver import (
     create_demo_region_resolver,
 )
 from .slot_merger import required_missing_slots
+from .product_price_understanding import (
+    extract_product_price_slots, has_shipping_context, price_signal, routing_text,
+)
+from .product_price_slot_merger import price_slot_values
 
 
 _DOMESTIC_MAIL_NUMBER = re.compile(r"(?<!\d)(\d{13})(?!\d)")
@@ -93,12 +97,16 @@ _RESTART_COMMANDS = frozenset({"重新开始", "重来", "清空", "重置"})
 
 
 class RuleBasedQueryUnderstander:
-    """Explainable five-intent parser with deterministic hard entities."""
+    """Explainable intent parser with an explicit price-profile transition."""
 
-    parser_version = "agent-rules-v2"
+    parser_version = "agent-rules-v3"
 
-    def __init__(self, region_resolver: RegionResolver | None = None) -> None:
+    def __init__(self, region_resolver: RegionResolver | None = None, *, product_price_enabled: bool = False) -> None:
         self._regions = region_resolver or create_demo_region_resolver()
+        # Component-only opt-in until D3-D6 supply Tool, client and State gates.
+        self.product_price_enabled = product_price_enabled
+        if product_price_enabled:
+            self.parser_version = "agent-rules-product-price-v1"
 
     async def understand(
         self,
@@ -109,6 +117,10 @@ class RuleBasedQueryUnderstander:
         expected_slots: tuple[str, ...] = (),
     ) -> QueryUnderstandingResult:
         normalized = self.normalize(message)
+        if not self.product_price_enabled and Intent.PRODUCT_PRICE in {active_intent, explicit_intent}:
+            raise ValueError("product_price understanding is not enabled")
+        if self.product_price_enabled and Intent.DEVICE_PRICE in {active_intent, explicit_intent}:
+            raise ValueError("legacy price context must restart before unified understanding")
         control = self._control(normalized)
         if control is not ControlDirective.NONE:
             return QueryUnderstandingResult(
@@ -125,18 +137,24 @@ class RuleBasedQueryUnderstander:
         weight, weight_ambiguities = self.extract_weight(normalized)
         mentions = self._regions.find_mentions(normalized)
         scores, signals = self._score_intents(
-            normalized,
+            routing_text(normalized),
             mail_no=mail_no,
             weight=weight,
             region_count=len(mentions),
         )
+        if self.product_price_enabled:
+            scores[Intent.DEVICE_PRICE] = 0
+            signals[Intent.DEVICE_PRICE] = []
+            if signal := price_signal(normalized):
+                scores[Intent.PRODUCT_PRICE], tag = signal
+                signals[Intent.PRODUCT_PRICE] = [tag]
         candidates = self._candidates(scores, signals)
         strong = [item for item in candidates if item.score >= 0.75]
         multi_intent = (
             len(strong) > 1
             and any(marker in normalized for marker in _MULTI_CONNECTORS)
         )
-        ambiguities = list(weight_ambiguities)
+        ambiguities = list(weight_ambiguities) if has_shipping_context(normalized) or active_intent is Intent.POSTAGE or explicit_intent is Intent.POSTAGE else []
         source = "rules"
 
         rule_selected = (
@@ -283,11 +301,12 @@ class RuleBasedQueryUnderstander:
             mark(Intent.TRACKING, 0.86, "keyword_tracking")
         if any(word in message for word in _DELIVERY_KEYWORDS):
             mark(Intent.DELIVERY_TIME, 0.90, "keyword_delivery_time")
-        if any(word in message for word in _POSTAGE_KEYWORDS):
+        if has_shipping_context(message) and any(word in message for word in _POSTAGE_KEYWORDS):
             mark(Intent.POSTAGE, 0.84, "keyword_postage")
-        if weight is not None:
+        shipping = has_shipping_context(message)
+        if weight is not None and shipping:
             mark(Intent.POSTAGE, 0.90, "weight_entity")
-        if region_count >= 2:
+        if region_count >= 2 and shipping:
             if any(word in message for word in _DELIVERY_KEYWORDS):
                 mark(Intent.DELIVERY_TIME, 0.95, "route_entities")
             if (
@@ -407,6 +426,12 @@ class RuleBasedQueryUnderstander:
         provenance: list[SlotProvenance] = []
         if intent is Intent.UNKNOWN:
             return None, missing, ambiguities, provenance
+        if intent is Intent.PRODUCT_PRICE:
+            price_slots, ambiguities = extract_product_price_slots(message, expected_slots=expected_slots)
+            return (
+                price_slots, required_missing_slots(price_slots), ambiguities,
+                [SlotProvenance(slot=name, source="rule_extractor") for name in price_slot_values(price_slots)],
+            )
         if intent is Intent.TRACKING:
             if mail_no is None:
                 missing.append("mail_no")
@@ -514,8 +539,20 @@ JSON 示例：
 {"selected_intent":"unknown","candidates":[],"slots":null,"missing_slots":[],"ambiguities":[],"multi_intent":false}
 """
 
-    def __init__(self, model: StructuredQueryUnderstandingModel) -> None:
+    def __init__(self, model: StructuredQueryUnderstandingModel, *, product_price_enabled: bool = False) -> None:
         self._model = model
+        self.product_price_enabled = product_price_enabled
+        self.prompt, self.prompt_version = self.prompt_profile(product_price_enabled=product_price_enabled)
+
+    @classmethod
+    def prompt_profile(cls, *, product_price_enabled: bool) -> tuple[str, str]:
+        if product_price_enabled:
+            prompt = cls.prompt.replace(
+                "- device_price：手机、电脑等设备的参考价格或型号匹配。",
+                "- product_price：设备或生鲜商品价格；包括水果的斤/公斤/500g 计价。不要输出历史意图 device_price。",
+            ) + "\n商品计价重量不是运费；仅在寄递语境选择 postage。苹果多少钱属于 product_price，类目待澄清。\n模型仍仅做语义分类，slots=null；商品、品牌、规格、地区、单位、时间由规则复验。不得生成候选 token、数据库 ID 或事实价格。\n"
+            return prompt, "query-understanding-product-price-v1"
+        return cls.prompt, cls.prompt_version
 
     async def understand(
         self,
@@ -533,7 +570,9 @@ JSON 示例：
         )
         try:
             parsed = StructuredModelUnderstanding.model_validate(raw)
-        except ValidationError as exc:
+            if (not self.product_price_enabled and any(candidate.intent is Intent.PRODUCT_PRICE for candidate in parsed.candidates)) or (self.product_price_enabled and any(candidate.intent is Intent.DEVICE_PRICE for candidate in parsed.candidates)):
+                raise ValueError("price intent is not supported by this understanding profile")
+        except ValueError as exc:
             raise AgentOperationError(
                 AgentFailure(
                     category=FailureCategory.CONTRACT_VIOLATION,
@@ -631,6 +670,7 @@ class HybridQueryUnderstander:
                     for item in deterministic.ambiguities
                     if item == "multiple_weights"
                     or item.startswith("region_")
+                    or item.startswith("price_")
                 ]
                 model = model.model_copy(
                     update={

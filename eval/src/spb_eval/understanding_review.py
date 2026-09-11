@@ -20,7 +20,7 @@ from .understanding_dataset import (
     normalized_input_digest,
 )
 from .understanding_schema import (
-    INTENTS,
+    understanding_intent_labels,
     Code,
     Contract,
     Digest,
@@ -217,6 +217,11 @@ def freeze_understanding_holdout(
         for case in approved
         if case.gold.intent is not None and case.gold.control == "none"
     )
+    labels = understanding_intent_labels({
+        intent for case in approved
+        for intent in (case.gold.intent, *case.gold.candidate_intents)
+        if intent is not None
+    })
     manifest = {
         "schema_version": "qu-holdout-freeze-v1",
         "created_at": datetime.now(UTC).isoformat(),
@@ -229,9 +234,9 @@ def freeze_understanding_holdout(
         "reviewed_at": decisions.reviewed_at.isoformat(),
         "approved_cases": len(approved),
         "excluded_cases": len(cases) - len(approved),
-        "intent_support": {intent: counts[intent] for intent in INTENTS},
+        "intent_support": {intent: counts[intent] for intent in labels},
         "missing_intent_classes": [
-            intent for intent in INTENTS if not counts[intent]
+            intent for intent in labels if not counts[intent]
         ],
         "gold_hard_values": sum(
             len(case.gold.slot_values)

@@ -335,7 +335,7 @@ def test_state_schema_migration_is_additive_and_rejects_future_version() -> None
     )
 
     assert migrated.changed
-    assert migrated.state["schema_version"] == "3"
+    assert migrated.state["schema_version"] == "4"
     assert migrated.state["slot_provenance"] == []
     assert migrated.state["multi_intent"] is False
 

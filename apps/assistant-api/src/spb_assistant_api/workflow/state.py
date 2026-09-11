@@ -76,6 +76,12 @@ class AgentState(TypedDict, total=False):
     conversation_id: str
     turn_id: str
     query_id: str
+    price_owner_id: str | None
+    price_session_expires_at: str | None
+    price_candidates: dict[str, Any] | None
+    price_selected_token: str | None
+    price_result_slots: list[str]
+    price_clarification_count: int
     legacy_tool_call: dict[str, Any] | None
     postage_policy_snapshot: str | None
     postage_requirements: list[str]
@@ -128,6 +134,8 @@ class AgentInputState(TypedDict, total=False):
     max_steps: int
     max_tool_calls: int
     max_retries: int
+    price_owner_id: str | None
+    price_session_expires_at: str | None
 
 
 class AgentOutputState(TypedDict, total=False):

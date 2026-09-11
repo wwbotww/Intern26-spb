@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from spb_assistant_api.tools.device_query import (
+from spb_assistant_api.domain.device_query import (
     extract_capacity_tokens,
     parse_device_query,
 )

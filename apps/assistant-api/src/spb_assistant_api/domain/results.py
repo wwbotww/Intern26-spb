@@ -15,6 +15,7 @@ from pydantic import (
 )
 
 from .intents import Intent
+from .product_price_execution import ProductPriceData
 from .primitives import MailNumber
 from .postage import PostageQuoteBasis, QuoteMoney
 from .slots import RegionRef, WeightValue
@@ -211,7 +212,8 @@ AgentData = Annotated[
     | DevicePriceData
     | TrackingData
     | DeliveryTimeData
-    | PostageData,
+    | PostageData
+    | ProductPriceData,
     Field(discriminator="type"),
 ]
 

@@ -18,6 +18,7 @@ from ..domain.conversations import (
 )
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.intents import Intent
+from ..domain.product_price_execution import PriceSelectionInput
 from ..domain.ports import (
     ConversationMetadataRepository,
     ToolExecutionRepository,
@@ -153,19 +154,24 @@ class StatefulAgentService:
         message: str | None = None,
         explicit_intent: Intent | None = None,
         confirm_overwrite: bool = False,
+        price_selection: PriceSelectionInput | None = None,
     ) -> Mapping[str, Any]:
         """Start a turn or resume an interrupt behind one stable API method."""
 
         payload = {
             "operation": "send_message",
             "message": message,
-            "explicit_intent": (
-                explicit_intent.value if explicit_intent else None
-            ),
+            "explicit_intent": (explicit_intent.value if explicit_intent else None),
             "confirm_overwrite": confirm_overwrite,
         }
+        if price_selection is not None:
+            payload["price_selection"] = price_selection.model_dump(mode="json")
 
         async def run(turn_id: UUID) -> Mapping[str, Any]:
+            metadata = await self._metadata.get(conversation_id)
+            assert (
+                metadata is not None
+            )  # Ownership/expiry checked under this run's lock.
             snapshot = await self._runtime.graph.aget_state(
                 self._runtime.config(str(conversation_id))
             )
@@ -176,6 +182,12 @@ class StatefulAgentService:
                     selected_intent=explicit_intent,
                     confirm_overwrite=confirm_overwrite,
                     turn_id=turn_id,
+                    owner_id=owner_id,
+                    price_selection=price_selection,
+                )
+            if price_selection is not None:
+                raise _state_conflict(
+                    "price_selection_not_pending", "当前会话没有待选择的商品"
                 )
             if message is None:
                 raise AgentOperationError(
@@ -190,6 +202,8 @@ class StatefulAgentService:
                 message=message,
                 explicit_intent=explicit_intent,
                 turn_id=turn_id,
+                owner_id=owner_id,
+                session_expires_at=metadata.expires_at,
             )
 
         return await self._run_idempotently(
@@ -200,6 +214,33 @@ class StatefulAgentService:
             operation=run,
             validate_checkpoint=True,
         )
+
+    async def read_snapshot(
+        self, *, conversation_id: UUID, owner_id: str
+    ) -> Mapping[str, Any]:
+        """Read the owned durable stop; never resume a node or extend a token TTL."""
+        async with self._coordinator.claim(conversation_id):
+            await self._require_active(
+                conversation_id=conversation_id, owner_id=owner_id, now=self._now()
+            )
+            snapshot = await self._runtime.graph.aget_state(
+                self._runtime.config(str(conversation_id))
+            )
+            if not snapshot.values:
+                raise _state_conflict(
+                    "conversation_not_available", "会话没有可恢复的内容"
+                )
+            self._migrator.migrate(snapshot.values)
+            if snapshot.values.get("phase") not in {
+                "waiting_user",
+                "completed",
+                "failed",
+                "handoff",
+            }:
+                raise _state_conflict(
+                    "conversation_run_in_progress", "查询尚未到达可恢复的状态"
+                )
+            return project_agent_output(snapshot.values)
 
     async def start(
         self,
@@ -213,9 +254,7 @@ class StatefulAgentService:
         payload = {
             "operation": "start",
             "message": message,
-            "explicit_intent": (
-                explicit_intent.value if explicit_intent else None
-            ),
+            "explicit_intent": (explicit_intent.value if explicit_intent else None),
         }
         return await self._run_idempotently(
             conversation_id=conversation_id,
@@ -244,9 +283,7 @@ class StatefulAgentService:
         payload = {
             "operation": "resume",
             "message": message,
-            "selected_intent": (
-                selected_intent.value if selected_intent else None
-            ),
+            "selected_intent": (selected_intent.value if selected_intent else None),
             "confirm_overwrite": confirm_overwrite,
         }
         return await self._run_idempotently(
@@ -292,12 +329,8 @@ class StatefulAgentService:
                 return
             try:
                 await self._checkpointer.adelete_thread(str(conversation_id))
-                await self._metadata.delete_idempotency_receipts(
-                    conversation_id
-                )
-                await self._tool_receipts.delete_conversation(
-                    str(conversation_id)
-                )
+                await self._metadata.delete_idempotency_receipts(conversation_id)
+                await self._tool_receipts.delete_conversation(str(conversation_id))
                 await self._metadata.set_status(
                     conversation_id=conversation_id,
                     status=ConversationStatus.DELETED,
@@ -366,8 +399,7 @@ class StatefulAgentService:
                     self._migrator.migrate(snapshot.values)
                 phase = snapshot.values.get("phase")
                 stopped = (
-                    not snapshot.next
-                    and phase in {"completed", "failed", "handoff"}
+                    not snapshot.next and phase in {"completed", "failed", "handoff"}
                 ) or (
                     phase == "waiting_user"
                     and any(task.interrupts for task in snapshot.tasks)
@@ -487,18 +519,14 @@ class ConversationJanitor:
         for conversation_id in conversation_ids:
             try:
                 async with self._coordinator.claim(conversation_id):
-                    await self._checkpointer.adelete_thread(
-                        str(conversation_id)
-                    )
+                    await self._checkpointer.adelete_thread(str(conversation_id))
                     deleted_idempotency += (
                         await self._metadata.delete_idempotency_receipts(
                             conversation_id
                         )
                     )
-                    deleted_receipts += (
-                        await self._tool_receipts.delete_conversation(
-                            str(conversation_id)
-                        )
+                    deleted_receipts += await self._tool_receipts.delete_conversation(
+                        str(conversation_id)
                     )
                     await self._metadata.set_status(
                         conversation_id=conversation_id,
@@ -539,11 +567,7 @@ def project_agent_output(result: Mapping[str, Any]) -> dict[str, Any]:
         "warnings",
         "finish_reason",
     )
-    projected = {
-        name: result.get(name)
-        for name in public_fields
-        if name in result
-    }
+    projected = {name: result.get(name) for name in public_fields if name in result}
     return json.loads(
         json.dumps(
             projected,

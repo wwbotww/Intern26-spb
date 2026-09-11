@@ -98,7 +98,7 @@ def test_state_migration_preserves_known_pending_execution_without_mutation(vers
     saved = copy.deepcopy(original)
     migrated = AgentStateMigrator().migrate(original)
     assert original == saved
-    assert migrated.changed and migrated.target_version == "3"
+    assert migrated.changed and migrated.target_version == "4"
     assert migrated.state["pending_action"] == saved["pending_action"]
     assert migrated.state["slots"] == saved["slots"]
     assert migrated.state["legacy_tool_call"]["tool_call_id"] == str(action.tool_call_id)
@@ -153,7 +153,7 @@ def test_new_execution_updates_legacy_metadata_version_without_changing_owner(tm
             )
         async with create_sqlite_agent_repositories(database) as repos:
             updated = await repos.metadata.get(THREAD)
-            assert updated.state_schema_version == "3"
+            assert updated.state_schema_version == "4"
             assert updated.owner_id == metadata.owner_id
             assert updated.created_at == metadata.created_at
 
@@ -331,7 +331,7 @@ def test_legacy_sqlite_checkpoint_restores_then_new_query_is_fresh(tmp_path, che
                 # current waiting query executed; do not reuse it.
                 assert len(gateway.commands) == 1
             restored = await components.runtime.graph.aget_state(components.runtime.config(str(THREAD)))
-            assert restored.values["schema_version"] == "3"
+            assert restored.values["schema_version"] == "4"
             old_query = restored.values["query_id"]
             new = await components.runtime.start(thread_id=str(THREAD), message=f"再查邮件 {MAIL}")
             latest = await components.runtime.graph.aget_state(components.runtime.config(str(THREAD)))

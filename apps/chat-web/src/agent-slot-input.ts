@@ -8,5 +8,11 @@ export function slotReply(inputs: RequiredInput[], values: Record<string, string
   }
   if (inputs.some((input) => !(values[input.name] ?? '').trim()
     || (input.type === 'choice' && !(input.choices ?? []).includes(values[input.name])))) return ''
-  return inputs.map((input) => `${input.label}：${values[input.name].trim()}`).join('；')
+  return inputs.map((input) => {
+    const value = values[input.name].trim()
+    // A choice label can itself name opposing semantics ("批发或零售口径").
+    // Submit the selected value, not the full menu wording, as query evidence.
+    if (['conditions.kind', 'conditions.price_nature', 'conditions.source_scope', 'time'].includes(input.name)) return value
+    return `${input.label}：${value}`
+  }).join('；')
 }

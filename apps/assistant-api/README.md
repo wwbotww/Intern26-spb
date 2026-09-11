@@ -16,7 +16,7 @@
 | 修改 Understanding、Routing、State、Loop 或失败行为 | [Agent 运行设计](docs/runtime.md) |
 | 配置、身份、状态库、备份恢复与排障 | [服务运维](docs/operations.md) |
 | 接模型 / 物流供应商 | [Query Model](docs/integrations/query-model.md)、[轨迹](docs/integrations/tracking.md)、[资费](docs/integrations/postage.md) |
-| 适配全品类价格 V2 数据 | [价格消费合同与内部查询](docs/integrations/product-price.md)、[MySQL 隔离门禁](../../deploy/price-query/README.md)（尚未装配到查询入口） |
+| 适配全品类价格 V2 数据 | [价格消费合同与内部查询](docs/integrations/product-price.md)、[MySQL 隔离门禁](../../deploy/price-query/README.md)（设备可显式受控装配，默认未切换） |
 
 完整部署涉及 Web、网络、数据与镜像，归[跨服务运维](../../docs/operations.md)和
 [部署操作手册](../../deploy/agent/README.md)，不是单独启动本服务即可完成。
@@ -73,13 +73,16 @@ V2 Command → legacy_agent_tools → 同一 V1 AssistantTool
 ~~~
 
 政策的检索、拒答和引用校验，价格的产品级匹配/规格过滤都不复制。
-Agent 借用 V1 Tool；应用先初始化 V1 Registry，再启动 Agent，关闭时顺序相反。
+Agent 借用 V1 Tool；默认应用先初始化 V1 Registry，再启动 Agent，关闭时顺序相反。
 HTTP 连接池和数据库连接不能由多个层重复关闭。
 
 该复用解决已有两类查询；全品类 V2 数据并不天然符合 DevicePriceRecord，
 需要新的查询/结果边界，不能仅更改 SQL 表名。
-目标改造、价格资源生命周期调整及兼容门禁见
-[全品类价格实施计划](../../docs/product-price-implementation-plan.md)；目前尚未替换上述现有实现。
+显式选择 `ASSISTANT_PRICE_DATA_MODEL=catalog_v2` 时，应用持有一套 V2 Repository/Service，
+V1 薄包装和既有 Agent 设备适配器均借用；先初始化价格资源，再启动消费者，反序关闭。
+未配置、无匹配或故障均不 fallback 旧表。默认仍是 `device_v1`，未自动切换部署或已有会话。
+受控配置、旧卡片无金额限制和旧依赖退出见[消费合同](docs/integrations/product-price.md)，
+整体门禁见[全品类价格实施计划](../../docs/product-price-implementation-plan.md)。
 
 ## 验证与扩展
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
@@ -109,6 +110,11 @@ class AssistantSettings(BaseSettings):
         gt=0,
         le=120,
     )
+    # Price data version is independent from the HTTP /v1 and /v2 versions.
+    # V2 is explicit; no empty-result or startup-error fallback to V1.
+    price_data_model: Literal["device_v1", "catalog_v2"] = "device_v1"
+    price_v2_product_limit: int = Field(default=10, ge=1, le=20)
+    price_v2_per_product_limit: int = Field(default=20, ge=1, le=50)
     price_candidate_limit: int = Field(default=5000, ge=1, le=10000)
     price_result_limit: int = Field(default=50, ge=1, le=100)
     price_match_threshold: float = Field(default=65.0, ge=0, le=100)
@@ -184,10 +190,19 @@ class AssistantSettings(BaseSettings):
         dsn = self.mysql_dsn.get_secret_value().strip()
         if dsn and not dsn.startswith("mysql+pymysql://"):
             raise ValueError("mysql_dsn 必须使用 mysql+pymysql:// 驱动")
-        if self.price_result_limit > self.price_candidate_limit:
+        if (
+            self.price_data_model == "device_v1"
+            and self.price_result_limit > self.price_candidate_limit
+        ):
             raise ValueError(
                 "price_result_limit 不能大于 price_candidate_limit"
             )
+        if (
+            self.price_data_model == "catalog_v2"
+            and self.price_result_limit
+            > self.price_v2_product_limit * self.price_v2_per_product_limit
+        ):
+            raise ValueError("price_result_limit 不能大于 V2 产品与规格候选总预算")
         return self
 
     def browser_session_config(self) -> BrowserSessionConfig | None:

@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import TypeAlias
 from uuid import UUID
 
@@ -14,6 +15,7 @@ from .commands import (
     DevicePriceCommand,
     PolicyCommand,
     PostageCommand,
+    ProductPriceCommand,
     TrackingCommand,
 )
 from .intents import Intent
@@ -26,6 +28,7 @@ CommandModel: TypeAlias = (
     | TrackingCommand
     | DeliveryTimeCommand
     | PostageCommand
+    | ProductPriceCommand
 )
 
 
@@ -35,6 +38,12 @@ def argument_fingerprint(command: CommandModel) -> str:
     if isinstance(command, PostageCommand) and command.pricing_context is None:
         # Preserve pre-P1 action/receipt fingerprints byte-for-byte.
         values.pop("pricing_context", None)
+    if isinstance(command, ProductPriceCommand):
+        # Surface spelling isn't a new semantic query/selection identity.
+        values["time"].pop("raw_text", None)
+        if unit := values["conditions"].get("requested_unit"):
+            unit.pop("raw_text", None)
+            unit["quantity"] = format(Decimal(unit["quantity"]).normalize(), "f")
     payload = json.dumps(
         values,
         ensure_ascii=False,

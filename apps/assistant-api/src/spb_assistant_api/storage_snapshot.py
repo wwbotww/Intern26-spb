@@ -26,7 +26,8 @@ from .storage_paths import (
 
 SNAPSHOT = "snapshot.sqlite3"
 MANIFEST = "backup.json"
-PROFILE = "agent-state-v3-receipt-v2-snapshot-v1"
+PROFILE = "agent-state-v4-receipt-v2-snapshot-v1"
+READABLE_PROFILES = {PROFILE, "agent-state-v3-receipt-v2-snapshot-v1"}
 DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 _COLUMNS = {
     "agent_conversations": ("conversation_id owner_id status state_schema_version created_at updated_at expires_at", "conversation_id"),
@@ -87,7 +88,7 @@ def _inspect(connection: sqlite3.Connection, deadline: float) -> dict:
     markers = connection.execute("SELECT migration_id FROM agent_persistence_migrations").fetchall()
     if markers != [("tool-execution-scope-v2",)]:
         raise StorageError("incompatible_schema", "持久化迁移标记不兼容")
-    if connection.execute("SELECT 1 FROM agent_conversations WHERE state_schema_version NOT IN ('1','2','3') LIMIT 1").fetchone():
+    if connection.execute("SELECT 1 FROM agent_conversations WHERE state_schema_version NOT IN ('1','2','3','4') LIMIT 1").fetchone():
         raise StorageError("incompatible_state", "会话 State 版本不受支持")
     if connection.execute("SELECT 1 FROM agent_idempotency_receipts WHERE status != 'completed' OR response_json IS NULL OR completed_at IS NULL LIMIT 1").fetchone():
         raise StorageError("unfinished_requests", "存在未完成消息 claim；请先按恢复流程核对，不自动清除或重试")
@@ -164,7 +165,7 @@ def _verify(directory: Path, deadline: float, max_bytes: int) -> dict:
     private_directory(directory)
     manifest = read_json(directory / MANIFEST)
     required = {"format_version", "profile", "snapshot", "source_store_id", "created_at", "sha256", "size_bytes", "runtime_versions", "table_rows", "schema_sha256"}
-    if set(manifest) != required or type(manifest["format_version"]) is not int or manifest["format_version"] != 1 or manifest["profile"] != PROFILE or manifest["snapshot"] != SNAPSHOT:
+    if set(manifest) != required or type(manifest["format_version"]) is not int or manifest["format_version"] != 1 or manifest["profile"] not in READABLE_PROFILES or manifest["snapshot"] != SNAPSHOT:
         raise StorageError("invalid_manifest", "备份清单版本或文件约定不兼容")
     if manifest["runtime_versions"] != _versions():
         raise StorageError("incompatible_runtime", "备份与当前 LangGraph/Checkpointer 版本不一致；请使用匹配版本演练")

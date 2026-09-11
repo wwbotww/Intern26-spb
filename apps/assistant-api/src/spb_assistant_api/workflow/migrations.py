@@ -13,7 +13,7 @@ from ..domain.tooling import LegacyToolCallReference, argument_fingerprint
 from .state import AgentState
 
 
-CURRENT_AGENT_STATE_SCHEMA = "3"
+CURRENT_AGENT_STATE_SCHEMA = "4"
 
 
 def _incompatible(code: str) -> AgentOperationError:
@@ -43,20 +43,27 @@ class AgentStateMigrator:
     ) -> StateMigrationResult:
         state = dict(raw_state)
         source = str(state.get("schema_version", "1"))
-        if source == CURRENT_AGENT_STATE_SCHEMA:
+        # Never reinterpret an interrupted legacy device query as a catalog query.
+        # Completed facts/receipts keep their original result type and data.
+        if (
+            source in {"1", "2", "3"}
+            and state.get("active_intent") in {"device_price", "product_price"}
+            and state.get("phase") not in {"completed", "failed", "handoff"}
+        ):
+            raise _incompatible("price_query_restart_required")
+        if source in {"3", CURRENT_AGENT_STATE_SCHEMA}:
             try:
                 UUID(str(state.get("query_id", "")))
                 if state.get("legacy_tool_call") is not None:
-                    LegacyToolCallReference.model_validate(
-                        state["legacy_tool_call"]
-                    )
+                    LegacyToolCallReference.model_validate(state["legacy_tool_call"])
             except (ValueError, TypeError):
                 raise _incompatible("query_execution_scope_invalid") from None
+            state["schema_version"] = CURRENT_AGENT_STATE_SCHEMA
             return StateMigrationResult(
                 state=state,
                 source_version=source,
-                target_version=source,
-                changed=False,
+                target_version=CURRENT_AGENT_STATE_SCHEMA,
+                changed=source != CURRENT_AGENT_STATE_SCHEMA,
             )
         if source not in {"1", "2"}:
             raise _incompatible("unsupported_agent_state_schema")
@@ -64,14 +71,10 @@ class AgentStateMigrator:
         state.update(
             {
                 "schema_version": CURRENT_AGENT_STATE_SCHEMA,
-                "candidate_intents": list(
-                    state.get("candidate_intents", [])
-                ),
+                "candidate_intents": list(state.get("candidate_intents", [])),
                 "multi_intent": bool(state.get("multi_intent", False)),
                 "control": str(state.get("control", "none")),
-                "slot_provenance": list(
-                    state.get("slot_provenance", [])
-                ),
+                "slot_provenance": list(state.get("slot_provenance", [])),
                 "confirm_slot_overwrite": bool(
                     state.get("confirm_slot_overwrite", False)
                 ),

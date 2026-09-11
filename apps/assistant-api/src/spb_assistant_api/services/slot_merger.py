@@ -8,11 +8,14 @@ from ..domain.slot_merge import SlotConflict, SlotMergeResult
 from ..domain.slots import (
     DeliveryTimeSlots,
     PostageSlots,
+    ProductPriceSlots,
     RegionResolution,
     SlotPayload,
     SlotProvenance,
     TrackingSlots,
 )
+from ..domain.product_price_slots import missing_product_price_slots
+from .product_price_slot_merger import merge_product_price_slots, price_slot_values
 
 
 _SLOTS_ADAPTER = TypeAdapter(SlotPayload)
@@ -45,6 +48,13 @@ class SlotMerger:
     ) -> SlotMergeResult:
         incoming_slots = _SLOTS_ADAPTER.validate_python(incoming)
         if existing is None:
+            if isinstance(incoming_slots, ProductPriceSlots):
+                return SlotMergeResult(
+                    slots=incoming_slots,
+                    provenance=self._deduplicate(incoming_provenance or []),
+                    changed_slots=list(price_slot_values(incoming_slots)),
+                    invalidate_price_candidates=True,
+                )
             return SlotMergeResult(
                 slots=incoming_slots,
                 provenance=self._deduplicate(incoming_provenance or []),
@@ -63,6 +73,14 @@ class SlotMerger:
                 conflicts=[
                     SlotConflict(slot="intent", reason="intent_switch")
                 ],
+            )
+
+        if isinstance(existing_slots, ProductPriceSlots) and isinstance(incoming_slots, ProductPriceSlots):
+            return merge_product_price_slots(
+                existing=existing_slots, incoming=incoming_slots,
+                existing_provenance=self._deduplicate(existing_provenance or []),
+                incoming_provenance=self._deduplicate(incoming_provenance or []),
+                confirm_overwrite=confirm_overwrite,
             )
 
         current = existing_slots.model_dump(mode="python")
@@ -168,6 +186,8 @@ def required_missing_slots(
     slots: SlotPayload | dict[str, Any],
 ) -> list[str]:
     payload = _SLOTS_ADAPTER.validate_python(slots)
+    if isinstance(payload, ProductPriceSlots):
+        return missing_product_price_slots(payload)
     if isinstance(payload, TrackingSlots):
         return [] if payload.mail_no is not None else ["mail_no"]
     if isinstance(payload, (DeliveryTimeSlots, PostageSlots)):

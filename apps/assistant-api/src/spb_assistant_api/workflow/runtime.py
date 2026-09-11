@@ -19,6 +19,7 @@ from ..domain.agent_errors import AgentOperationError
 from ..domain.failures import AgentFailure, FailureCategory
 from ..domain.intents import Intent
 from ..domain.tooling import ToolDescriptor
+from ..domain.product_price_execution import PriceSelectionInput
 from ..observability.telemetry import WorkflowTelemetry
 from .tracing import (
     WorkflowTraceSink,
@@ -159,6 +160,8 @@ class StatefulAgentRuntime:
         message: str,
         explicit_intent: Intent | None = None,
         turn_id: UUID | None = None,
+        owner_id: str | None = None,
+        session_expires_at: datetime | None = None,
     ) -> Mapping[str, Any]:
         payload = AgentMessageInput(message=message)
         normalized_thread_id = self.config(thread_id)["configurable"][
@@ -167,6 +170,15 @@ class StatefulAgentRuntime:
         now = self._clock()
         if now.tzinfo is None:
             raise ValueError("clock 必须返回包含时区的 datetime")
+        price_enabled = Intent.PRODUCT_PRICE in self._capability_descriptors
+        if price_enabled:
+            if not owner_id or session_expires_at is None or session_expires_at.utcoffset() is None or session_expires_at <= now:
+                raise ValueError("内部价格 Runtime 需要已认证 owner 和会话到期时间")
+            snapshot = await self._graph.aget_state(self.config(thread_id))
+            if snapshot.values and snapshot.values.get("price_owner_id") != owner_id:
+                raise ValueError("价格会话 owner 不匹配")
+            if snapshot.next:
+                return await self.resume(thread_id=thread_id, message=message, turn_id=turn_id, owner_id=owner_id)
         result = await self._invoke(
             {
                 "conversation_id": normalized_thread_id,
@@ -183,6 +195,8 @@ class StatefulAgentRuntime:
                 "max_steps": self._max_steps,
                 "max_tool_calls": self._max_tool_calls,
                 "max_retries": self._max_retries,
+                "price_owner_id": owner_id if price_enabled else None,
+                "price_session_expires_at": session_expires_at.isoformat() if price_enabled else None,
             },
             config=self.config(thread_id),
         )
@@ -194,7 +208,10 @@ class StatefulAgentRuntime:
         thread_id: str,
         mail_no: str,
         turn_id: UUID | None = None,
+        owner_id: str | None = None,
     ) -> Mapping[str, Any]:
+        if Intent.PRODUCT_PRICE in self._capability_descriptors:
+            return await self.resume(thread_id=thread_id, message=mail_no, turn_id=turn_id, owner_id=owner_id)
         now = self._clock()
         if now.tzinfo is None:
             raise ValueError("clock 必须返回包含时区的 datetime")
@@ -219,15 +236,28 @@ class StatefulAgentRuntime:
         selected_intent: Intent | None = None,
         confirm_overwrite: bool = False,
         turn_id: UUID | None = None,
+        price_selection: PriceSelectionInput | None = None,
+        owner_id: str | None = None,
     ) -> Mapping[str, Any]:
         now = self._clock()
         if now.tzinfo is None:
             raise ValueError("clock 必须返回包含时区的 datetime")
+        if Intent.PRODUCT_PRICE in self._capability_descriptors:
+            snapshot = await self._graph.aget_state(self.config(thread_id))
+            if not owner_id or snapshot.values.get("price_owner_id") != owner_id:
+                raise ValueError("价格会话 owner 不匹配")
+            expires = datetime.fromisoformat(snapshot.values.get("price_session_expires_at", ""))
+            if expires.utcoffset() is None or now >= expires:
+                raise AgentOperationError(AgentFailure(category=FailureCategory.STATE_CONFLICT,
+                    code="price_session_expired", message="该价格会话已过期，请重新查询。"))
+        elif price_selection is not None:
+            raise ValueError("未装配价格候选能力")
         payload = AgentResumeInput(
             message=message,
             selected_intent=selected_intent,
             confirm_overwrite=confirm_overwrite,
             turn_id=turn_id or uuid4(),
+            price_selection=price_selection,
             deadline_at=(
                 now + timedelta(seconds=self._request_timeout_seconds)
             ),
@@ -374,6 +404,8 @@ class StatefulAgentRuntime:
         message: str,
         explicit_intent: Intent | None = None,
     ) -> AsyncIterator[Mapping[str, Any]]:
+        if Intent.PRODUCT_PRICE in self._capability_descriptors:
+            raise ValueError("商品价格只能通过带身份与白名单投影的公开 SSE 入口，不能输出内部原始事件")
         payload = AgentMessageInput(message=message)
         now = self._clock()
         if now.tzinfo is None:

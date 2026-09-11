@@ -24,6 +24,10 @@ def ingest_agent_input(state: AgentState) -> dict[str, object]:
             uuid5(NAMESPACE_URL, f"agent-query-v3:{conversation_id}:{turn_id}")
         ),
         "legacy_tool_call": None,
+        "price_candidates": None,
+        "price_selected_token": None,
+        "price_result_slots": [],
+        "price_clarification_count": 0,
         "postage_policy_snapshot": None,
         "postage_review_fingerprint": None,
         "postage_confirmed_fingerprint": None,
