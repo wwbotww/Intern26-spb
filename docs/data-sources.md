@@ -13,7 +13,8 @@
 | Agent State / receipt 版本 | checkpoint 与执行收据的恢复兼容合同 |
 
 默认 Agent V2 通过兼容 Tool 消费价格数据 V1；catalog_v2 的显式受控配置通过同一报价核心消费 V2。
-支持 API V2 **不表示**选择了价格数据 V2，更不表示所有规范商品数据均已填充或统一商品意图已经开放。
+支持 API V2 **不表示**选择了价格数据 V2，更不表示所有规范商品数据均已填充；
+catalog_v2 配套开放统一商品意图与公开价格卡片，实际部署配置见状态页。
 
 ## 2. 数据职责
 
@@ -21,7 +22,7 @@
 | --- | --- | --- | --- |
 | 政策文档与向量 | 本仓库 offline-pipeline | rag-api / packages/contracts | 离线可建表/写入，RAG 只读 |
 | 设备价格 V1 | 独立 device-price-service，不在本 uv workspace | Assistant MySQLPriceRepository / DevicePriceRecord | Assistant 仅 SELECT，不采集/修复数据 |
-| 全品类价格 V2 | 同一独立价格数据项目 | MySQLProductPriceRepository / ProductPriceQueryService；设备受控薄适配，生鲜仍为内部读取 | 仅 SELECT；真实兼容仍需 E 核验，不复用写入权限 |
+| 全品类价格 V2 | 同一独立价格数据项目 | MySQLProductPriceRepository / ProductPriceQueryService；Agent 统一商品 Tool 和 V1 设备薄适配借用 | 仅执行 SELECT；公司库最小权限、完整覆盖仍需 E 核验，不扩大账号权限 |
 | Agent 会话 | Agent Runtime + 元数据/收据仓储 | LangGraph / 会话服务 | 专用 SQLite，与业务价格库分开 |
 | Eval 数据/报告 | 审核者与独立 Eval | HTTP/文件契约 | 私有样本/运行报告不提交，不直接读业务库 |
 
@@ -42,7 +43,7 @@ RAG 的连接、collection、schema 和 embedding 要一起核对；
 参考价格不等于成交价或定损结算结果，观察时间不应改成回答时间。
 
 排障区分四层：数据库连接 → 业务表/列/关联 → 有效现价记录 → 指定型号/规格可匹配。
-当前初始化 SELECT 1 不验证后面三层；capability ready 也不是数据覆盖验收。
+旧 V1 初始化 SELECT 1 不验证后面三层；新 V2 探测必需业务投影，但 capability ready 仍不是数据覆盖验收。
 修复数据需由数据生产者另行执行，不属于 Agent 查询副作用。
 
 ## 4. 全品类价格 V2

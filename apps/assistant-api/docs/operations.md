@@ -20,6 +20,7 @@ managed SQLite 和浏览器身份。没有获准依赖时不要注入 Fake，至
 | 服务鉴权 | AUTH_ENABLED、API_KEYS | 有效白名单；代理 Key 必须在其中 |
 | 浏览器 | AGENT_BROWSER_SESSION_ENABLED、PROXY_API_KEY、SIGNING_KEY、PUBLIC_ORIGIN | 后三项同样带 AGENT_BROWSER_ 前缀；签名 Key 不复用服务 Key |
 | 依赖 | RAG_BASE_URL/RAG_API_KEY、MYSQL_DSN | 只读、明确授权；未配置能力不装配 |
+| 价格模型 | PRICE_DATA_MODEL=device_v1 / catalog_v2 | catalog_v2 使用新意图/共享查询核心；需协调 API/Web/State，缺配置或无匹配不回退旧 SQL |
 | 预算 | AGENT_REQUEST_TIMEOUT_SECONDS、各上游 timeout | Agent/代理总预算须覆盖既有政策链路，不延长模型/物流单次预算 |
 | 可选 | QUERY_MODEL_*、TRACKING_*、OTEL_* | 各自开关、预算/合同/访问许可独立 |
 
@@ -49,7 +50,7 @@ HTTPS 是默认边界。已获准的私有 HTTP 例外必须与 Web/代理成组
 拒绝相对路径、链接、硬链接、错误 UID/权限和宽泛目录；不自动修复旧目录或收编未标记旧库。
 租约覆盖所有连接，第二个合作进程开库或运行中备份立即失败；锁文件不能删除。
 
-profile `agent-state-v3-receipt-v2-snapshot-v1` 包含：
+当前 profile `agent-state-v4-receipt-v2-snapshot-v1` 包含：
 
 | 内容 | 表 |
 | --- | --- |
@@ -64,6 +65,10 @@ profile `agent-state-v3-receipt-v2-snapshot-v1` 包含：
 integrity/schema/摘要/版本校验 → 发布清单 → 恢复到全新目录 → 隔离验收后切换。
 不可只复制正在写的 agent.db，WAL 同样属于持久状态。
 快照清单保存依赖版本，恢复不能顺便升级 LangGraph/迁移 schema。
+当前工具接受原 `agent-state-v3-receipt-v2-snapshot-v1` 备份并严格核对依赖版本；
+State 1～3 的非价格迁移、旧完成事实保留和旧价格 pending 拒绝由恢复后的 Runtime 处理。
+旧镜像不能打开已写入 State 4 的新库；跨版本回滚必须使用发布前的原配置/原状态副本。
+价格公开门禁与快照 GET 语义见[协调发布设计](integrations/product-price-public-release.md)。
 
 CLI：`python -m spb_assistant_api.storage_cli init|backup|verify|restore`。
 参数和不覆盖旧目录的分步命令见[部署手册](../../../deploy/agent/README.md)；

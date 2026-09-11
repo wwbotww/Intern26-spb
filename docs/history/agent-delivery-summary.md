@@ -2,6 +2,7 @@
 
 归档日期：2026-09-10。本文压缩开发过程，保留可追溯里程碑、独立实验和发布证据；
 不是当前运行手册或待办。当前状态见[状态页](../current-status.md)，后续见[路线图](../roadmap.md)。
+2026-09-11 的全品类限定发布增补于本文末节；前文日期对应各自历史时点。
 
 ## 1. 已收口的工程阶段
 
@@ -167,3 +168,46 @@ git show a2fb398:docs/agent-kernel-phase3b-tracking-t2.md
 首次文档压缩验收（层级调整前）：Python 1089 / Web 89 通过，生成类型一致；离线 Eval 13 场景 / 28 Turn、
 8 次 Mock，真实/模型请求均为 0。检查 238 处本地文件链接无缺失，变更文档中的
 43 个 Shell、8 个 JSON 和 1 个 JavaScript 代码块语法通过；未重跑实际服务器或 Docker 发布。
+
+## 9. 2026-09-11：全品类价格限定发布
+
+`5b2e637` 交付 V2 事实/只读核心；`67ab3ed` 交付 C～D7、公开候选/价格、Web/Eval 和 State 4。
+首次远程 MySQL job 的 `--package` 参数误将根 dev 组解释为 API 子项目依赖组；
+本地 dry-run 复现后由 `f27993b` 修正，未跳过数据库门禁。
+旁路另发现官方容量数字脚注与结构化过滤不兼容，`10da6b9` 添加严格格式兼容及负向回归。
+最终代码 [CI 34588550884](https://github.com/wwbotww/Intern26-spb/actions/runs/34588550884)
+已 completed/success，包含全部四个 job。
+
+本地最终 Python `1900 passed, 52 skipped`，52 项专用 SQL 场景由 MySQL 5.7.36/8.4.11
+各 `57 passed` 单独覆盖；Web `114 passed`、生成类型、vue-tsc、双模式构建及两套离线 Eval 通过。
+最终 API 的 private-http 合成恢复/回退再次通过；原生 legacy/seccomp 分支以远程 Linux CI 为证。
+
+产物来源与目标主机 **config digest**：
+
+- API：标准 `deploy/agent/Dockerfile.api`、冻结依赖、源码 `10da6b9`，
+  `sha256:6e08e261aeebf091ca96cef6f8fd285408138a112dfb681efb17c245736d9c0a`。
+- Web：源码 `67ab3ed` 的隔离构建与当前 Nginx 配置；本机 Docker Hub 认证端点超时，
+  使用先前已发布的同版官方 Debian Nginx 1.31.3 缓存运行层，离线 COPY 当前产物组装。
+  不使用旧静态页面、不改变服务器安全配置；标准 Web Dockerfile 的新构建另由远程 CI 验证。
+  `sha256:c29b11f37625fbed484bdf216b464325c14b5f66143be548f412e91157583ac1`。
+- 最新 API 传输归档 SHA256：`7dff6f99d46d0b6a7261e68852b851beefc8b01ebd7de8ce8ecd1f0ea9fd694e`；
+  Web 初始双镜像归档 SHA256：`5c4d52c7c86646de1f469ae455bd834573df22d57248255e1142eef7d92ee579`。
+  传输两端比对一致；归档/配置/回滚脚本仅保留服务器私有发布目录。
+
+18:26（中国标准时间）原入口 `http://10.3.7.164:3000/` 切换成功。
+先独立新状态旁路验证，再停止旧 Agent Web/API，完成 backup/verify/restore；
+3,080,192 字节整库快照、8 张表恢复到全新 runtime，未让旧镜像打开 State 4。
+保留原 RAG/数据库/签名/Origin/模型配置，显式启用 catalog_v2；未变更业务数据、账号权限或共享 daemon。
+新容器非 root、只读根文件系统、drop ALL、NNP 和原 seccomp；只有 Web 绑定原私有 IP 的 3000。
+
+实际正式入口验证：iPhone 17 256GB 候选→精确重读→SSE 重放同事实；
+上海黄瓜补地区/零售→原始元/500g 与元/kg；来源日 8 月 25 日，当日请求 partial；
+快递投诉政策一次真实 SSE success；物流三项正常 unavailable，无 Fake。
+双访客读取/删除/选择拒绝、owned snapshot、静态与私有路由边界均通过。
+从当前设备追加验证正式 JS/CSS 与测试构建哈希一致，真实候选和两类价格通过 Web 运行时校验。
+只清理本次成功验收产生的会话，不删除业务资料或用户历史；失败旁路状态隔离保留。
+
+目标内网浏览器自动化两次超时，未完成目标页面点击/刷新验收；本地合成浏览器交互证据独立记录。
+旧容器和原 runtime 保留，回滚命令写入私有 active-release.json；未为演示再执行一次正式回滚。
+五品牌完整等价、生产 SELECT-only 账号、来源更新策略、可选历史及旧实现清理继续按 PRICE-G 推进。
+这次发布不是“全品类/全部型号覆盖”、模型 holdout 或生产 SLA 声明。
