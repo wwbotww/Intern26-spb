@@ -1,5 +1,8 @@
 # ADR-0007：V2 Agent API 显式装配并与 V1 并行
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase-4D shared-tool boundary verified
 - 日期：2026-09-04
 

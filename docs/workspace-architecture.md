@@ -1,292 +1,62 @@
 # Workspace 架构与模块边界
 
-> 当前实现基线：`offline-pipeline 0.2.0`、`rag-api 0.5.1`、
-> `assistant-api 0.3.6`、`chat-web 0.2.0`、`eval 0.7.0`。本文只描述已实现边界。
+本文只描述跨模块职责、依赖和复用。服务内部实现从各自 README 进入；
+可用能力与部署版本见[当前状态](current-status.md)。
 
-## 目标
+## 应用边界
 
-仓库同时承载离线数据生产、在线检索问答、单轮工具编排和黑盒评估工具。各应用必须
-在代码、依赖、进程、权限和发布层面保持隔离；端到端评估只通过 HTTP 使用在线 API。
-Understanding 组件评估另通过本地版本化输入／观测文件交互，不导入应用实现，也不
-替代 Workflow 端到端验收。
+| 模块 | 拥有的职责 | 不应承担 |
+| --- | --- | --- |
+| [offline-pipeline](../apps/offline-pipeline/README.md) | 抓取、解析/OCR、模型感知切分、向量化、Milvus 建表/同步 | 在线问答、会话、服务鉴权 |
+| [rag-api](../apps/rag-api/README.md) | 查询 embedding、Dense/BM25 + RRF、重排、证据充分性 Judge、引用式回答 | 爬虫、OCR、业务库写入、Agent 会话 |
+| [assistant-api](../apps/assistant-api/README.md) | V1 Tool、V2 Agent、理解/路由、工具适配、会话/幂等、身份与限流 | 导入 RAG 实现、生成价格事实、生产采集 |
+| [chat-web](../apps/chat-web/README.md) | 同源 HTTP/SSE、输入控件、会话 UI、领域结果、临时通知 | 直接连接数据库/供应商、持有服务 Key、解释 checkpoint |
+| [contracts](../packages/contracts/README.md) | collection、embedding、schema、索引元数据的数据契约 | 全项目通用 DTO、业务路由、HTTP/数据库连接 |
+| [eval](../eval/README.md) | HTTP 黑盒、组件文件契约、Gold/指标/门禁、审核与报告比较 | 导入在线应用、读取 checkpoint/业务库、参与线上决策 |
 
-```mermaid
-flowchart LR
-    C["packages/contracts"] --> O["apps/offline-pipeline"]
-    C --> R["apps/rag-api"]
-    O -->|"写入/同步"| M["Milvus spb_policy_chunks"]
-    M -->|"只读检索"| R
-    W["apps/chat-web"] -->|"HTTP POST + SSE"| A
-    E["eval"] -->|"RAG 专项 HTTP 评估"| R
-    E -->|"Assistant HTTP 评估"| A
-    E -->|"Agent V2 多轮 HTTP 评估"| A
-    A["apps/assistant-api<br/>单轮工具编排"]
-    A -->|"内部 HTTP"| R
-    A -->|"只读 SELECT"| P["设备价格 MySQL"]
-```
+Python 应用通过 uv workspace 管理；Web 独立使用 npm。架构测试检查在线/离线应用不能互相导入，
+Eval 不能导入 Assistant 实现；测试装配系统后通过 ASGI HTTP 验证不属于生产依赖。
 
-## Workspace 成员
+~~~text
+offline-pipeline ─┐
+                 ├── import → packages/contracts
+rag-api ─────────┘
+assistant-api ─── HTTP → rag-api
+assistant-api ─── Repository → MySQL（SELECT）
+chat-web ──────── HTTP → assistant-api
+eval ─────────── HTTP / 文件契约 → 被测系统
+~~~
 
-### `apps/offline-pipeline`
+## 复用在哪里发生
 
-职责：
+- 离线生产和在线检索共享数据契约，不共享爬虫或服务实现。模型/collection 不兼容时必须协调升级。
+- Assistant V1/V2 复用同一政策与设备价格 Tool；工作流通过类型化 Adapter 调用，不复制检索或匹配算法。
+  装配顺序、资源生命周期和 Agent 内部分层见 [Assistant](../apps/assistant-api/README.md)。
+- Web 按公开 Result 类型复用 Renderer；不消费 LangGraph State，服务端 checkpoint 才是事实状态。
+- Eval 独立验证公开结果；不导入业务实现来“复用答案”，避免实现错误同时污染评分。
+- 设备价格 V1 与全品类 V2 的业务语义不同，不能只改 SQL 表名复用旧查询。范围见[数据源边界](data-sources.md)。
 
-- 抓取页面和附件；
-- HTML、文档与 OCR 解析；
-- 文本切分和文档 embedding；
-- Milvus collection 创建、写入和增量同步；
-- 数据质量报告。
+## 跨端契约及维护者
 
-它可以依赖 `spb-contracts`，但不得依赖 `spb-rag-api`。
+| 契约 | 定义 / 维护位置 | 消费者与变更约束 |
+| --- | --- | --- |
+| RAG collection / embedding / 元数据 | [contracts](../packages/contracts/README.md) | Pipeline 写入与 RAG 读取联合回归；不兼容变更需新版本/collection |
+| RAG HTTP | [RAG API](../apps/rag-api/docs/api.md) | Assistant HTTP Adapter、独立调用方与 Eval；保持证据和拒答语义 |
+| Assistant V1 HTTP | [V1 接口](../apps/assistant-api/docs/api-v1.md) | 旧 Web / 客户端 / Eval；不套用 V2 会话语义 |
+| Agent V2 HTTP / SSE | Assistant DTO → [OpenAPI](openapi/assistant-agent-v2.openapi.json) | Web 生成类型和运行时校验、Eval 独立镜像同步更新 |
 
-### `apps/rag-api`
+OpenAPI 留在根层是因为它是跨端生成物；人读的 [V2 接口说明](../apps/assistant-api/docs/api-v2.md)
+由 Assistant 服务目录维护。内部 Domain、公开 DTO、Eval 镜像与 Web 校验服务于不同信任边界，
+不能因字段相似就合并成同一个全局类型包。
 
-职责：
+## 改功能时从哪里开始
 
-- 在线 HTTP API；
-- 查询 embedding；
-- Milvus Hybrid Retrieval；
-- 轻量 Cross-Encoder 重排序与本地相关性门槛；
-- RAG 上下文与引用；
-- DeepSeek 证据充分性 Judge、答案生成和 SSE；
-- 在线鉴权、限流、日志和监控。
+| 变更 | 修改边界 | 必须带上的验证 |
+| --- | --- | --- |
+| 新意图/槽位 | Assistant Domain → Understanding → Policy/Descriptor | 硬实体、歧义/冲突、缺槽、未装配阻断、组件与 V2 回归 |
+| 新供应商 | Assistant wire contract / Gateway → 组合根 | 编码/签名/失败/语义熔断、资源关闭；真实调用单独验收 |
+| 新结果字段 | Assistant Domain / 公开投影 → OpenAPI → Web TS/Renderer → Eval 镜像 | JSON/SSE、旧快照、非法事实与私有字段拒绝 |
+| 新存储/扩容 | Assistant Port / adapter / coordinator → 部署 | owner、TTL、创建/消息/Tool 幂等、恢复及冲突 |
+| 调整 RAG/价格 | 原 Tool / Source / Repository | V1 与 V2 共用回归；不在 Node 复制业务算法 |
 
-它可以依赖 `spb-contracts`，但不得导入 `spb_pipeline`。当前包含查询
-embedding、Milvus 只读 Hybrid Retrieval、RRF、结构化过滤、
-`/v1/retrieve`，以及 DeepSeek grounded answer、引用和 SSE。
-
-### `apps/assistant-api`
-
-职责：
-
-- 接收显式 `policy` / `device_price` 查询模式；
-- 按固定映射执行且只执行一个只读工具；
-- 提供统一 `ToolResult`、政策/价格 `Evidence`、JSON 和 SSE 契约；
-- 提供独立鉴权、限流、健康检查和指标；
-- 工具由代码静态注册，当前不允许 LLM 选择工具。
-
-设置 `ASSISTANT_MYSQL_DSN` 时注册设备价格只读工具，使用 SQLAlchemy
-Core + PyMySQL 参数化查询和 RapidFuzz 候选排序；连接会话强制只读，仓储接口
-没有写方法。未配置或连接失败时，该工具 readiness 为 `not_ready`，不会用空结果
-掩盖技术错误。
-
-同时设置 `ASSISTANT_RAG_BASE_URL` 和 `ASSISTANT_RAG_API_KEY` 时注册政策工具，
-通过 HTTP 调用 `rag-api` 的公开契约；它映射三类拒答原因，并校验政策回答的引用
-编号和证据可追溯字段。两个能力都 ready 时整体 readiness 才为 200。
-
-`assistant-api` 是当前 `chat-web` 的唯一 API 上游。跨应用只使用 HTTP 或数据库
-适配器，不得导入其他应用实现。请求不接受对话历史，服务不保存会话。
-
-代码库已在 `assistant-api` 隔离路径完成阶段 1–2、3A、4A～4D 与本地 5B，独立
-`eval` 已完成 Phase 5A/5B，Phase 5C 再补跨进程文件契约组件评测：Domain 契约
-和纯 Policy 不依赖框架，Application Service 提供 Hybrid Understanding、Region
-Resolver、Slot Merger 和白名单工具执行，Workflow Runtime 负责编排、interrupt/resume、
-会话串行化与生命周期，Adapter 提供 Fake Tool、`AsyncSqliteSaver`、元数据/API 幂等和
-Tool 收据，以及接口无关的单次 HTTP Client 与能力级熔断。时限/资费已能通过 Fake
-Gateway 执行；Phase 3B-T 已新增邮政轨迹 wire Adapter 的离线切片，默认关闭，
-时限 wire Adapter 仍未实现。轨迹的领域来源、query_id 作用域和 State / 收据迁移
-已在 [T2](agent-kernel-phase3b-tracking-t2.md) 验证；[T3](agent-kernel-phase3b-tracking-t3.md)
-又完成受控组合根、公开来源 / Web、语义级单次熔断和未装配能力的前置阻断，并完成本地收尾。
-接口暂不可达，T4 真实互通暂缓。新收到的资费文档已完成
-[3B-P 评审](agent-kernel-phase3b-postage-analysis.md)及 [P1](agent-kernel-phase3b-postage-p1.md)。
-P1 用纯服务处理产品 / 地区 / 重量可执行性，Domain 固定定价上下文，原 Graph 承担补槽 /
-恢复；[P2](agent-kernel-phase3b-postage-p2.md) 的独立 CSB / 业务 signer 与资费 Gateway
-进一步复用单次 HTTP、语义熔断、Graph 和 SQLite。Service 只接收不透明 profile 指纹，
-不依赖供应商字段；该 Gateway 仅接受显式 MockTransport，生产资费未装配。
-[P3](agent-kernel-phase3b-postage-p3.md) 又完成公开产品 / 确认槽位、报价依据 / 独立来源 DTO、
-Web / Eval 闭环。Policy 决策、Node 保存命令绑定确认，LangGraph 复用 interrupt / checkpoint；
-offline_postage 独立组合根持有 Gateway / SQLite 生命周期，不装配模型或真实网络。
-API 和 Eval 各自保持公开镜像，不把 Domain 内部计费身份暴露给消费者；剩余缺口见[台账](agent-kernel-phase3b-postage-gaps.md)。
-[6A-1](agent-kernel-phase6a1-browser-identity.md) 将浏览器信任边界留在 Security/Middleware/API：
-代理服务鉴权与共享限流使用 client_id，签名 Cookie 解析为 agent_owner_id 后才进入既有
-会话服务。Graph、Tool 与 checkpointer 不读取 Cookie、Origin 或前端 session_ref。
-Web 核验后才恢复绑定的本地历史；匿名 owner 不等于登录、租户或资费计价资格。
-[6A-2](agent-kernel-phase6a2-sqlite-recovery.md) 将受控路径与存储运维留在基础设施边界：
-checkpointer factory 获取覆盖全部运行连接的整库合作进程租约，独立 CLI 停服备份 8 表、
-校验后恢复到新目录；Domain / Node 不处理权限、锁文件或备份。CLI 不启动应用 / 模型、
-不解码 checkpoint 业务载荷；保留 owner / TTL / 幂等 / 收据，而不是只复制图状态。
-[6A-3](agent-kernel-phase6a3-controlled-deployment.md) 将部署入口和合成验收分开：
-`deployed_app` 只读显式配置且拒绝空能力 ready，`deployment_demo` 忽略业务环境、只注入
-固定工具；Nginx 承担 TLS / Host / 公开路由，API 继续承担 owner / 幂等，Graph 无部署分支。
-独立 Compose 复用存储 CLI 与既有组合根，CI 复用公开 Eval 和 HTTPS 恢复 / 回退脚本；
-没有将秘密、证书、Docker 或备份逻辑塞进 Node。CI 文件与本地验证不等于生产部署完成。
-Phase 4A/4B 提供只依赖窄化 Service Protocol
-和 Descriptor 的 V2 JSON/SSE HTTP Adapter；稳定事件投影不暴露 Graph 内部状态，
-lifespan factory 负责 SQLite Agent 组件启停。Phase 4C 在该边界内增加只读 schema
-readiness probe、固定标签指标、脱敏停止态 Run Trace 和共享 coordinator 的 janitor
-调度。Phase 4D 再以兼容 Adapter 借用现有政策/价格 Tool；它对被包装工具只依赖
-`AssistantTool` Port，共享 V1 结果合同并投影完整 Evidence。本地 Demo 因而可验证
-五能力路由，同时不复制 RAG 或价格匹配逻辑。Phase 5B 从 checkpoint 审计事件构造
-固定白名单的 node/edge/interrupt/resume/retry Trace；日志层只保留哈希会话引用。
-只有 composition root 显式注入 Agent
-依赖时才挂载；T3 的 `ASSISTANT_AGENT_ENABLED` 可启用该受控工厂，要求鉴权和独立 SQLite
-路径。默认仍不注入，因此当前默认运行拓扑、`/v1` 单轮语义和 `memory=disabled`
-健康状态保持不变。LangGraph import 继续由架构测试限制在 Workflow
-Runtime 与 checkpointer adapter 边界；SQLite 只代表本地单实例恢复能力。受控租约会拒绝
-第二个合作进程开库，并不提供多副本工作流并发或分布式协调。
-
-`query_model.py` 是模型组合根，显式开关决定是否实例化独立 DeepSeek Adapter，并在
-lifespan 关闭其连接池。Adapter 复用共享 HTTP，只返回领域理解 DTO；Hybrid 执行规则
-优先和硬实体重提。模型凭据、Prompt 和供应商原始响应不进入 Graph State。接入已通过
-Mock HTTP / V2 多轮测试与真实供应商合成烟测，代表性质量评测仍待完成；不影响默认
-V1 装配。Assistant 测试域隔离进程配置与默认 dotenv，显式测试配置仍可覆盖，避免
-本地凭据污染合同测试或意外触发付费依赖。
-
-Phase 5C 的 `understanding_export.py` 是本地组件观测入口，调用同一 Understanding
-Port；组合根可装饰 Model Port 控制调用预算，Adapter 用脱敏 observer 提供用量／失败
-测量，Client 仍由组合根唯一关闭。该入口不加载 Gold、不执行 Graph 或 Tool，不新增
-公开 HTTP 调试字段。独立 Eval 校验文件契约及指纹后重算 Intent／硬槽位 F1，详见
-[ADR-0010](adr/0010-understanding-component-evaluation.md)。48 条 development 真实
-对照已经完成，人工审核 holdout 与对应 V2 场景仍待验收。
-
-Phase 5D 的跨数据集审核／冻结逻辑仅位于 Eval，源数据与参考集变更会使旧审核失效。
-应用侧测试独立提供 Mock 供应商响应，再让 Eval 经 ASGI HTTP 调用真实 V2/Graph/SQLite；
-13 场景／28 Turn、逐消息重放与应用重建恢复已验证，但不代替真实 holdout 联调。
-没有为评测增加线上调试接口、Graph 字段或跨应用生产依赖。
-
-Phase 5E 在图装配边界包装实际 Node 函数，不侵入领域决策；Runtime 每次实际 invocation
-创建独立 root，Node 是 children，interrupt/resume 不保留跨轮活跃 span。OTel SDK、
-采样和 exporter 仅由 `observability/telemetry.py` 与 Demo lifespan 管理，不注册全局
-provider、不写 checkpoint；与 API 共享低基数指标，语义 Trace 继续独立保留。
-`deploy/observability` 是默认禁用模型、仅本地回环、tmpfs 的独立合成监控栈，不改变
-默认 V1 生产 Compose。详见 [Phase 5E](agent-kernel-phase5e.md)。
-
-### `apps/chat-web`
-
-职责：
-
-- 提供 Vue 3 单页问答界面；
-- 默认保留 V1 政策/设备价格显式模式页面；构建时可显式启用 V2 Agent 页面；
-- V2 页面从 OpenAPI 生成类型，通过运行时校验消费版本化 SSE；
-- 提供五类能力入口、自由输入、意图澄清、结构化补槽和幂等断流重试；
-- 由开发代理或 Nginx 同源代理调用 `assistant-api`；
-- V1/V2 政策证据均显示原文引用，价格证据均显示结构化候选卡片；V2 使用领域 Renderer；
-- `localStorage` 只保留公开 UI 快照、conversation ID 和未完成幂等键，服务端状态仍由
-  LangGraph checkpoint 持有。
-
-它不加入 Python `uv` workspace，不导入任何 Python 应用，也不直连 Milvus 或
-DeepSeek。V1 连续消息仍按单轮请求处理；V2 会话只通过公开 HTTP 契约继续，Web 不读取
-checkpoint 或导入 Python 实现。
-
-### `packages/contracts`
-
-只包含：
-
-- collection 名称、schema 版本和字段名；
-- embedding 模型、维度、归一化和 metric；
-- 跨边界元数据结构。
-
-禁止包含 HTTP、Milvus、模型加载、文件读写或业务流程代码。
-
-### `eval`
-
-职责：
-
-- 加载人工标注 JSONL 评估集；
-- 以真实客户端方式调用 RAG 或 Assistant 的 `/v1/chat`，以及 RAG
-  `/v1/retrieve`；通过 `/v2/agent/messages` 顺序推进多轮 conversation；
-- 计算 RAG 召回/门槛/引用/事实覆盖，以及 Assistant 路由、状态、证据、价格
-  候选、延迟和吞吐指标；
-- 离线扫描 reranker 阈值并对比 baseline/experiment；
-- 生成失败样本人工复核队列；
-- 计算 Agent Intent、Required Input、Wrong Tool、Task Completion、Recovery、API
-  Error 与延迟，并输出机器可读质量门禁；
-- 仅在 dataset hash、Gold 标签和门禁阈值一致时，对 Agent baseline/experiment 输出
-  指标及逐 Turn 回归；
-- 为 Understanding 组件导出无 Gold 输入、校验独立 observation schema，并按同一完整
-  Gold 重算 Intent／硬槽位 F1、失败／未知用量、组件延迟及逐样本差异；
-- 在本地审核工具中检查跨文件已见数据污染，核验人工审核与源数据指纹后导出冻结数据；
-  不自动审核语义标签，不代表身份认证或代表性数据保证；
-- 生成本地 JSON、JSONL 和 Markdown 报告。
-
-它不得导入 `spb_rag_api`、`spb_assistant_api` 或 `spb_pipeline`，不得直连
-Milvus/MySQL，也不加入在线 Docker 镜像。私有评估集和运行报告默认不进入版本
-控制。
-
-## 依赖方向
-
-```text
-spb-policy-pipeline ─┐
-                     ├──> spb-contracts
-spb-rag-api ─────────┘
-spb-assistant-api     （独立应用；HTTP 调用 RAG，只读访问价格源）
-```
-
-以下依赖均被禁止：
-
-```text
-spb-rag-api -> spb-policy-pipeline
-spb-policy-pipeline -> spb-rag-api
-spb-assistant-api -> spb-rag-api / spb-policy-pipeline
-spb-contracts -> 任一应用
-```
-
-`apps/rag-api/tests/test_architecture.py` 会扫描各 Python 包的 import，阻止在线、离线和
-Assistant 应用相互导入，也阻止 contracts 反向依赖任一应用；Phase 5A Eval 测试额外
-阻止 `eval` 导入 Assistant 实现。
-
-## 运行和发布边界
-
-| 项目 | 离线流水线 | 在线 RAG API | Assistant API |
-|---|---|---|---|
-| 进程 | 批处理 CLI | 常驻 API | 常驻 API |
-| 数据权限 | Milvus 建表/写入 | Milvus 只读 | 设备价格 MySQL 只读 |
-| 本地数据目录 | 需要 | 禁止依赖 | 禁止依赖 |
-| 模型 | embedding | embedding、Reranker、DeepSeek | 无模型 |
-| Docker 镜像 | 未提供专用镜像 | rag-api | assistant-api |
-| 发布节奏 | 数据任务 | 政策在线服务 | 单轮工具 API |
-
-## 共享契约
-
-当前契约：
-
-```text
-database        aisv
-collection      spb_policy_chunks
-schema_version  1
-embedding       moka-ai/m3e-base
-dimension       768
-normalized      true
-metric          COSINE
-dense field     text_dense
-sparse field    text_sparse
-```
-
-离线建表和在线启动检查都必须使用该契约。未来 schema 发生不兼容变更时，
-应增加 schema version 或创建新 collection，不能让在线服务静默适配。
-
-## 在线问答流程
-
-```mermaid
-sequenceDiagram
-    participant U as "API Client"
-    participant A as "rag-api"
-    participant E as "m3e-base"
-    participant M as "Milvus"
-    participant R as "BGE reranker"
-    participant D as "DeepSeek"
-    U->>A: "POST /v1/chat"
-    A->>E: "查询文本 embedding"
-    E-->>A: "768 维归一化向量"
-    A->>M: "Dense HNSW + BM25 candidates"
-    M->>M: "RRF fusion"
-    M-->>A: "融合候选"
-    A->>R: "问题 + Top 20 candidates"
-    R-->>A: "重排序分数"
-    alt "没有候选通过本地门槛"
-        A-->>U: "固定资料不足"
-    else "本地门槛通过"
-        A->>D: "JSON 证据充分性判定"
-        alt "Judge 拒绝"
-            A-->>U: "固定资料不足"
-        else "Judge 通过"
-            A->>D: "问题 + Judge 认可的编号知识上下文"
-            D-->>A: "SSE answer deltas"
-        end
-    end
-    A-->>U: "metadata / delta / usage / done"
-```
-
-客户端只能提交白名单结构化过滤字段。服务端负责构造 Milvus filter，
-不接受原始表达式。Milvus 适配器仅暴露 schema 校验、collection load 和
-hybrid search，没有任何数据写入方法。
+设计理由见[ADR 索引](adr/README.md)；安装、联调与全局验证见[开发指南](development.md)。

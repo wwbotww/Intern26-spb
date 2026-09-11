@@ -1,5 +1,8 @@
 # ADR-0010：Understanding 组件评测与 Workflow 黑盒验收分层
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase 5C implemented
 - 日期：2026-09-07
 - 补充 ADR-0008，不改变既有 V2 多轮黑盒评测边界。
@@ -47,4 +50,4 @@ Phase 5C 提供 48 条分层 synthetic development 数据、Rules 基线、Mock 
 
 后续仍需人工审核新 holdout、冻结版本后进行一次性真实对照，以及 V2 同场景回归。
 逐 Node OpenTelemetry、模型概率校准、设备规格抽取、完整地区库和生产 SLA 均不在
-本切片内。见[Phase 5C 实施记录](../agent-kernel-phase5c.md)。
+本切片内。见[Phase 5C 实施记录](../../eval/README.md)。

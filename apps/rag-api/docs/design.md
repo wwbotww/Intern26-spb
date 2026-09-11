@@ -1,8 +1,10 @@
-# 在线检索问答 API
+# RAG 问答机制
+
+[RAG API](../README.md) · [项目文档导航](../../../docs/README.md)
 
 本文档说明服务端实现边界和 grounding 规则。面向业务调用方的完整接口契约、
 字段、示例、SSE 协议和错误处理见
-[`api-reference.md`](api-reference.md)。
+[API 使用文档](api.md)。
 
 > 当前实现版本为 `0.5.1`。本服务是独立、无会话的政策知识工具，不承担其他
 > 业务流程假设。
@@ -129,4 +131,4 @@ RAG_DEEPSEEK_TEMPERATURE=0.1
 接口返回 `chat_provider_unavailable`。
 
 鉴权、限流、Docker 和监控配置见
-[`deployment.md`](deployment.md)。
+[`deployment.md`](../../../docs/deployment.md)。

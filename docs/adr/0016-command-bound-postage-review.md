@@ -1,5 +1,8 @@
 # ADR 0016：命令绑定的报价确认与独立公开报价依据
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / P3 offline verified
 - 日期：2026-09-09
 - 前序：[0014](0014-explicit-postage-pricing-context.md)、[0015](0015-provisional-postage-adapter.md)
@@ -35,4 +38,4 @@
 新增 State 字段可空，确认模式参与策略指纹，旧未核验的暂停状态不能被自动认证。
 P1 / P2 内部测试路径不强制确认，保留此前已验证行为；P3 入口必须确认。
 
-验证清单、运行入口和未完成事项见 [P3 实现说明](../agent-kernel-phase3b-postage-p3.md)。
+验证清单、运行入口和未完成事项见 [P3 实现说明](../../apps/assistant-api/docs/integrations/postage.md)。

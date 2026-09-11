@@ -1,5 +1,8 @@
 # ADR 0019：分离受控部署和合成验收，用公开 HTTPS 路径验证恢复与回退
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / 6A-3 local verified；远程 CI execution pending
 - 日期：2026-09-10
 - 前序：[0017](0017-browser-visitor-identity.md)、[0018](0018-quiescent-agent-storage-snapshots.md)
@@ -42,10 +45,10 @@ Cookie / SSE 语义，或在 Web / API 配置错配时绕开身份。只证明 G
 - 工作流文件和本地绿灯只是可执行门禁的工程交付，远程 CI、分支保护、公网证书、镜像
   发布与供应商联调分别验收。本次无自动提交 / 推送 / 部署，不消耗模型预算。
 - 初次验收时 npm high / runtime 为 0、Vitest 相关 2 项 moderate 待升级；随后
-  [工具链收口](../agent-kernel-phase6a3-ci-closeout.md)已升级 4.1.11、默认测试隔离与 CI
+  [工具链收口](../history/agent-delivery-summary.md)已升级 4.1.11、默认测试隔离与 CI
   全依赖 moderate 门禁，完整 npm audit 为 0。Python / OS 扫描、正式秘密管理 / 轮换、
   HSTS、登录 / 业务授权均不能据此宣称完成。
 
 实现、21 项新增回归、合成 HTTPS / 新卷恢复 / V1 回退证据及缺口见
-[6A-3](../agent-kernel-phase6a3-controlled-deployment.md)，操作见
+[6A-3](../../apps/assistant-api/docs/operations.md)，操作见
 [部署 runbook](../../deploy/agent/README.md)。

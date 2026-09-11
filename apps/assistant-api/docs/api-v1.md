@@ -1,68 +1,10 @@
-# 中国邮政 Assistant API 使用文档
+# Assistant V1 单轮接口
 
-本文面向调用 `assistant-api` 的 Web 或其他 API 调用方。当前版本为 `0.3.6`，
-提供显式政策/设备价格二选一、单轮问答、结构化证据和 SSE 输出。
+[Assistant API](../README.md) · [项目文档导航](../../../docs/README.md)
 
-> 本文只描述当前 `/v1` 已实现契约，不假设后续业务模式。
-
-仓库已在隔离路径完成 LangGraph 阶段 1–2、3A、4A～4D、5A～5E 本地切片：除条件路由、
-interrupt/resume、类型化工具执行和重放收据外，已加入五意图 Hybrid Understanding、
-跨轮合并、`AsyncSqliteSaver`、会话幂等、TTL、本地重启恢复，以及时限/资费类型化
-Tool、单次 HTTP、退避和能力级熔断基础。Phase 4A/4B 已实现可显式注入 FastAPI 的 V2
-JSON/SSE 路由、interrupt 投影、三层幂等、owner 隔离、删除、OpenAPI 类型生成和
-Stateful Web；Phase 4C 又增加独立 readiness、低基数指标、脱敏 Run Trace 和 janitor
-调度；Phase 4D 通过兼容 Adapter 将现有政策/价格 Tool 注册到 Agent，并保留完整证据；
-Phase 5A 通过公开 V2 HTTP 建立多轮评测和质量门禁；Phase 5B 增加不含业务值的
-node/edge/checkpoint/interrupt/retry 语义 Trace、故障矩阵与 Agent 报告对比。
-阶段 2 模型补齐已实现可选 DeepSeek Adapter、配置与 lifespan，可在独立 Demo 中显式
-启用；真实合成烟测已完成，代表性质量评测仍待完成，见
-[模型接入说明](agent-query-model-integration.md)。
-Phase 5C 提供本地 `spb-assistant-understanding-export`，复用现有 Understanding Port
-导出有界组件观测供 Eval 独立评分。已完成 48 条 development 真实对照，不增加公开
-HTTP 字段，也不替代多轮验收，见 [Phase 5C](agent-kernel-phase5c.md)。
-Phase 5D 已通过真实 V2/Graph/SQLite + Mock 供应商验证对应 13 场景／28 Turn、消息重放
-与应用重建恢复；本次仅增加回归证据，不修改公开 API，见 [Phase 5D](agent-kernel-phase5d.md)。
-
-Phase 5E 为显式装配的 V2 增加逐 Node wall-clock、OTel 采样与有界异步导出，仍不增加
-公开 Trace/debug 字段。默认不导出；`ASSISTANT_OTEL_*` 配置及本地 Dashboard 见
-[Phase 5E](agent-kernel-phase5e.md)。此开关不启用默认 `main.app` 的 V2。
-Phase 3B-T 的 T0/T1 已完成邮政轨迹 provisional 契约、表单 / 签名和 Gateway 的离线
-实现，见 [Phase 3B-T](agent-kernel-phase3b-tracking.md)。
-[T2](agent-kernel-phase3b-tracking-t2.md) 随后完成领域来源、查询作用域、State / 收据迁移
-及 Mock HTTP → Gateway → Graph → SQLite → V2 集成回归。
-[T3](agent-kernel-phase3b-tracking-t3.md) 已完成受控组合根、公开来源 / Renderer 和语义级
-熔断；默认开关仍关闭，显式 `ASSISTANT_AGENT_ENABLED` 才挂载 V2，轨迹再由独立开关
-启用。需要鉴权与绝对 SQLite 路径，不改变本文中的 `/v1` 契约；没有调用真实物流接口。
-完整配置和 T4 联调前提见 T3 文档。T3 已完成本地收尾，接口暂不可达，T4 暂缓。
-资费已完成 [P1 领域 / 工作流切片](agent-kernel-phase3b-postage-p1.md)，通过注入前置策略
-校验产品 / 地区 / 整数克与报价依据；[P2](agent-kernel-phase3b-postage-p2.md) 已新增只接受
-MockTransport 的资费 wire Adapter，打通 Graph / SQLite / 收据，未新增生产装配或公开 API 字段。
-[P3](agent-kernel-phase3b-postage-p3.md) 已补公开 product_code / postage_confirmation，复用 interrupt
-确认当前条件；新增独立 result.quote_basis 白名单与来源，内部计费绑定仍不公开。
-独立离线工厂拥有鉴权 / SQLite / Gateway 生命周期，不读取 .env，不改变 main 默认资费不可用。
-[6A-1](agent-kernel-phase6a1-browser-identity.md) 又提供默认关闭的浏览器身份模式：专用代理
-Key 只代表服务角色，匿名签名 Cookie 决定会话 owner；新增条件挂载的
-`POST /v2/agent/browser-session`，业务请求要求 Cookie、session_ref 及不安全方法的精确
-Origin。其他可信服务 Key 保持原 owner 语义；不改 V1 契约，不提供登录或业务权限。
-[6A-2](agent-kernel-phase6a2-sqlite-recovery.md) 又增加默认关闭的受控 SQLite 配置、全生命周期
-整库租约，以及不读取 dotenv 的运维 `storage_cli`：停服整库备份、版本 / 摘要校验与新目录
-恢复。恢复包含 owner / TTL / 幂等 / Tool 收据和 checkpoint，不新增公开备份 HTTP 接口；
-现有未标记数据库不自动迁移。
-[6A-3](agent-kernel-phase6a3-controlled-deployment.md) 再提供独立 `deployed_app` 与
-`deploy/agent/`：不读 dotenv，强制单实例 / managed / HTTPS 身份一致配置，空能力
-readiness 503，不注入 Fake。独立合成入口验证真实代理下的新卷恢复 / SSE / V1 回退，
-不修改默认 main；CI 文件已实现但远程未运行，受控真实依赖仍待授权验收。
-JSON/SSE、生成 TS、Web 及独立 Eval 已回归；缺口见[台账](agent-kernel-phase3b-postage-gaps.md)。时限文档仍未提供。实现证据见
-[阶段 1 说明](agent-kernel-phase1.md)、[阶段 2 说明](agent-kernel-phase2.md)、
-[阶段 3A 说明](agent-kernel-phase3a.md)、[阶段 4A 说明](agent-kernel-phase4a.md)、
-[阶段 4B 说明](agent-kernel-phase4b.md)、[阶段 4C 说明](agent-kernel-phase4c.md)、
-[阶段 4D 说明](agent-kernel-phase4d.md)、[阶段 5A 说明](agent-kernel-phase5a.md)、
-[阶段 5B 说明](agent-kernel-phase5b.md)和
-[实施方案](agent-workflow-implementation-plan.md)。
-
-本文的 V1 是只读查询 Demo 的统一入口，不执行业务审批、交易或业务数据库写入。
-V1 每次请求相互独立，不接收会话历史，也不会自动融合政策和价格结果；显式 V2 的
-会话、checkpoint 与幂等记录会写入专用 SQLite，资费确认不是业务审批。
+适用：保留的 `/v1` 显式政策/设备价格查询。当前 Agent 接入请读[Agent V2](api-v2.md)，
+本页不维护 Agent 阶段进度；部署能力见[当前状态](../../../docs/current-status.md)。
+V1 不接受会话历史、不执行业务审批或数据库写入；Agent 专用 SQLite 的写入另属状态管理。
 
 ## 1. 接入与鉴权
 
@@ -94,15 +36,7 @@ Assistant Key、RAG Key、MySQL DSN 或模型凭证。`X-Request-ID` 可由调�
 | `GET` | `/metrics` | Prometheus 指标 | 否，仅限运维网络 |
 | `GET` | `/docs` | OpenAPI 交互文档 | 由部署策略决定 |
 
-显式注入 `AgentApiDependencies` 或 lifespan factory 时，应用额外挂载
-`GET /v2/agent/capabilities`、`GET /v2/agent/health/ready`、
-`POST /v2/agent/messages` 和
-`DELETE /v2/agent/conversations/{id}`。V2 JSON/SSE 的完整契约、事件顺序、幂等和本地
-演示方式见 [Phase 4B 说明](agent-kernel-phase4b.md)，运维边界见
-[Phase 4C 说明](agent-kernel-phase4c.md)，五能力复用见
-[Phase 4D 说明](agent-kernel-phase4d.md)，黑盒评测见
-[Phase 5A 说明](agent-kernel-phase5a.md)，可靠性 Trace 与报告对比见
-[Phase 5B 说明](agent-kernel-phase5b.md)；它目前不是默认生产端点。
+V2 会话、身份、SSE 与恢复统一见[Agent V2 接口](api-v2.md)，不沿用 V1 的单轮语义。
 
 ## 3. `POST /v1/chat`
 
@@ -281,7 +215,7 @@ status -> evidence -> delta -> [usage] -> done
 `/health/ready` 只有在以下检查都可接受时返回 HTTP 200：
 
 - `policy_knowledge=ready`：RAG ready 且内部 RAG Key 有效；
-- `device_price=ready`：MySQL 连接和只读 schema 映射可用；
+- `device_price=ready`：MySQL 连接初始化成功（当前执行 `SELECT 1`）；不证明业务表映射、有效记录或具体型号覆盖；
 - `auth=ready`；
 - `metrics=ready` 或明确 `disabled`；
 - `routing=explicit`、`memory=disabled`。
@@ -314,9 +248,5 @@ checkpoint、janitor 和五类 capability。持久化、checkpoint 或全部能�
 - 政策回答必须与返回的公开原文证据一起展示并允许用户核验；
 - `no_match`、信息不足和技术错误必须使用不同 UI 状态；
 - 当前已发布的 `/v1` 没有服务端记忆、自动意图识别、多工具融合或内部审批动作；
-- V2 JSON/SSE 与 Stateful Web 仍是显式装配的工程切片，调用契约与限制见
-  [Phase 4B 实现说明](agent-kernel-phase4b.md)和
-  [Phase 4C 运维说明](agent-kernel-phase4c.md)与
-  [Phase 4D 能力复用说明](agent-kernel-phase4d.md)；Phase 5A 本地门禁不能当作生产
-  质量结论，见 [评测说明](agent-kernel-phase5a.md)；
+- V2 会话契约见[Agent 接口](api-v2.md)，真实能力与验收层级见[当前状态](../../../docs/current-status.md)；
 - 正式法律、行政或业务决定仍应由对应机构和人工流程确认。

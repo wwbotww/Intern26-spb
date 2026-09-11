@@ -1,5 +1,8 @@
 # ADR-0003：采用 Hybrid Query Understanding
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase-2 hybrid pipeline verified
 - 日期：2026-09-03
 
@@ -43,4 +46,4 @@ Slot Merger、控制命令和 Structured LLM schema gate。规则、显式 UI �
 2026-09-07 实施补充（决策未变）：已实现 DeepSeek Adapter、开关与生命周期，并以
 Mock HTTP / V2 验证单次调用、输出拒绝和规则硬实体重提。真实合成烟测已验证三个
 业务补槽与 unknown／超时回退；代表性效果对照尚未完成。详见
-[模型接入说明](../agent-query-model-integration.md)。
+[模型接入说明](../../apps/assistant-api/docs/integrations/query-model.md)。

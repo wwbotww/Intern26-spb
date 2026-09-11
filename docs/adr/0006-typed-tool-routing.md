@@ -1,5 +1,8 @@
 # ADR-0006：使用类型化命令与确定性工具路由
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase-4D five-query-tool path verified
 - 日期：2026-09-03
 

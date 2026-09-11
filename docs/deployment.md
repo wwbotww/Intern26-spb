@@ -1,12 +1,8 @@
-# Docker Compose 部署与运行
+# RAG / Assistant V1 部署基线
 
-> 适用基线：`chat-web 0.2.0`、`assistant-api 0.3.6`、`rag-api 0.5.1`。
->
-> 本文只描述仓库当前的通用部署方式，不记录具体客户、主机、内网地址或密钥。
-
-> Agent 更新入口：默认安全部署见 [6A-3](agent-kernel-phase6a3-controlled-deployment.md)，
-> 已批准的既有内网 HTTP 单实例更新见 [6A-4](agent-kernel-phase6a4-intranet-release.md)。
-> 下文是 V1 部署基线，不应据此将新版 Agent 的端口、身份和持久化配置退回 V1。
+> 本文只维护 `deploy/docker-compose.yml` 的旧版单轮栈，不是当前 Agent 部署手册。
+> 当前 Agent 的入口安全、配置配套与发布交接见[跨服务运维](operations.md)，
+> 实际操作见[部署手册](../deploy/agent/README.md)。不依据本页覆盖既有 Agent 配置。
 
 ## 1. 运行拓扑
 
@@ -47,7 +43,9 @@ Optional Prometheus -> rag-api / assistant-api metrics
 创建不入 Git 的服务配置：
 
 ```bash
-cp apps/rag-api/.env.example apps/rag-api/.env
+if [ ! -e apps/rag-api/.env ]; then
+  cp apps/rag-api/.env.example apps/rag-api/.env
+fi
 chmod 600 apps/rag-api/.env
 ```
 
@@ -165,103 +163,16 @@ Prometheus 只绑定 `127.0.0.1:9091`。重点观察：
 - 设备价格库和 Milvus 使用独立只读账号；离线写权限不进入在线容器。
 - 私有评测集、模型回答、原始附件和运行日志不进入镜像或 Git。
 
-## 9. 当前容量与功能边界
+## 9. V1 容量与功能边界
 
 - RAG 默认 `RAG_RERANK_MAX_CONCURRENCY=1`；CPU reranker 在并发下会排队，应在目标硬件上压测后调整。
 - 两个 API 的限流器是进程内实现，只适合单 worker、单副本。横向扩展时应在 API Gateway 或 Redis 实现全局限流。
 - Assistant 的 MySQL 查询通过只读连接池运行；连接池和查询 timeout 需要结合数据库容量标定。
 - 当前 Assistant 使用显式 `policy` / `device_price`、单轮请求且无服务端会话记忆。
-- Assistant 当前只支持显式模式、单轮、单工具查询；本文不对尚未确认的后续能力作部署假设。
 
 ## 10. 本地开发入口
 
-API 开发方式见根目录 README 和对应 API 文档。Chat Web 本地启动：
-
-```bash
-cp apps/chat-web/.env.example apps/chat-web/.env
-cd apps/chat-web
-npm ci
-npm run dev
-```
-
-默认开发代理连接 `http://127.0.0.1:8081`，因此需先启动并配置 `assistant-api`。完整接口行为见 [Assistant API](assistant-api.md) 和 [RAG API 调用契约](api-reference.md)。
-
-### Phase 5E 独立合成监控栈
-
-`deploy/observability/docker-compose.yml` 独立启动 Agent Fake Demo + Prometheus + Tempo +
-Grafana；不加载 `.env`，明确禁用模型，不修改上述 V1 生产栈。仅回环端口、只读容器、
-tmpfs 演示数据与匿名 Viewer；容器停止会丢失测试会话/指标/Trace。启动、烟测、只读
-Trace 下钻与停止流程见 [Phase 5E](agent-kernel-phase5e.md)。该配置不是 V2 生产发布方案。
-
-### T3 受控 V2 入口（默认关闭）
-
-代码已支持 `ASSISTANT_AGENT_ENABLED` 和独立 tracking 开关，要求鉴权及绝对 SQLite
-文件路径；公开来源、语义熔断与 Web 在本地 Mock 下通过验收。配置、生命周期和可复现
-浏览器夹具见 [T3](agent-kernel-phase3b-tracking-t3.md)。本 Compose 仍未启用该路径；
-不要只改开关就当作生产发布。6A-1 代理访客身份、6A-2 受控 SQLite / 独立卷备份恢复已
-本地实现；6A-3 已增加独立部署栈和本地 HTTPS / 回退演练，未改本默认 V1 栈。
-远程 CI / 目标环境 / 跨版本升级仍待验收，真实物流调用须先通过 T4 合同确认和单独授权。
-
-### 6A-1 浏览器匿名访客身份（默认关闭）
-
-原 Nginx 的同一个服务 Key 不能区分访客。V2 现有可选 browser-session 模式，要求后端
-专用代理 Key 与 Nginx/Vite 服务端 Key 一致；签名密钥必须独立，浏览器只收到 HttpOnly
-Cookie 与非敏感引用。Web 先核验才恢复聊天记录，拒绝跨 owner 恢复/删除；这不是用户登录。
-配置表、轮换/过期/重建语义与无真实依赖的验收入口见
-[6A-1](agent-kernel-phase6a1-browser-identity.md)。
-
-Web Dockerfile 已提供 `VITE_ASSISTANT_UI_MODE` / `VITE_AGENT_BROWSER_SESSION` 两个构建
-参数，并排除 `.env.*`；Nginx 清除客户端伪造身份头。**本 Compose 尚未映射这些参数、
-后端 browser-session 环境或数据卷**，根 `.env` 单独增加变量不会完成部署。
-没有运行真实业务栈或改变实际密钥；后续 6A-3 在独立合成栈验证了 TLS，不代表本栈已切换。
-
-6A-2 已完成单实例受控持久化 / 停服备份 / 独立目录恢复；6A-3 又验证独立代理身份、TLS、Host、
-安全响应头和公共路由白名单，拒绝 `/api/metrics` 或 readiness 细节经其公共代理泄露。
-anonymous cookie 不能承担业务授权、反机器人或多副本全局限流；完整阶段 6 保持独立。
-
-### 6A-2 受控 SQLite 与恢复（独立合成卷已验收）
-
-新增默认关闭的 `ASSISTANT_AGENT_MANAGED_STORAGE_ENABLED`。启用前需由运行 UID 使用
-`python -m spb_assistant_api.storage_cli init` 创建全新专用目录，数据库路径固定为该目录
-中的 `agent.db`；目录 / 文件权限要求 0700 / 0600。存在受控标记时，新版运行工厂自动
-获取整库进程租约，第二个合作实例或运行中备份会被拒绝，不支持多 worker 共享该库。
-
-运维 CLI 不读取 `.env`：停服备份覆盖 metadata、LangGraph checkpoints / writes、
-创建 / 消息幂等与 Tool 收据；`verify` 检查版本、摘要和结构，`restore` 只写全新目录，
-不覆盖原数据库。未完成消息 claim 拒绝发布，不自动清除。备份含业务数据，权限限制
-不是加密；旧库收编、密钥保管、异地与保留策略、备份外删除账本仍需后续方案。
-
-[部署外存储演练](../deploy/storage/README.md) 使用三个全新 Docker 命名卷，UID 10001、
-根文件系统只读、无网络 / 端口 / dotenv，每次命令启动新容器；恢复后继续和重放已验证。
-主 Compose **仍未接入** managed 开关、初始化或卷映射。本轮复用本地依赖镜像，有架构
-元数据兼容限制，不能视为可发布镜像；6A-3 已用独立 digest / lock 构建替代该镜像路径，
-不宣称多架构验收；实际 CI 文件与 V1 回退的本地证据见下节。
-可复跑命令、故障退出码与验收边界见 [6A-2](agent-kernel-phase6a2-sqlite-recovery.md)。
-
-### 6A-3 独立受控栈与离线 CI（本地 / synthetic verified）
-
-新增 [deploy/agent](../deploy/agent/README.md)，不修改本篇原 V1 Compose。
-`deployed_app` 只读显式配置，要求鉴权、HTTPS browser-session、managed 存储、单 worker；
-无隐式 Fake，无依赖时 readiness 503。RAG / MySQL 必须显式批准并通过可选网络 overlay
-连接；tracking / 模型 / exporter 关闭，不能直接按用户现有 `.env` 启动。
-
-独立镜像从锁文件构建，基础 digest 固定；Web 构建 / 路由模式绑定，Key 只注入服务端。
-UID 10001、只读根目录、资源上限；API 不发布端口、只连内部网络，Web 发布回环 HTTPS。
-公共代理仅放行既定 V2 路由，内部健康 / metrics / docs 不透出；拒绝伪造 Host / Origin /
-身份头。TLS / 私钥与秘密保管、公网入口仍须目标环境验收。
-
-```bash
-.venv/bin/python deploy/agent/smoke.py --build
-```
-
-此命令只对本地 Docker 使用新合成数据 / 证书，零真实业务 / 模型调用；本地验证双访客、
-整库备份 / 新卷恢复、SSE 续接与回放、V1 回退并切回 V2。停止容器 / 网络而保留合成卷，
-不降级 / 删除数据库、不关 TLS 校验。不能把模式回退当作跨版本迁移验收。
-
-`.github/workflows/agent-ci.yml` 已接入全量测试、类型、双构建、公开 Mock Eval 和 Docker
-演练；最小权限 / 固定 Actions SHA、无 secrets / 镜像推送 / 自动部署。尚未提交推送，
-**远程 CI 未运行**。[工具链收口](agent-kernel-phase6a3-ci-closeout.md)已升级 Vitest 4.1.11，
-当前 1044 Python / 70 Web，完整 npm audit 为 0。默认 `npm test` 不再加载开发代理 / dotenv，
-CI 显式安装 dev / 校验 Node，审计拦截 moderate 及以上；Web Docker 构建阶段先执行单测。
-下一步需授权提交推送后验证远程 CI；Python / OS 扫描和目标部署仍待验收，见
-[6A-3](agent-kernel-phase6a3-controlled-deployment.md)。
+工作区安装和联调组合见[开发指南](development.md)。
+各服务的本地配置与启动分别维护于 [RAG](../apps/rag-api/README.md)、
+[Assistant](../apps/assistant-api/README.md)与 [Chat Web](../apps/chat-web/README.md)。
+完整接口字段归服务文档，不在部署指南重复。

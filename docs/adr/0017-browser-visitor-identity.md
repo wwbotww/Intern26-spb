@@ -1,5 +1,8 @@
 # ADR 0017：代理服务身份与匿名访客会话归属分离
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / 6A-1 local verified
 - 日期：2026-09-09
 - 前序：[0004](0004-memory-and-checkpoint-boundaries.md)、[0007](0007-v1-v2-api-compatibility.md)
@@ -45,4 +48,4 @@ thread_id、前端 localStorage 中的 conversation_id 都不是可信身份。
   公共路由范围、CSP、持久化与实际 Compose/CI 验收仍属后续部署工作。
 
 实现、54 项后端 / 15 项 Web 新增回归及浏览器竞态验证见
-[6A-1 交付说明](../agent-kernel-phase6a1-browser-identity.md)。
+[6A-1 交付说明](../../apps/assistant-api/docs/operations.md)。

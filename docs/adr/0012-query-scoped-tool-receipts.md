@@ -1,5 +1,8 @@
 # ADR-0012：执行幂等不等于结果缓存
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase 3B-T T2 local verified
 - 日期：2026-09-09
 - 关系：补充 ADR-0004 的存储边界与 ADR-0005 的重放策略，不替代其分层 / Failure 决策。
@@ -40,4 +43,4 @@
 上游执行与本地收据写入没有共享事务；硬崩溃、跨进程协调和计费 exactly-once 不在已验证
 范围。旧表保留不代表可随意回滚旧二进制，升级 / 回退需要单实例停机与一致数据库快照。
 
-详见 [T2 实现与验证](../agent-kernel-phase3b-tracking-t2.md)。
+详见 [T2 实现与验证](../../apps/assistant-api/docs/runtime.md)。

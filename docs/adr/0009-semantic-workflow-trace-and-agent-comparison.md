@@ -1,5 +1,8 @@
 # ADR-0009：使用脱敏语义 Trace 与同样本 Agent 对比定位回归
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase-5B local reliability verified
 - 日期：2026-09-04
 

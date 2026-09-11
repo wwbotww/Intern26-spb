@@ -1,5 +1,8 @@
 # ADR-0014：资费操作绑定显式定价上下文
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 日期：2026-09-09
 - 状态：Accepted / P1 local verified
 - 补充：[ADR-0012 查询作用域收据](0012-query-scoped-tool-receipts.md)
@@ -29,4 +32,4 @@
 - 保守范围规则可能误拦截否定表达，也不能覆盖全部隐含条件，需要后续结构化确认与评测。
 - 配置变更会终止尚未完成的询价，需要用户重新发起；这是防错价的明确取舍。
 - 86 项新增测试、完整 `727 passed` 只证明合成领域与工作流行为；协议兼容、计费口径和
-  真实互通尚未确认。详见 [P1 实现说明](../agent-kernel-phase3b-postage-p1.md)。
+  真实互通尚未确认。详见 [P1 实现说明](../../apps/assistant-api/docs/integrations/postage.md)。

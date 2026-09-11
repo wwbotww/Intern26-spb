@@ -1,5 +1,8 @@
 # ADR 0018：用停服整库快照恢复 Agent，而不只保存 checkpoint
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / 6A-2 local verified
 - 日期：2026-09-10
 - 前序：[0004](0004-memory-and-checkpoint-boundaries.md)、[0012](0012-query-scoped-tool-receipts.md)、[0017](0017-browser-visitor-identity.md)
@@ -41,4 +44,4 @@ LangGraph checkpoint 只描述工作状态。恢复时如果丢失 owner 元数�
   不在该恢复点中。独立核验通过不等于允许切换生产服务或重新访问真实供应商。
 - 本轮 Docker 仅为合成存储测试，不代替 6A-3 的镜像构建、真实代理入口、CI 与 V1 回退。
 
-实现、44 项新增回归和可复跑操作见 [6A-2](../agent-kernel-phase6a2-sqlite-recovery.md)。
+实现、44 项新增回归和可复跑操作见 [6A-2](../../apps/assistant-api/docs/operations.md)。

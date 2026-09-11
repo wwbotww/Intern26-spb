@@ -1,7 +1,8 @@
-# 6A-3 独立单实例 Agent 部署与合成演练
+# 单实例 Agent 部署操作手册
 
 与 `deploy/docker-compose.yml` 的 V1 栈分开，不迁移原数据库、不读取默认 `.env`。
-详细职责 / 证据 / 缺口见 [6A-3](../../docs/agent-kernel-phase6a3-controlled-deployment.md)。
+入口安全与发布交接见[跨服务运维](../../docs/operations.md)，配置语义 / 状态库 / 排障见
+[Assistant 运维](../../apps/assistant-api/docs/operations.md)，进度见[当前状态](../../docs/current-status.md)。
 这是回环入口的受控装配基线，不是公网一键发布；未批准真实物流、模型或数据访问。
 
 ## 1. 无真实配置的一条命令演练
@@ -61,7 +62,7 @@ agent_compose ps --all
 若没有任何批准依赖，本节暂停；使用第一节合成演练，不把 synthetic overlay 加到此项目。
 新 runtime 卷由 `state-init` 以 UID 10001 初始化，API 单 worker 并持有整库租约。
 健康探测只确认启动边界，仍需在批准范围内验证能力、双访客、JSON / SSE 与静态资源。
-本阶段没有执行上面这套真实依赖启动命令。
+以上是通用操作模板，不是对任何具体服务器版本的验收声明。
 
 ## 3. 停服、备份、新卷切换
 
@@ -114,16 +115,14 @@ agent_compose -f deploy/agent/docker-compose.restored.yml up -d --wait --wait-ti
 - 不运行默认项目的 `down -v`，不覆盖旧库或改已有目录权限，也不删除其他阶段的演练卷。
 - 固定 digest 的依赖镜像仍需维护补丁；本地 API 为 amd64、Web 随基础镜像平台构建，
   不能据本机结果宣称多架构与性能合格。应用 tag 可变，报告记录 ID 不等于已发布版本。
-- 远程 CI 的 `d28c87c` 两个 job 已成功，见[收尾证据](../../docs/agent-kernel-phase6a3-ci-closeout.md#6-远程执行揭示的问题与修复)；不代表自动发布或分支保护。
-- [工具链收口](../../docs/agent-kernel-phase6a3-ci-closeout.md)已升级 Vitest 4.1.11，默认
-  `npm test` 不加载 dotenv，CI 显式包含 dev / 拦截 moderate，固定 Node 22 构建内测试通过。
-  当前 npm audit 为 0，Python / OS 扫描仍待补。6A-4 已完成批准的内网单实例更新和正式 HTTP
-  黑盒验收；浏览器人工验收、原空价格库数据，以及真实物流接口 / holdout 单独推进。
+- 远程 CI 与批准的内网发布证据见[交付摘要](../../docs/history/agent-delivery-summary.md)。
+  CI 不自动发布，基础 Compose 不等于实际服务器全部配置；数据覆盖、目标页面验收、
+  真实物流 / holdout 和企业化硬化见[路线图](../../docs/roadmap.md)。
 
 ## 6. 明确批准的内网 HTTP 例外
 
 默认配置仍要求 HTTPS。仅在用户明确限定内网 HTTP 时，按
-[6A-4](../../docs/agent-kernel-phase6a4-intranet-release.md) 成组配置 `private-http`，不能只关闭
+[Agent 运维](../../apps/assistant-api/docs/operations.md) 成组配置 `private-http`，不能只关闭
 Secure Cookie。HTTP 无传输加密，保留 origin / 签名 / 代理身份校验不等于 TLS 安全性。
 主机无 Compose 时，不自动升级共享 daemon；用相同镜像与 entrypoint 单独验证兼容路径。
 
@@ -137,10 +136,10 @@ Secure Cookie。HTTP 无传输加密，保留 origin / 签名 / 代理身份校�
 
 旧 Docker 的 Linux amd64 主机可使用显式生产入口
 `python -m spb_assistant_api.legacy_deployed_app`，只叠加 clone3 / ENOSYS 拒绝过滤器，
-要求原有 seccomp 和 no-new-privileges；详见 6A-4 第 3.1 节。正常入口不自动启用它。
+要求原有 seccomp 和 no-new-privileges；详见运维文档“已验证旧主机兼容”。正常入口不自动启用它。
 原生 Linux CI 以 `smoke.py --transport private-http --legacy-threads` 验证完整恢复 / 回退；
 Mac 跨架构模拟器不支持的检查不应跳过，更不能以 unconfined 替代验收。
 
 目标旧主机使用同版 Nginx 1.31.3 的官方 Debian 变体及 `curl` 健康检查，避免 Alpine 3.24
 的 PID 写入兼容问题。最终代码 `580908c` 的远程 CI 已通过；发布结果、私有运维文件、
-镜像 config digest、保留旧 Web / API 的回退顺序和未验项目见 6A-4 第 5 节。
+镜像 config digest 见[交付摘要](../../docs/history/agent-delivery-summary.md)，私有发布文件与回退约束见[Agent 运维](../../apps/assistant-api/docs/operations.md)。

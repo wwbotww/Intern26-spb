@@ -1,5 +1,8 @@
 # ADR-0005：Failure 是显式状态和稳定契约
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase-4A HTTP mapping verified
 - 日期：2026-09-03
 

@@ -1,5 +1,8 @@
 # ADR-0011：语义 Trace 与真实节点耗时分层
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted（local / opt-in V2）
 - 日期：2026-09-07
 
@@ -28,4 +31,4 @@ fail-closed、预算和超时策略。
 Demo 直连 Tempo，不增加 Collector、tail sampling、W3C baggage 或可靠遥测队列。
 
 生产默认仍为 V1。可复现 Docker Dashboard 是开发证据，不是生产发布或 SLO 验收。
-详见 [Phase 5E](../agent-kernel-phase5e.md)。
+详见 [Phase 5E](../../apps/assistant-api/docs/operations.md)。

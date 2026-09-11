@@ -2,7 +2,7 @@
 
 用途是验证命名卷、进程重建、整库备份与新目录恢复，不是 V2 HTTP / Web 部署。
 无端口、无网络、无 `env_file`、无外部服务，模型 / 物流调用为 0。每条命令执行后退出，
-所有业务输入为固定合成值；详细一致性与安全边界见 [6A-2](../../docs/agent-kernel-phase6a2-sqlite-recovery.md)。
+所有业务输入为固定合成值；详细一致性与安全边界见 [6A-2](../../apps/assistant-api/docs/operations.md)。
 
 ## 镜像前提
 

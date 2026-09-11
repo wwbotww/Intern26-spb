@@ -1,5 +1,8 @@
 # ADR-0015：用具名临时合同打通资费离线适配，不推定真实互通
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 日期：2026-09-09
 - 状态：Accepted / P2 offline verified
 - 补充：[0014 定价上下文](0014-explicit-postage-pricing-context.md)、[0013 语义熔断与受控装配](0013-controlled-tracking-composition.md)
@@ -31,5 +34,5 @@
 新增 160 项离线测试，全量 887 项通过；可复跑烟测验证补产品、SQLite 重启、报价、
 重放零请求和新查询刷新。外部合同未确认、公开资费 UI 未完成，不能宣称真实接口接入。
 严格单 profile 会拒绝可能合法但尚未确认的结构和单位；后续以独立证据更新明确版本，
-而不是增加“解析到成功为止”的兼容分支。详见 [P2](../agent-kernel-phase3b-postage-p2.md)
-和[缺口台账](../agent-kernel-phase3b-postage-gaps.md)。
+而不是增加“解析到成功为止”的兼容分支。详见 [P2](../../apps/assistant-api/docs/integrations/postage.md)
+和[缺口台账](../../apps/assistant-api/docs/integrations/postage.md)。

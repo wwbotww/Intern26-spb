@@ -34,7 +34,7 @@
 （例如 source.source_type / fees.0.included_in_amount），纳入 Turn / Case 通过判定；
 expected_result_values 继续只表示 result.data，不改变旧数据集语义。
 独立 Eval 镜像不导入服务端；合成协议响应由应用侧 fixture 提供，不能读取 Gold 生成答案。
-复现入口、8 次 Mock 请求证据及限制见 [P3 说明](../docs/agent-kernel-phase3b-postage-p3.md)。
+复现入口、8 次 Mock 请求证据及限制见 [P3 说明](../apps/assistant-api/docs/integrations/postage.md)。
 全部通过不是模型质量或真实费率正确率。
 
 ## Understanding 组件评测（Phase 5C）
@@ -67,9 +67,9 @@ uv run --package spb-eval spb-eval understanding-score \
 synthetic development / draft；真实对照已用 20 次模型请求完成，不代表泛化准确率。
 报告不含问题正文或实体原值，但 fingerprint 可关联，私有数据与报告仍不得公开。
 
-详细契约、公式、失败分母、命令和退出码见
-[Phase 5C](../docs/agent-kernel-phase5c.md)；已复核的本次结果见
-[development 对照证据](../docs/agent-understanding-comparison-20260907.md)。
+模型配置和调用预算见 [Assistant Query Model](../apps/assistant-api/docs/integrations/query-model.md)；
+已复核的历史结果见
+[development 对照证据](../docs/history/agent-delivery-summary.md)。
 
 ## 人工审核冻结与 V2 对齐（Phase 5D）
 
@@ -81,8 +81,7 @@ synthetic development / draft；真实对照已用 20 次模型请求完成，�
 源数据／参考集／逐条 SHA 变化、pending、已见污染或不完整审核会阻止冻结。
 
 这些命令不推理、不读取 Key、不代签审核，也不自动冻结代码／Prompt／配置。产物放入
-`eval/datasets/private/` 或 `eval/reports/`，目标目录拒绝覆盖；完整命令与限制见
-[Phase 5D](../docs/agent-kernel-phase5d.md)。
+`eval/datasets/private/` 或 `eval/reports/`，目标目录拒绝覆盖。各命令的完整参数可用 `spb-eval <命令> --help` 查看。
 
 V2 新夹具 `datasets/agent-understanding-workflow-development-v1.jsonl` 含 13 场景／28
 Turn，支持新 `development` split，不改变旧校准／holdout 数据。受控 Mock 模型的报告可

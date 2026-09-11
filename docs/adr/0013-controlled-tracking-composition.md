@@ -1,5 +1,8 @@
 # ADR-0013：受控物流装配与一次尝试的语义成功边界
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase 3B-T T3 local verified
 - 日期：2026-09-09
 - 关系：补充 ADR-0005 / 0007 / 0012，不替代其 Failure、V1/V2 并行与查询作用域决策。
@@ -37,4 +40,4 @@
 尚无供应商确认、生产 SLA 或跨系统 exactly-once 证明。共享代理 Key 的 owner 不是完整
 访客身份系统；公开发布前需 T4 合同 / 授权与 6A 身份、持久化、备份、CI 和回退验收。
 
-详见 [T3 实施说明](../agent-kernel-phase3b-tracking-t3.md)。
+详见 [T3 实施说明](../../apps/assistant-api/docs/integrations/tracking.md)。

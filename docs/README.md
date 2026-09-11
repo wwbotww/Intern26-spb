@@ -1,118 +1,48 @@
 # 项目文档导航
 
-本文档是 `docs/` 的入口。项目事实以代码、配置与测试为准。当前仓库是技术
-Demo，文档只描述已经实现或已经确认的模块边界，不补写完整业务背景，也不预设
-尚未稳定的后续场景。
+[根 README](../README.md)讲项目全貌，本目录维护跨模块事实。
+服务自己的运行方式、接口字段、实现机制和供应商适配，放在对应服务目录。
+这是职责上的两层，不是要求所有资料都移到 `apps/`，也不是限制子目录深度。
 
-## 当前版本基线
+## 第一层：项目全局
 
-| 模块 | 当前版本 | 职责 |
-| --- | --- | --- |
-| `apps/offline-pipeline` | `0.2.0` | 政策采集、附件解析、OCR、切分、向量化与 Milvus 写入 |
-| `apps/rag-api` | `0.5.1` | 政策检索、重排、证据约束回答与引用 |
-| `apps/assistant-api` | `0.3.6` | V1、显式 Stateful Agent V2、理解观测与逐 Node 遥测 |
-| `apps/chat-web` | `0.2.0` | 浏览器聊天界面与流式响应展示 |
-| `eval` | `0.7.0` | 黑盒／组件评测、同样本对照与人工审核冻结 |
-| `packages/contracts` | `0.1.0` | 离线写入与在线读取共享的数据契约 |
+| 问题 | 唯一维护入口 |
+| --- | --- |
+| 现在完成了什么，哪些能力真实可用 | [当前状态](current-status.md) |
+| 应用之间怎样协作，边界与复用如何 | [Workspace 架构](workspace-architecture.md) |
+| 如何安装工作区、选择联调模式、跑全局验证 | [开发指南](development.md) |
+| RAG、设备价格 V1、全品类 V2 的生产者与消费者是谁 | [数据源边界](data-sources.md) |
+| 如何选择部署栈、配置入口安全、发布交接 | [跨服务运维](operations.md) |
+| 如何维护旧 RAG / Assistant V1 / Web Compose | [V1 部署基线](deployment.md) |
+| 后续先做什么、依赖什么、怎样验收 | [路线图](roadmap.md) |
+| 为什么这样设计 | [ADR 索引](adr/README.md) |
+| 历史实验与发布依据是什么 | [压缩交付摘要](history/agent-delivery-summary.md) |
+| 面试与简历可讲什么 | [技术复盘](project-retrospective.md) |
 
-版本号描述当前仓库基线；部署环境仍应以实际镜像标签和 `/health` 返回为准。
+## 第二层：模块自身
 
-## 当前实现
+| 入口 | 在这里维护 |
+| --- | --- |
+| [Assistant API](../apps/assistant-api/README.md) | 本地运行、V1/V2 接口、Agent 内部分层/工作流、状态库与排障、模型/轨迹/资费适配 |
+| [RAG API](../apps/rag-api/README.md) | 启动与配置、检索/问答 API、重排与证据充分性机制 |
+| [Chat Web](../apps/chat-web/README.md) | 双模式启动、代理/身份、组件边界、SSE/快照、类型生成与前端验证 |
+| [Offline Pipeline](../apps/offline-pipeline/README.md) | 抓取/解析/OCR/切分/入库命令、产物与增量写入约束 |
+| [Contracts](../packages/contracts/README.md) | 共享 collection、embedding 和 chunk 元数据契约 |
+| [Eval](../eval/README.md) | 评测数据格式、审核冻结、命令、指标和门禁 |
 
-- [工作区架构](workspace-architecture.md)：模块边界、依赖方向、数据流和复用边界的总览。
-- [RAG API 调用契约](api-reference.md)：面向调用方的 `/v1` 接口、鉴权、错误与流式协议。
-- [RAG API 实现说明](rag-api.md)：检索、重排、证据判断、生成和可观测性。
-- [Assistant API](assistant-api.md)：当前统一入口、显式 `policy` / `device_price` 路由、设备匹配与响应契约。
-- [部署与运行](deployment.md)：当前三服务 Compose 拓扑、配置、健康检查、安全边界与运维注意事项。
-- [评测说明](../eval/README.md)：数据集、指标、运行方式、报告和质量门禁。
+部署脚本的执行步骤仍就近维护于 [Agent 部署](../deploy/agent/README.md)和
+[存储演练](../deploy/storage/README.md)，不放进任意一个服务。
 
-## 下一阶段规划
-
-- [LangGraph Stateful Agent Workflow 实施方案](agent-workflow-implementation-plan.md)：
-  总体为 `In progress`；阶段 0～2、3A、4A～4D、5A～5E 的本地切片已完成。
-  模型 Adapter、真实烟测及 development 对照已完成；3B-T 的 T0～T3 契约 / Adapter、
-  来源 / 新鲜度 / 迁移、受控 V2 / Web 已本地验证并收尾；接口不可达，T4 暂缓。
-  3B-P 的 P0～P3、6A-1～6A-3 本地 / 合成通路完成，包含访客隔离、整库恢复、独立
-  HTTPS 部署与 V1 回退；随后完成 6A-4 内网单实例更新与远程 CI，当时 Python 1089 项、Web 70 项，完整 npm audit 0。
-  原 HTTP 入口已发布，真实模型 / RAG 与价格无匹配通路已验；随后完成首页通知与示例修复，Web 增至 89 项。
-  2026-09-10 复查价格库已非空，新政策 / 价格示例成功；完整业务覆盖、P4、holdout 和完整阶段 6 单列缺口。
-- [Phase 1 Agent Kernel 与 Fake Tracking](agent-kernel-phase1.md)：已实现的状态图、模块
-  边界、预算、执行收据、Failure 路径、测试证据和未实现范围。
-- [Phase 2 Hybrid Understanding 与 SQLite 持久化](agent-kernel-phase2.md)：五意图规则、
-  Structured Model schema gate、跨轮合并、`AsyncSqliteSaver`、元数据/幂等、TTL、并发
-  和重启恢复证据。
-- [阶段 2 补齐：真实理解模型接入](agent-query-model-integration.md)：DeepSeek Adapter、
-  显式配置、生命周期、单次有界调用、Mock / V2 验证与真实联调。
-- [2026-09-07 模型真实烟测](agent-query-model-live-smoke-20260907.md)：5 次模型尝试、
-  三类补槽、unknown／超时回退、7 次免模型幂等重放与用量边界；不是 holdout。
-- [Phase 3A Gateway 与可靠性基础](agent-kernel-phase3a.md)：时限/资费类型化 Tool、共享
-  单次 HTTP 边界、有界退避、能力级熔断和接口到达前的合同测试证据。
-- [Phase 3B-T 邮政轨迹契约与适配器](agent-kernel-phase3b-tracking.md)：T0/T1 的
-  provisional 表单 / 签名 / Gateway 与 84 项协议测试；真实互通仍待确认。
-- [T2 查询新鲜度、执行收据与轨迹来源](agent-kernel-phase3b-tracking-t2.md)：58 项新增
-  测试、State v3 / SQLite 迁移及邮政 Mock V2 集成。
-- [T3 受控装配、公开来源与 Web 闭环](agent-kernel-phase3b-tracking-t3.md)：56 项新增 Python
-  与 12 项 Web 用例、配置 / 生命周期、语义熔断、来源契约及浏览器验收；已完成本地收尾，T4 暂缓。
-- [Phase 3B-P 资费接口评审与切片建议](agent-kernel-phase3b-postage-analysis.md)：CSB / 双层
-  签名、产品 / 地区 / 计费条件、金额口径及 P0 初始差距；外部合同仍待确认。
-- [P1 资费领域契约与可执行条件](agent-kernel-phase3b-postage-p1.md)：86 项新增测试、
-  产品 / 地区目录、整数克、报价观察、上下文冻结与恢复保护；保持生产未装配。
-- [P2 资费协议与离线 Gateway](agent-kernel-phase3b-postage-p2.md)：160 项新增测试、双层签名、
-  四层响应检查、语义熔断、profile 绑定与可复跑 Graph / SQLite 烟测；只接受 MockTransport。
-- [资费扩展缺口台账](agent-kernel-phase3b-postage-gaps.md)：外部合同临时处理 / 所需证据，
-  以及 P3 内部关闭项、自然语言残余局限与后续交付顺序。
-- [P3 资费公开契约与离线 Web 闭环](agent-kernel-phase3b-postage-p3.md)：命令绑定确认、
-  白名单报价依据、独立离线工厂、13 场景 / 28 Turn Eval 与本地浏览器验收。
-- [6A-1 浏览器访客身份](agent-kernel-phase6a1-browser-identity.md)：代理服务 Key 与访客 owner
-  分离、Cookie/同源校验、核验后恢复、多标签页竞态与默认关闭配置；54 Python / 15 Web 新增。
-- [6A-2 SQLite 持久化与恢复](agent-kernel-phase6a2-sqlite-recovery.md)：受控目录 / 整库租约、
-  含 WAL 的停服快照、新目录恢复、44 项新增回归与独立断网 Docker 三卷演练；不覆盖旧库。
-- [6A-3 受控部署与离线 CI](agent-kernel-phase6a3-controlled-deployment.md)：独立冻结镜像、
-  HTTPS / Host / 公开路由、自动门禁文件和新卷恢复 / V1 回退合成演练；21 项新增回归，
-  两个远程 CI job 已通过；[部署 runbook](../deploy/agent/README.md) 提供复跑和受控操作步骤。
-- [6A-3 工具链安全收口](agent-kernel-phase6a3-ci-closeout.md)：Vitest 4.1.11、默认单测与
-  dotenv / 开发代理分离、CI 全依赖 moderate 门禁、Node 22 构建内测试；3 项新增合同回归。
-- [6A-4 内网单实例更新](agent-kernel-phase6a4-intranet-release.md)：保留明确批准的 HTTP，
-  已通过远程 CI、目标主机兼容和正式 HTTP 黑盒验收；原 RAG / 价格库复用、三项物流 unavailable、快照与旧版回退。
-- [首页提示与示例质量](agent-homepage-quality.md)：悬浮通知 / 生命周期、真实示例验证、
-  RAG 证据不足与价格型号覆盖诊断；区分服务可用性、业务可回答性和页面体验。
-- [Phase 4A Stateful Agent V2 JSON API](agent-kernel-phase4a.md)：显式装配的 V2 JSON、
-  interrupt 投影、三层幂等、owner 隔离、外层 timeout、会话删除和 API 集成证据。
-- [Phase 4B Versioned SSE 与 Stateful Agent Web](agent-kernel-phase4b.md)：稳定 SSE 投影、
-  OpenAPI 类型生成、运行时事件校验、补槽/澄清 UI、刷新恢复、类型化 Renderer 和本地
-  Demo 浏览器验收。
-- [Phase 4C Agent Operations 与隐私安全可观测性](agent-kernel-phase4c.md)：独立 V2
-  readiness、低基数指标、脱敏 Run Trace、lifespan janitor 调度和降级语义。
-- [Phase 4D V1 Tool 复用与五能力 Agent 闭环](agent-kernel-phase4d.md)：共享 V1 合同、
-  Policy/Device 兼容 Adapter、完整 Evidence 投影、五能力 Demo 和 Web 结果卡片。
-- [Phase 5A Agent 多轮黑盒评测与质量门禁](agent-kernel-phase5a.md)：V2 HTTP 多轮 Runner、
-  13 场景/17 Turn fixture、七项质量门禁、失败归因和可复现本地基线。
-- [Phase 5B 可靠性故障矩阵、语义 Trace 与 Agent 报告对比](agent-kernel-phase5b.md)：
-  checkpoint 增量语义 Trace、隐私白名单、故障恢复矩阵和严格同样本逐 Turn 对比。
-- [Phase 5C Understanding 组件质量评测](agent-kernel-phase5c.md)：独立输入／观测契约、
-  Intent／硬槽位 F1、失败与用量口径、有界调用、数据冻结和同样本对照。
-- [2026-09-07 Understanding 对照证据](agent-understanding-comparison-20260907.md)：
-  48 条 development 数据、20 次真实模型请求、14 条改善与成本／泛化边界。
-- [Phase 5D 人工审核冻结与 V2 语义工作流回归](agent-kernel-phase5d.md)：跨文件污染检查、
-  pending 人工审核、数据冻结，以及 13 场景／28 Turn 的离线 Mock 供应商集成证据；未批准真实 holdout。
-- [Agent Workflow ADR](adr/README.md)：已接受的受约束 Agent、LangGraph Runtime、
-  Hybrid Understanding、Memory Boundary、Failure Taxonomy、类型化路由和评测门禁决策。
-- [Phase 5E 逐节点遥测与本地 Dashboard](agent-kernel-phase5e.md)：OTel 父子 span、
-  采样/有界导出、Prometheus 指标、只读 Trace 下钻及独立 Docker 合成烟测。
-- [Assistant Agent V2 OpenAPI](openapi/assistant-agent-v2.openapi.json)：Phase 4D JSON/SSE 与
-  readiness 已在显式装配路径实现；默认生产装配和真实接口字段仍用于后续
-  breaking-change 评审。
-
-## 求职与复盘
-
-- [AI 应用 / Agent 岗位技术复盘](project-retrospective.md)：只保留由当前实现支撑的量化结果、关键设计、工程权衡和面试素材。
+[Agent OpenAPI](openapi/assistant-agent-v2.openapi.json)是跨端版本化契约，保留原路径；
+后端契约测试与 Web 类型生成直接引用它。接口使用说明在 Assistant 目录，不复制 JSON。
+已有 ADR 保持根层统一编号，以便追踪 API、Web、Eval、存储和部署共同遵守的设计决策。
 
 ## 维护规则
 
-1. 文档只描述已由代码、配置或测试证明的能力，以及已经确认的当前约束。
-2. API 字段与错误码以实现和测试为最终依据；修改接口时同步更新对应文档。
-3. 性能数字必须注明版本、数据集、运行环境或“历史基线”，不得直接当作当前生产 SLA。
-4. `.env`、密钥、内部 IP、组织身份和一次性交付步骤不进入仓库文档。
-5. 未稳定方向只能写入明确标记为 `Proposed` 的规划文档；不得混入当前实现说明，
-   未确认字段必须保留 provisional 标记和接口确认清单。
-6. 面向特定交付对象的说明不作为长期项目文档；通用内容应提炼进对应主题。
+1. 新文档先确定归属：只改变一个模块的操作或实现，放该模块；跨模块协作与取舍才进入根 `docs/`。
+2. 模块 README 保持接手入口，专题较长再建模块内 `docs/`；不为简单模块建空目录或重复索引。
+3. 当前状态回答“现在怎样”；路线图只列未来；历史摘要保存有日期的证据；ADR 保存决策理由。
+4. 一个事实只维护一份。配置字段链接 `.env.example`/代码，接口链接契约，其他页面只作摘要和导航。
+5. 小变更不新增阶段报告或跳转壳。删除的过程材料由 Git 恢复；保留来源和结论，不保留流水账。
+6. 不提交原始附件、业务数据、个人问题、凭据、内部连接信息或完整私有运行报告。
+7. 迁移需同时更新根、模块、ADR、Eval 与部署引用，检查链接/锚点/命令；API 变更另验生成物和契约测试。

@@ -1,5 +1,8 @@
 # ADR-0002：LangGraph 作为 Workflow Runtime
 
+> 决策记录：下文验收范围保留为记录当时的事实；现状见[当前状态](../current-status.md)。
+
+
 - 状态：Accepted / Phase-1 Agent Kernel verified
 - 日期：2026-09-03
 - 验证版本：`langgraph 1.2.11`（以 `uv.lock` 为准）
