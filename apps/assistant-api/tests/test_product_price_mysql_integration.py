@@ -119,6 +119,39 @@ def test_exact_amounts_amountless_state_and_source_day_survive_native_mysql(pric
     assert fresh.observation.observed_at.isoformat() == "2026-01-15T16:00:00+00:00"
 
 
+def test_native_capacity_footnote_survives_quote_and_exact_selection(price_mysql):
+    from spb_assistant_api.domain.product_price_slots import ProductPriceCommand
+    from spb_assistant_api.domain.product_price_execution import PriceSelectionReference
+    from spb_assistant_api.services.product_price_query import ProductPriceQueryService
+
+    for table, column, key in (("v2_item_variant", "attributes", 401), ("v2_listing_revision", "normalized_attributes", 201)):
+        price_mysql.execute(
+            f"UPDATE {table} SET {column}=JSON_SET({column}, '$.capacity', :capacity) WHERE id=:key",
+            capacity="256 GB 1 脚注", key=key,
+        )
+
+    async def run():
+        repository = _repository(price_mysql)
+        try:
+            service = ProductPriceQueryService(repository)
+            fact = (await service.search(DevicePriceReadQuery(terms=("16",)))).candidates[0]
+            command = ProductPriceCommand(conditions={
+                "kind": "device", "product_text": fact.record.listing.identity.product_name,
+                "specification": {"capacity": "256GB"},
+            })
+            result = await service.quote_product(command)
+            assert result.status == "quote"
+            assert result.facts[0].record.listing.identity.specification.capacity == "256 GB 1 脚注"
+            selected = await service.quote_product(command.model_copy(update={
+                "selection": PriceSelectionReference.from_record(result.facts[0].record),
+            }))
+            assert selected.status == "quote"
+            assert selected.facts[0].record.observation == result.facts[0].record.observation
+        finally:
+            await repository.close()
+    asyncio.run(run())
+
+
 def test_fresh_filter_uses_source_region_market_and_nature_without_catalog_join(price_mysql):
     query = FreshPriceReadQuery(
         terms=("鸡蛋",), commodity_code="SYNTHETIC_EGG",

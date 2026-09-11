@@ -13,6 +13,7 @@ from spb_assistant_api.adapters.legacy_agent_tools import DevicePriceAssistantTo
 from spb_assistant_api.domain.agent_errors import AgentOperationError
 from spb_assistant_api.domain.commands import DevicePriceCommand
 from spb_assistant_api.domain.device_price_quote import DevicePriceSpecificationFilter
+from spb_assistant_api.domain.product_price_slots import ProductPriceCommand
 from spb_assistant_api.domain.exceptions import (
     PriceRepositoryUnavailableError, ProductPriceContractError, ProductPriceTimeoutError,
     ToolContractError, ToolUnavailableError,
@@ -146,6 +147,44 @@ def test_explicit_filter_does_not_relax_wrong_product_identity():
     ))
     assert result.status == "no_match"
     assert result.reason_code == "no_matching_device"
+
+
+@pytest.mark.parametrize("capacity,matched", [
+    ("256 GB 1 脚注", True),
+    ("256GB 12 脚注", True),
+    ("２５６ ＧＢ １ 脚注", True),
+    ("512 GB 1 脚注", False),
+    ("256GB/512GB 1 脚注", False),
+    ("最高 256 GB 1 脚注", False),
+    ("256 GB 1 其他说明", False),
+    ("256 GB 0 脚注", False),
+])
+def test_official_capacity_footnote_matches_only_a_single_proven_capacity(capacity, matched):
+    raw = baseline_v2_record("apple_pro_256").model_dump()
+    raw["listing"]["identity"]["specification"]["capacity"] = capacity
+    record = ProductPriceReadRecord.model_validate(raw)
+    service = ProductPriceQueryService(Facts(record))
+    command = ProductPriceCommand(conditions={
+        "kind": "device", "product_text": "iPhone 16 Pro",
+        "specification": {"capacity": "256GB"},
+    })
+    result = asyncio.run(service.quote_product(command))
+    assert (result.status == "quote") is matched
+    if matched:
+        assert result.facts[0].record.listing.identity.specification.capacity == capacity
+        assert service.matches_conditions(command, result.facts[0])
+    else:
+        assert result.reason_code == "no_matching_specification"
+
+
+def test_capacity_footnote_does_not_move_storage_evidence_into_ram():
+    raw = baseline_v2_record("apple_pro_256").model_dump()
+    raw["listing"]["identity"]["specification"].update(capacity="256 GB 1 脚注", memory=None)
+    service = ProductPriceQueryService(Facts(ProductPriceReadRecord.model_validate(raw)))
+    result = asyncio.run(service.quote_device(
+        "iPhone 16 Pro", specification=DevicePriceSpecificationFilter(memory="256GB"),
+    ))
+    assert result.status == "no_match"
 
 
 def test_truncated_recall_cannot_claim_no_match_for_missing_model_or_specification():

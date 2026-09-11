@@ -126,7 +126,12 @@ def normalize_text(value: str) -> str:
 def normalize_capacity(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value).upper()
     normalized = normalized.replace(" ", "")
-    match = re.fullmatch(r"(\d+(?:\.\d+)?)(TB|T|GB|G)", normalized)
+    # Official capacity fields may retain the accessibility footnote marker,
+    # e.g. "256 GB 1 脚注". Recognize only that complete suffix, not arbitrary
+    # surrounding text, ranges or another capacity. Evidence keeps the raw value.
+    match = re.fullmatch(
+        r"(\d+(?:\.\d+)?)(TB|T|GB|G)(?:[1-9]\d{0,2}脚注)?", normalized
+    )
     if not match:
         return normalized
     unit = "TB" if match.group(2) in {"T", "TB"} else "GB"
