@@ -32,7 +32,11 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/uv-tools"
           "$RUNNER_TEMP/uv-tools/bin/pip" install uv==0.11.28
-          "$RUNNER_TEMP/uv-tools/bin/uv" sync --frozen --package spb-assistant-api --group dev --python 3.12
+          # --package changes group ownership: dev belongs to the workspace root,
+          # not spb-assistant-api. Install its locked runtime, then add root tests
+          # without removing that runtime or installing the unrelated RAG stack.
+          "$RUNNER_TEMP/uv-tools/bin/uv" sync --frozen --package spb-assistant-api --no-dev --python 3.12
+          "$RUNNER_TEMP/uv-tools/bin/uv" sync --frozen --only-group dev --inexact --python 3.12
       - name: Isolated read-only V2 SQL gate
         run: .venv/bin/python deploy/price-query/mysql_smoke.py --mysql '${{ matrix.mysql }}' --pull
       # The runner only accepts pinned image digests and a local Unix Docker
