@@ -16,7 +16,7 @@
 | 修改 Understanding、Routing、State、Loop 或失败行为 | [Agent 运行设计](docs/runtime.md) |
 | 配置、身份、状态库、备份恢复与排障 | [服务运维](docs/operations.md) |
 | 接模型 / 物流供应商 | [Query Model](docs/integrations/query-model.md)、[轨迹](docs/integrations/tracking.md)、[资费](docs/integrations/postage.md) |
-| 适配全品类价格 V2 数据 | [价格消费合同与内部查询](docs/integrations/product-price.md)、[MySQL 隔离门禁](../../deploy/price-query/README.md)（设备可显式受控装配，默认未切换） |
+| 维护全品类价格能力 | [消费合同](docs/integrations/product-price.md)、[理解](docs/integrations/product-price-understanding.md)、[候选循环](docs/integrations/product-price-agent-loop.md)、[公开协议与升级](docs/integrations/product-price-public-release.md)、[MySQL 隔离门禁](../../deploy/price-query/README.md) |
 
 完整部署涉及 Web、网络、数据与镜像，归[跨服务运维](../../docs/operations.md)和
 [部署操作手册](../../deploy/agent/README.md)，不是单独启动本服务即可完成。
@@ -65,22 +65,28 @@ LangGraph import 限制在 Workflow 与 checkpointer adapter 边界。DTO 不直
 ## V1 / V2 如何复用
 
 V1 接收显式 `policy/device_price`，一次请求只执行一个 Tool，无会话历史。
-V2 的 Compatibility Adapter 只把类型化 Command 转换为既有 Tool 调用，再投影类型化结果：
+政策 V2 的 Compatibility Adapter 把类型化 Command 转换为既有 Tool 调用，再投影类型化结果；
+代码默认 `device_v1` 兼容配置的设备查询也沿用这条路径：
 
 ~~~text
 V2 Command → legacy_agent_tools → 同一 V1 AssistantTool
   → 共享 ToolResult 校验 → Agent Result 校验 → 公开 API / Renderer
 ~~~
 
-政策的检索、拒答和引用校验，价格的产品级匹配/规格过滤都不复制。
-Agent 借用 V1 Tool；默认应用先初始化 V1 Registry，再启动 Agent，关闭时顺序相反。
-HTTP 连接池和数据库连接不能由多个层重复关闭。
+全品类 V2 数据不天然符合 DevicePriceRecord，因此已实现独立的类型化查询/结果边界。
+显式选择 `ASSISTANT_PRICE_DATA_MODEL=catalog_v2` 时：
 
-该复用解决已有两类查询；全品类 V2 数据并不天然符合 DevicePriceRecord，
-需要新的查询/结果边界，不能仅更改 SQL 表名。
-显式选择 `ASSISTANT_PRICE_DATA_MODEL=catalog_v2` 时，应用持有一套 V2 Repository/Service，
-V1 薄包装和既有 Agent 设备适配器均借用；先初始化价格资源，再启动消费者，反序关闭。
-未配置、无匹配或故障均不 fallback 旧表。默认仍是 `device_v1`，未自动切换部署或已有会话。
+~~~text
+Agent product_price → ProductPriceTool ──┐
+                                        ├→ ProductPriceQueryService → V2 Repository
+V1 device_price → V2DevicePriceTool ──────┘       └→ 设备 / 生鲜分类策略
+~~~
+
+应用唯一持有价格 Repository/Service，先初始化资源，再启动借用它们的 V1/Agent 消费者，反序关闭。
+政策仍借用 V1 Tool；HTTP 连接池和数据库连接不能由多个层重复关闭。
+catalog Agent 不再注册旧 `device_price` 意图；无配置、无匹配或故障均不 fallback 旧表。
+代码默认仍是 `device_v1`，与已限定发布的 catalog_v2 配置分开；不能只改开关而忽略 API/Web/状态升级。
+浏览器契约为 `product-price-v1`，当前 State 为 4；旧完成价格保留原事实，旧 pending 明确要求新查询。
 受控配置、旧卡片无金额限制和旧依赖退出见[消费合同](docs/integrations/product-price.md)，
 整体门禁见[全品类价格实施计划](../../docs/product-price-implementation-plan.md)。
 

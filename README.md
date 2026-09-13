@@ -4,8 +4,9 @@
 以政策知识库和结构化价格库验证业务边界。保留独立的 V1 单轮 API，不让模型直接决定价格、
 拼接 SQL 或自由调用工具。
 
-**单实例内网 Agent 已阶段性交付。** 政策与设备价格接入真实数据；轨迹、资费、时限在正式
-入口正常显示暂不可用。本地合成通路不等于供应商互通，完整边界见[当前状态](docs/current-status.md)。
+**单实例内网 Agent 已阶段性完成。** 政策 RAG、设备与已有生鲜价格已接入真实数据并限定发布；
+轨迹、资费、时限接口作为遗留保留，正式入口正常显示暂不可用。
+“全品类”不代表任意商品覆盖，本地合成通路也不等于供应商互通；完整边界见[当前状态](docs/current-status.md)。
 
 ## 架构与能力
 
@@ -14,7 +15,7 @@
                                          ↑ HTTP
 浏览器 → 同源代理 → assistant-api / LangGraph
                          ├→ 复用政策 Tool ┘
-                         ├→ 复用设备价格 Tool → MySQL（只读）
+                         ├→ 商品价格 Tool → 统一查询核心 → MySQL V2（只读）
                          └→ 类型化物流 Gateway（按装配启用）
 
 eval → 公开 HTTP / 版本化组件文件 → 独立评分与回归门禁
@@ -23,11 +24,12 @@ eval → 公开 HTTP / 版本化组件文件 → 独立评分与回归门禁
 - Understanding：显式入口/规则优先，DeepSeek 可选 fallback，硬实体重新验证。
 - Workflow：条件路由、interrupt/resume、冲突确认、有界重试、SQLite 和执行收据。
 - API/Web：版本化 JSON/SSE、匿名访客隔离、刷新恢复、幂等重放、领域卡片与引用。
+- 价格：设备/生鲜分类策略、结构化候选选择、金额/单位/来源证据；V1 设备协议借用同一核心。
 - 工程保障：低基数指标、脱敏语义 Trace、逐 Node OTel、黑盒 Eval、备份恢复和离线 CI。
 - RAG：Dense + BM25 / RRF、重排、证据充分性判断及引用式生成；离线数据生产独立运行。
 
 [模块边界](docs/workspace-architecture.md) · [数据源](docs/data-sources.md) ·
-[后续路线图](docs/roadmap.md) · [面试复盘](docs/project-retrospective.md)
+[遗留与可选路线图](docs/roadmap.md) · [面试复盘](docs/project-retrospective.md)
 
 ## 快速开始
 

@@ -211,3 +211,18 @@ git show a2fb398:docs/agent-kernel-phase3b-tracking-t2.md
 旧容器和原 runtime 保留，回滚命令写入私有 active-release.json；未为演示再执行一次正式回滚。
 五品牌完整等价、生产 SELECT-only 账号、来源更新策略、可选历史及旧实现清理继续按 PRICE-G 推进。
 这次发布不是“全品类/全部型号覆盖”、模型 holdout 或生产 SLA 声明。
+
+## 10. 2026-09-13：阶段收口与文档审查
+
+以 `823a212` 的应用代码为基线复核，当前项目转入维护；轨迹/资费/时限真实接口作为遗留保留，
+不为收口补造配置或删除已有 Adapter/Mock。已实现的 catalog 共享核心、公开契约、候选循环和 State 4
+同步到根/服务/API/Web/Eval 文档；路线图不再把已完成的公开价格或旧首页发布列为在途任务。
+压缩当前状态页的中间阶段日志，保留有日期的数据与发布边界；原详细过程可由
+`git show 823a212:docs/current-status.md` 恢复。ADR 保留原决策理由，复盘只写已交付能力。
+
+本次复跑：Python `1900 passed, 52 skipped`（专用隔离 SQL）；Web `114 passed`，
+生成类型检查、vue-tsc、Agent/V1 两种隔离构建通过；资费 13 场景/28 Turn、商品 7 场景/9 Turn 的公开门禁均通过。
+检查全仓 Markdown 本地链接/锚点及修改文档的 Shell/JSON/JavaScript 语法，
+最小 API 示例以合成 fetch 验证两种价格 profile；文档中的隔离 catalog API 启动及 live 健康检查通过。
+未调用真实模型、供应商或业务数据库，未修改 `.env`、业务代码、服务器或数据。
+本地本次未复跑 Docker/MySQL/浏览器发布演练；推送提交对应的远程 CI 应单独核验，不冒用此前发布结果。

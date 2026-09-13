@@ -1,6 +1,8 @@
 # 全品类价格查询：V2 消费与设备能力替换实施计划
 
-日期：2026-09-11。性质：实施计划，不是上线记录；阶段进度与验证边界见[当前状态](current-status.md)。
+设计日期：2026-09-11；收口审查：2026-09-13。性质：已执行方案与遗留验收依据，不是新的开发指令或上线记录。
+A～D 已实现，E 已完成限定范围发布；本轮阶段性关闭，剩余 PRICE-G 保留，须另行明确范围后再启动。
+阶段进度与验证边界见[当前状态](current-status.md)，不将阶段性收口等同于最终全替换目标完成。
 Assistant 审查基线为 `9efb621`；真实环境状态仍以[当前状态](current-status.md)中的核验日期为准。
 本文是这次跨 Assistant / Web / Eval / 数据生产者改造的实施入口；
 [ADR-0020](adr/0020-unified-product-price-query.md)记录架构取舍，进度只汇总到状态页。
@@ -26,9 +28,9 @@ API V1/V2、价格数据 V1/V2 和 State 版本不是同一版本线，见[数�
 采集侧负责原生写入 V2，不由 Agent 搬运 V1 数据。能力替换不承诺 V1 历史连续性；
 旧表物理保留或删除属于生产者管理，删除必须另获授权。
 
-### 1.2 改造前基线与必须补的缺口
+### 1.2 改造前基线与改造内容（历史对照）
 
-| 边界 | 当前实现 | 本次改变 |
+| 边界 | 改造前实现（9efb621） | 本次改变 |
 | --- | --- | --- |
 | 价格读库 | `MySQLPriceRepository` 连接 V1 六表；只读取非空现价；初始化仅 `SELECT 1` | V2 只读投影、关联一致性、空金额状态与 schema 探测 |
 | 设备检索 | 产品硬身份约束 → 产品排序 → 产品内规格过滤 | 保留匹配语义，替换数据来源和证据对象 |
@@ -47,7 +49,8 @@ API V1/V2、价格数据 V1/V2 和 State 版本不是同一版本线，见[数�
 采集侧参考独立 `device-price-service` 仓库的 `docs/V2_DEVICE_NATIVE_COLLECTION_PLAN.md`
 及 `docs/V2_GENERAL_CATALOG_DEVELOPMENT_PLAN.md`，不在本仓库复制生产者计划。
 2026-09-11 A 冻结时采集侧阶段 I 本地完成；后续 D1/D2 核对已确认目标库升级并存在五品牌原生 V2 数据，
-M 验收记录仍保留 6 组 iMac 重复身份待处理，部分源码/记录尚未提交。实时核对证据唯一写入状态页。
+当时 M 验收记录仍保留 6 组 iMac 重复身份待处理，部分源码/记录未提交；未重新核验前不推定已关闭。
+有日期的核对证据唯一写入状态页，不表示实时状态。
 消费者原审查快照和字段冻结边界见
 [价格消费合同](../apps/assistant-api/docs/integrations/product-price.md)，不能把代码存在当成数据库已升级。
 
@@ -74,13 +77,13 @@ V1 device_price → 设备协议适配器 ────────────�
 - **应用生命周期**：价格连接池与 Service 只初始化/关闭一次；V1 包装器和 Agent Tool 只借用。
   政策 Tool 现有复用不随本次价格迁移重写。
 
-下列是实施落点，不表示全部已实现；实际交付范围见状态页。相对路径从 Assistant `src/spb_assistant_api/` 起算。
+下列是当前实现落点及保留的清理边界；相对路径从 Assistant `src/spb_assistant_api/` 起算。
 
 | 工作包 | 主要落点 |
 | --- | --- |
-| 查询与事实模型 | `domain/product_price.py`、`product_price_query.py`、`ports.py`；后续修改 `intents.py`、`slots.py`、`commands.py`、`results.py` |
+| 查询与事实模型 | `domain/product_price.py`、`product_price_query.py`、`product_price_slots.py`、`product_price_execution.py`、`ports.py`；意图/槽位/Command/Result 配套 |
 | V2 数据读取 | `adapters/mysql_product_price.py`、`product_price_rows.py`；替换完成后移除旧 `mysql_price.py` 的生产依赖 |
-| 共用业务核心 | `services/product_price_query.py`、`device_price_matching.py`、`domain/device_query.py`；旧协议包装器 `tools/v2_device_price.py`，D 再接统一 ProductPriceTool |
+| 共用业务核心 | `services/product_price_query.py`、`device_price_matching.py`、`domain/device_query.py`；`tools/v2_device_price.py` 与 `tools/product_price.py` 借用同一 Service |
 | 理解与执行 | `services/query_understanding.py`、`slot_merger.py`、`result_validator.py`、`agent_tools.py`；`workflow/` 策略、节点、状态和迁移 |
 | 装配与兼容 | `api/app.py`、`configured_agent.py`、`workflow/composition.py`、`adapters/legacy_agent_tools.py` 及受控部署配置 |
 | 跨端 | `api/agent_schemas.py`、`api/agent_contracts.py`、公开投影；根 OpenAPI、Web 类型/校验/组件、Eval 独立镜像 |
@@ -103,11 +106,11 @@ B/C 实施时必须保持：
 
 ## 4. Query Understanding、Routing 与结果契约
 
-### 4.1 拟定类型边界
+### 4.1 已实现类型边界
 
 以下类型边界已在 D 实现；字段和接口设计选择见消费合同，公开 schema 同步维护生成类型与独立校验。
 
-D1/D2 已实现的条件字段、组件开关和 HTTP 临时门禁见
+D1/D2 已实现的条件字段与 profile 约束见
 [Understanding 组件](../apps/assistant-api/docs/integrations/product-price-understanding.md)。
 该组件生成 Command 和补槽决定；D3～D7 已配套结果驱动的 Tool/候选循环、公开 Data/卡片及 State 4。
 真实部署与覆盖的验收仍单独记录，不能由组件通过推定。
@@ -166,7 +169,7 @@ understand → decide → 缺条件：clarify / interrupt → resume → underst
 ~~~
 
 价格 `need_more_info` 不能继续被通用 compose 直接标为 completed；合法候选进入等待用户状态。
-选择须经独立类型化输入，例如拟新增的 `price_selection.candidate_token`，
+选择须经独立类型化输入 `price_selection.candidate_token`，
 同时扩展公开 RequiredInput，而不是把 JSON 塞进 `message` 或接受任意槽位字典。
 自然语言“第二个”也只能映射当前有效候选，不能凭模型创造数据库标识。
 
@@ -185,8 +188,8 @@ understand → decide → 缺条件：clarify / interrupt → resume → underst
 | resume | 保留 query_id、已用 Tool/retry/澄清预算；只更新本轮 deadline 等允许字段，不能用刷新/补槽重置额度 |
 | 重放 | 同一已完成 call/message 返回原结果、来源和时间；新查询生成新 query_id 并重新取数，不把收据当业务缓存 |
 
-当前默认 `max_tool_calls=1`，而 clarify resume 保留 query 计数。因此预算和分支必须一起改，
-不能只画出两次调用却沿用单次上限。Service 内必要的多条有界 SQL 不等于多个 Agent Tool 调用，
+非价格默认 `max_tool_calls=1`；价格已实现查询专属预算，clarify resume 保留 query 计数。
+预算和分支共同受控。Service 内必要的多条有界 SQL 不等于多个 Agent Tool 调用，
 需分别测量；在一次不中断的受控执行中，2 个逻辑调用加 1 次 retry 最多产生 3 次 Tool 实际尝试。
 不据此宣称硬崩溃窗口下的 exactly-once 或外部调用绝对上限。
 
@@ -234,8 +237,9 @@ understand → decide → 缺条件：clarify / interrupt → resume → underst
 
 ## 7. A～E 实施阶段与交付门禁
 
-以下描述各阶段交付门禁，实施进度唯一维护于当前状态。阶段按门禁推进，不按承诺日期自动进入下一阶段。
-默认每阶段提交可独立回归的改动；提交、推送、真实联调和发布按当次授权执行。
+以下保留原阶段工作包及门禁，用于追溯已完成设计和未来补验，不表示 A～D 仍待开发。
+当前收口状态唯一维护于状态页；E 剩余项已转遗留，不自动进入下一阶段。
+重新启动时提交、推送、真实联调和发布按当次授权执行。
 
 ### A. 冻结消费者契约与旧能力基线
 
@@ -284,7 +288,7 @@ understand → decide → 缺条件：clarify / interrupt → resume → underst
 
 输出：具备设备旧能力的 V2 核心与 V1 HTTP 兼容适配；已知覆盖缺口说明。
 退出条件：旧有效行为矩阵全通过，明确型号负例不误答；原价和状态不降级；两种 HTTP 复用不导致双重关闭。
-此时不能宣称全品类 Agent 已完成，因为 D 的槽位、候选和公开结果尚未接入。
+仅完成 C 时不能宣称全品类 Agent 已完成；本轮已继续交付下述 D 的槽位、候选和公开结果。
 
 ### D. 统一 Agent、Web 与离线验收
 
@@ -351,20 +355,23 @@ D 的价格离线黑盒已纳入 `python -m apps.assistant-api.tests.ci_offline_
 公开协议、状态兼容和发布顺序见[协调发布设计](../apps/assistant-api/docs/integrations/product-price-public-release.md)，
 不能把合成 API 或 FakeEngine 测试标为真实 V2 SQL 已验收。
 
-最终完成清单：
+收口清单（将实现、限定发布和最终全替换分开）：
 
-- [ ] 目标设备能力与首轮生鲜范围使用同一查询核心，V1 价格表不存在或不可访问也可运行。
-- [ ] 金额、单位、地区、口径、来源、状态和观察时间均有证据；无金额与历史不伪装现价。
+- [x] 设备与已有生鲜使用同一核心；隔离 MySQL 已验 V1 表不存在/不可访问仍可运行。
+- [x] 金额、单位、地区、口径、来源、状态和时间合同及负例通过；限定真实样本已验，不伪装实时。
 - [x] 统一 Agent 理解/补槽/候选/恢复闭环，以及 V1 设备协议有效行为通过回归。
 - [x] OpenAPI、Web 校验/渲染、Eval 镜像与状态兼容同步，其他能力通过离线回归。
-- [ ] 有授权的真实数据验收、远程 CI 和目标入口核验完成；回退与权限边界有记录。
-- [ ] 无旧 SQL fallback；未覆盖范围如实保留，不把合成测试或一品牌验收描述成全部完成。
+- [x] 授权的有限真实联调、远程 CI、备份恢复及 API/Web 协调发布已完成；目标 HTTP 已验。
+- [x] catalog 无旧 SQL fallback；旧默认配置与未覆盖范围保留，不把有限验收写成全替换。
+- [ ] 五品牌完整同证据语义、真实无金额状态推进及公司库 SELECT-only 权限补验（遗留）。
+- [ ] 来源 freshness 策略、目标浏览器人工交互、正式回滚演练及旧实现清理（遗留）。
+- [ ] 可选最近有价历史 SQL（独立增强；当前保守不返回，不阻塞本轮收口）。
 
 ## 9. 缺口登记与推进规则
 
 负责人列指职责角色，不代表已经获得对方确认。下列本地审查记录为 2026-09-11，
-有源码依据不等于已获生产者交付确认。开发中补充状态、证据版本和关闭日期，
-连接信息与真实样例留在私有交接记录。阶段未结束时也可先完成不受阻塞的任务。
+有源码依据不等于已获生产者交付确认。2026-09-13 本轮已阶段性收口，未关闭行作为遗留保留；
+后续获得新证据再更新状态、证据版本和关闭日期，连接信息与真实样例留在私有交接记录。
 
 | ID | 事项与本地审查状态 | 负责人角色 | 阻塞与可先做部分 |
 | --- | --- | --- | --- |
@@ -386,12 +393,11 @@ D 的价格离线黑盒已纳入 `python -m apps.assistant-api.tests.ci_offline_
 
 开发交接以状态页为准：D3 内部闭环见[执行设计](../apps/assistant-api/docs/integrations/product-price-agent-loop.md)，
 D4～D7 的白名单 DTO、结构化候选、客户端门禁、Web/Eval 与 State 4 配套实现见[协调发布设计](../apps/assistant-api/docs/integrations/product-price-public-release.md)。
-本轮按用户授权完成限定范围 E 发布；五品牌完整语义、V2-only 生产权限、历史和旧 SQL 清理不能因此自动关闭。
+已按用户授权完成限定范围 E 发布；五品牌完整语义、V2-only 生产权限、历史和旧 SQL 清理不能因此自动关闭。
 内部 ProductPriceData 含事实标识，不得直接序列化为公开 DTO；远程 CI 与目标部署必须各有实际证据。
-不要只重命名 `device_price` 就宣称 D 完成；
-旧设备协议对无金额状态的受限投影与旧依赖清单见消费合同。可选历史按 PRICE-G11 独立保留。
-未获得真实访问条件时可以完成 B/C/D 的隔离通路，但状态保持“离线完成、真实验收待办”。
+旧设备协议对无金额状态的受限投影与旧依赖清单见消费合同；可选历史按 PRICE-G11 独立保留。
+没有新的真实覆盖证据时维持既有验收边界，不重复宣称已完成的 D 仍在开发。
 
-完成后可写入[技术复盘](project-retrospective.md)的素材包括：统一读取核心与分类策略、
+已写入[技术复盘](project-retrospective.md)的素材包括：统一读取核心与分类策略、
 证据/单位/状态建模、受约束候选循环、收据与新查询分离、V2-only 权限测试及渐进式替换。
-届时只记录实际交付、测试和测量结果；本方案不提前写入简历成效，也不虚构准确率或性能提升。
+只记录实际交付、测试和测量结果，不把遗留目标写入简历成效，不虚构准确率或性能提升。

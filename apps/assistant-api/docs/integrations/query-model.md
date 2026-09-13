@@ -10,6 +10,9 @@
 Hybrid 先用显式入口、当前等待输入和规则决策，仅在需要语义补充时调用独立 DeepSeek Adapter。
 模型只分类，不选择可执行工具/URL/权限，也不生成价格事实。Prompt 要求 slots=null；
 Hybrid 对模型结果做 Pydantic 校验后，从原输入重新提取硬实体。
+catalog_v2 的 schema/prompt profile 使用 product_price 替代 device_price，并重提设备/生鲜条件；
+旧 profile 不接受新价格意图。配置模型不意味着可生成商品 ID、候选 token 或 SQL；
+商品边界见[Understanding 专题](product-price-understanding.md)，历史 48 条对照不代表该新范围的真实模型效果。
 
 | 模块 | 职责 |
 | --- | --- |

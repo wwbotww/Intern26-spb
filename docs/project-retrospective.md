@@ -67,9 +67,9 @@ LangGraph 只承担条件边、interrupt/resume、checkpoint 与执行调度。
 ### F. 复用旧业务，而不是另写一套 Agent Tool
 
 问题：Agent 化容易复制 RAG/价格逻辑，形成两套校验与生命周期。
-做法：Compatibility Adapter 只翻译 Command/Result，V1/V2 借用同一 Tool，
-共享结果合同，分别公开投影；lifespan 唯一拥有 Client/连接池。
-验证：V1/V2 同实例、初始化/关闭仅一次、完整引用/价格字段与失败映射一致。
+做法：政策及旧价格配置通过 Compatibility Adapter 借用同一 Tool；全品类则让 Agent Tool 与
+V1 设备薄包装借用统一 Query Service/Repository，领域事实分别公开投影，lifespan 唯一拥有连接。
+验证：V1/Agent 共用实例、初始化/关闭仅一次、引用/价格及失败映射回归、V2-only 真实 SQL 隔离测试。
 限制：全品类数据不天然符合设备 SKU 模型，复用基础设施不等于复用所有领域语义。
 依据：ADR [0007](adr/0007-v1-v2-api-compatibility.md)、[数据边界](data-sources.md)。
 
@@ -95,7 +95,7 @@ CI 用隔离合成配置演练 HTTPS/恢复/回退，真实发布另验现有依
 限制：HTTP 内网例外没有链路加密，匿名访客不是企业登录；目标页面人工验收单列。
 依据：ADR [0017](adr/0017-browser-visitor-identity.md)、[0019](adr/0019-controlled-deployment-and-offline-ci.md)。
 
-## 3. RAG / 数据工程补充故事
+## 3. 商品价格与 RAG / 数据工程补充故事
 
 ### 商品价格扩展：语义条件与数据事实分层
 
@@ -147,6 +147,8 @@ CI 用隔离合成配置演练 HTTPS/恢复/回退，真实发布另验现有依
 建立从只读数据合同、公开协议到可回滚发布的完整交付链路。”
 边界：一次线上烟测不代表全量覆盖或 SLA；目标浏览器交互因内网访问超时仍需人工复核。
 
+### RAG 与离线数据工程
+
 - **可恢复流水线**：分页完整性、稳定 ID/内容哈希、SQLite 抓取状态、OCR sidecar、
   失败项 lineage；保留无法恢复附件，而非隐藏失败。
 - **模型感知切分**：结构化条款/表格切分后用真实 tokenizer 检查输入，避免 embedding 静默截断。
@@ -163,8 +165,8 @@ CI 用隔离合成配置演练 HTTPS/恢复/回退，真实发布另验现有依
   多轮补槽/命令确认及有界失败恢复，并保持业务规则与框架隔离。
 - 设计查询作用域执行收据与三层幂等，支持 SQLite 重启续聊、JSON/SSE 重放、
   owner/TTL 约束及停服整库新目录恢复，区分主动刷新与重复执行。
-- 以 Compatibility Adapter 复用既有 RAG/价格 Tool，同步 OpenAPI、生成 TS、
-  运行时校验、领域 Renderer 与独立 Eval，避免复制业务实现。
+- 以 Compatibility Adapter 复用政策 Tool，以统一 V2 只读核心服务 Agent 商品查询及旧设备协议，
+  配套候选循环、OpenAPI/TS/Web/Eval 与 State 4 兼容，实现设备及已有生鲜的限定交付。
 - 建立 Understanding 组件与 V2 多轮分层评测、审核冻结/同样本对照及脱敏 Trace/OTel；
   48 条合成 development 上 Macro-F1 0.7068→1.0000，明确不是独立 holdout。
 - 完成单实例内网交付，覆盖匿名访客隔离、离线 CI、备份/回退与旧主机受限兼容；
@@ -175,6 +177,8 @@ CI 用隔离合成配置演练 HTTPS/恢复/回退，真实发布另验现有依
 演示顺序：无 Key Demo → 缺槽/澄清 → 刷新恢复 → JSON/SSE 重放 →
 同单号新查询 → 故障注入 → Node Trace → 查看评测差异。
 严格资费再演示“产品/范围确认、改条件确认失效、来源/金额依据”，入口见[开发指南](development.md)。
+商品价格用独立合成 Demo 展示“缺类目/口径 → 候选 → 刷新恢复 → 精确重读 → 双单位/来源日”，
+不为面试直接查询真实业务或消费模型预算。物流真实接口作为遗留保留，不列为已上线成果。
 
 不要说：五个真实工具均上线、意图理解准确率 100%、模型从不编造、供应商只计费一次、
 支持多副本高可用、HTTP 达到公网安全要求、所有政策现行适用或价格覆盖所有型号。

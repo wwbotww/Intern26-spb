@@ -61,6 +61,32 @@ fixture 之外的组合可能返回合成拒绝，不表示现实中不可寄递
 评测数据/格式与门禁唯一维护于 [Eval](../../../eval/README.md)。
 产品、签名、响应校验和待确认合同见[资费适配](integrations/postage.md)。
 
+## 商品价格与候选恢复演示
+
+独立 catalog_v2 合成入口，使用回环访客身份。该测试 helper 本身会构造普通 Settings；
+下面从全新目录、清空继承环境启动，避免本地 dotenv/遥测/身份配置混入，不接模型或公司库。
+API 固定 18086，Web 固定 13006；不能与其他同端口身份 QA 同时运行。
+
+终端一：
+
+~~~bash
+CATALOG_DEMO_REPO="$PWD"
+CATALOG_DEMO_DIR=$(mktemp -d)
+(
+  cd "$CATALOG_DEMO_DIR"
+  env -i PATH="$PATH" \
+    PYTHONPATH="$CATALOG_DEMO_REPO:$CATALOG_DEMO_REPO/apps/assistant-api/src" \
+    "$CATALOG_DEMO_REPO/.venv/bin/python" -m apps.assistant-api.tests.product_price_browser_fixture \
+    --database "$CATALOG_DEMO_DIR/agent.db"
+)
+~~~
+
+另一个终端按 [Chat Web / 商品价格 Demo](../../chat-web/README.md#商品价格-demo)启动 Web。
+设备可输入“查询 iPhone 16 Pro 价格”，在候选等待时刷新，再点击规格取得合成报价；
+生鲜可输入“黄瓜价格”，按要求补上海和零售口径，查看来源日及原始/标准单位。
+合成来源时间不保证与今天一致；旧来源日的 partial 是预期，不得改成实时价。
+以上验证的是公开协议、身份和恢复，不是 V2 SQL 或真实五品牌覆盖。
+
 ## 使用真实依赖
 
 - V1 本地启动与 dotenv 优先级见[服务入口](../README.md)，具体协议见 [V1 API](api-v1.md)。

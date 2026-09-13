@@ -30,13 +30,15 @@ eval ─────────── HTTP / 文件契约 → 被测系统
 ## 复用在哪里发生
 
 - 离线生产和在线检索共享数据契约，不共享爬虫或服务实现。模型/collection 不兼容时必须协调升级。
-- Assistant V1/V2 复用同一政策与设备价格 Tool；工作流通过类型化 Adapter 调用，不复制检索或匹配算法。
+- 政策 V1/V2 通过类型化 Compatibility Adapter 复用同一 Tool，不复制检索、拒答和引用校验。
+- `catalog_v2` 下，Agent `ProductPriceTool` 与 V1 `V2DevicePriceTool` 薄包装器借用同一
+  `ProductPriceQueryService` / `MySQLProductPriceRepository`；设备与生鲜分别匹配，共用证据核心。
   装配顺序、资源生命周期和 Agent 内部分层见 [Assistant](../apps/assistant-api/README.md)。
 - Web 按公开 Result 类型复用 Renderer；不消费 LangGraph State，服务端 checkpoint 才是事实状态。
 - Eval 独立验证公开结果；不导入业务实现来“复用答案”，避免实现错误同时污染评分。
 - 设备价格 V1 与全品类 V2 的业务语义不同，不能只改 SQL 表名复用旧查询。范围见[数据源边界](data-sources.md)。
-  拟通过统一查询核心与分类策略替换旧表依赖，详见[实施计划](product-price-implementation-plan.md)；
-  这仍是目标架构，不改变上面所述的当前复用关系。
+  上述统一核心已实现并限定发布；代码默认的 `device_v1` 兼容配置仍使用旧 Tool/Repository，
+  不属于 catalog 查询失败时的 fallback。完整五品牌验收及旧 SQL 退出保留为[遗留](roadmap.md)。
 
 ## 跨端契约及维护者
 
@@ -59,6 +61,6 @@ OpenAPI 留在根层是因为它是跨端生成物；人读的 [V2 接口说明]
 | 新供应商 | Assistant wire contract / Gateway → 组合根 | 编码/签名/失败/语义熔断、资源关闭；真实调用单独验收 |
 | 新结果字段 | Assistant Domain / 公开投影 → OpenAPI → Web TS/Renderer → Eval 镜像 | JSON/SSE、旧快照、非法事实与私有字段拒绝 |
 | 新存储/扩容 | Assistant Port / adapter / coordinator → 部署 | owner、TTL、创建/消息/Tool 幂等、恢复及冲突 |
-| 调整 RAG/价格 | 原 Tool / Source / Repository | V1 与 V2 共用回归；不在 Node 复制业务算法 |
+| 调整 RAG/价格 | Tool / Source、共享 Query Service / 分类策略 / Repository | V1 与 V2 共用回归；不在 Node 复制业务算法 |
 
 设计理由见[ADR 索引](adr/README.md)；安装、联调与全局验证见[开发指南](development.md)。

@@ -20,6 +20,8 @@
 浏览器模式先 `POST browser-session`，JSON `{"reset":false}`，响应
 `{session_ref, expires_at}`。Cookie 为 HttpOnly，JS 只能获得非秘密的 session_ref。
 后续业务请求带 `X-Agent-Session`，同源发送 Cookie；不安全方法须有精确 Origin。
+catalog_v2 浏览器另须带 `X-Agent-Contract: product-price-v1`，用于能力、消息和快照的兼容检查，
+不是身份凭据；缺失/不符在 SSE 或状态写入前返回 409 `agent_client_upgrade_required`。
 普通核验不重新 Set-Cookie、不延长绝对期限；失效后用户显式 reset 才建立新身份。
 重建不撤销所有旧 Token、不自动删除旧服务端会话；旧本地 pending 不可换身份重发。
 
@@ -30,10 +32,12 @@
 | POST /browser-session | 浏览器代理专用的建立/核验/重建身份；条件挂载 |
 | GET /capabilities | 五类意图、available、输入描述；动态选项仍以当前 interrupt 为准 |
 | POST /messages | 新建、补槽/确认、恢复或已完成会话的新查询；JSON/SSE |
+| GET /conversations/{id} | owner/TTL 校验后读取最新持久停止点；不执行 Graph、不续期 |
 | DELETE /conversations/{id} | 校验 owner 后清理会话；同 owner 重试 204 |
 | GET /health/ready | 运维专用，不是浏览器业务路由；无真实付费探测 |
 
 能力列表存在不代表全部 available，也不代表上游此刻在线。不要在客户端绕过服务端能力门禁。
+每个 profile 只有一个价格能力：catalog_v2 为 `product_price`，device_v1 为 `device_price`。
 
 ## 3. 消息请求
 
@@ -52,10 +56,15 @@
 
 - 新会话需要 message；文本去除首尾空白后为 1～2000 字符。
 - 后续消息带服务端返回的 conversation_id。恢复意图澄清时可只提交 explicit_intent。
-- 意图只允许 policy、device_price、tracking、delivery_time、postage；不能显式选 unknown。
+- 当前 profile 允许 policy、tracking、delivery_time、postage 以及一个价格意图；不能显式选 unknown。
+  catalog_v2 新请求使用 product_price；旧 device_price 返回 409 `agent_price_intent_upgraded`。
+  device_v1 环境则不开放 product_price；客户端应读取能力目录，而不是直接遍历完整历史枚举。
 - confirm_overwrite 只确认冲突覆盖，不等于资费最终范围确认。
 - required_inputs 中的 mail_no、product_code、postage_confirmation 是 UI 输入描述，
-  **不是任意可添加的请求顶层字段**。当前客户端将值/选择序列化为 message，额外字段被拒绝。
+  **不是任意可添加的请求顶层字段**。普通槽位将值/选择序列化为 message，额外字段被拒绝。
+- 商品候选是显式例外：从 required_inputs 的 price_candidates 取得服务端 token，发送
+  `price_selection: {candidate_token}`。必须带 conversation_id，不能同时改 message、explicit_intent
+  或请求 confirm_overwrite；不能提交数据库 ID。完整合同见[价格公开协议](integrations/product-price-public-release.md#2-候选请求与幂等)。
 - 不提交 history、owner_id、Graph State、工具名或供应商配置；状态由服务端持有。
 
 ## 4. 浏览器最小调用顺序
@@ -75,16 +84,24 @@ const bootstrap = await fetch(base + '/browser-session', {
 })
 if (!bootstrap.ok) throw new Error('请先处理身份核验失败')
 const identity = await bootstrap.json()
-const headers = { 'X-Agent-Session': identity.session_ref }
+const headers = {
+  'X-Agent-Session': identity.session_ref,
+  'X-Agent-Contract': 'product-price-v1',
+}
 const capabilities = await fetch(base + '/capabilities', {
   credentials: 'same-origin', headers,
 })
 if (!capabilities.ok) throw new Error('能力查询失败')
+const catalog = await capabilities.json()
+const priceCapability = catalog.find(
+  item => item.intent === 'product_price' || item.intent === 'device_price',
+)
+if (!priceCapability?.available) throw new Error('商品价格查询暂不可用')
 
 // 每条新消息创建一次；仅重试时复用这个 key 和 payload。
 const key = createId()
 const payload = { message: '查询 iPhone 17 256GB 的参考价格',
-  explicit_intent: 'device_price', stream: false }
+  explicit_intent: priceCapability.intent, stream: false }
 const response = await fetch(base + '/messages', {
   method: 'POST', credentials: 'same-origin',
   headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': key },
@@ -113,6 +130,15 @@ required_inputs、result、failure、reply、warnings。只消费公开字段：
 profile、观察时间和历史完整性；不是供应商认证，也不表示完整轨迹。
 资费通过 `result.quote_basis` 给出金额口径、范围、费用包含关系和独立来源，
 不暴露内部计价身份/指纹；旧快照缺字段应显示未知，不能补 CNY、零金额或当前时间。
+`result.type=product_price` 时，`result.data` 使用独立白名单 DTO，保留设备/生鲜身份、金额字符串或无金额状态、
+原始/标准单位、来源地区及时间；不包含数据库 ID 或查询指纹，不将旧观察伪装成当日价格。
+字段和候选循环见[价格公开协议](integrations/product-price-public-release.md)。
+
+刷新时先核验访客身份，再 GET 指定 conversation_id 的停止点。该读取同样验证 owner、TTL 和会话锁，
+不调用工具/模型，不延长会话或候选期限。执行中返回冲突；不是会话列表或完整历史导出接口。
+存在未确认请求时保留原键供用户选择重试，不能用旧快照覆盖它或自动换键推进。
+旧 State 1/2/3 的未完成价格返回 `price_query_restart_required`；保留可读旧历史，提示新建查询，
+不重算旧价格。已完成的合法消息收据可按原键免执行重放，详见[状态升级](integrations/product-price-public-release.md#3-客户端与状态版本协调)。
 
 删除清理 checkpoint、消息/Tool 收据并保留必要 tombstone/创建幂等约束，避免重放复活。
 不同 owner 和不存在的会话均不泄露存在性。恢复备份的删除限制见[运维](operations.md)。
@@ -136,7 +162,7 @@ status → state → (input_required | result) → [delta] → done
 - 停止浏览器读取不保证服务端执行已取消，不能据此声称零上游调用。
 
 本地快照最多保存 30 分钟，身份匹配后才能展示；服务端 TTL 另有配置。
-没有读取任意跨设备会话历史的 GET 接口。
+指定会话的 owned snapshot GET 不提供跨设备身份或任意历史枚举。
 
 ## 7. 错误处理
 
@@ -145,7 +171,7 @@ status → state → (input_required | result) → [delta] → done
 | 400 / 422 | 重复安全头、非法 schema/输入 | 修正请求，勿盲重试 |
 | 401 / 403 | 服务/访客身份、Origin/代理角色错误 | 先修正身份或入口，不更换 owner 强行恢复 |
 | 404 | 会话不存在、已删或不属于调用者 | 不枚举会话；明确新建 |
-| 409 | 身份漂移、TTL、并发、幂等冲突或预算问题 | 根据稳定 code 区分，不统一自动重试 |
+| 409 | 身份漂移、TTL、并发、幂等冲突、契约/价格状态升级或预算问题 | 按稳定 code 区分刷新客户端、新建查询或安全重试；不统一重发 |
 | 429 | 共享限流 | 遵守 Retry-After；重建访客不能绕过配额 |
 | 502 / 503 / 504 | 合同失败、依赖/存储故障、运行总预算超时 | 仅按 retryable / 稳定原因处理 |
 | 500 | 未分类内部错误 | 用 Request ID 排查，不展示内部异常 |

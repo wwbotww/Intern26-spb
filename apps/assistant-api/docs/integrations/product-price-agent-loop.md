@@ -19,8 +19,8 @@ catalog_v2 的正式持久服务借用同一 Service；内部原始 stream_event
 
 - Tool 借用 C 的同一 Service，不拥有数据库连接池，也不复刻 V1 查询实现。
 - Service 新增 `quote_product`：设备继续使用共同的硬身份/规格策略；生鲜用有界来源查询和精确条件过滤。
-- `ProductPriceData` 在本阶段只是内部执行事实与收据模型，包含内部标识；**不得直接发送给浏览器**。
-  D4 的公开投影必须按字段白名单重新构造，不能直接 `model_dump()`。
+- `ProductPriceData` 是内部执行事实与收据模型，包含内部标识；**不得直接发送给浏览器**。
+  已实现的公开投影按字段白名单重新构造，不能直接 `model_dump()` 内部对象。
 - `need_more_info` 经 validate_result 回到 decide_next；不再无条件结束，也不当作故障重试。
   缺少可操作补充字段、模式/状态不符、来源不一致或事实不满足条件的结果在保存收据前拒绝。
 - 无金额状态仍是命中，保留 null 与状态事实；不造零元，不借历史金额填充当前价格。
@@ -95,14 +95,14 @@ catalog_v2 的正式持久服务借用同一 Service；内部原始 stream_event
 内存和 SQLite 关闭重开测试均保留候选/收据并只执行最终精确重读。
 这只验证 D3 新查询的内部恢复，不替代 D6 的旧版本迁移、消息级幂等、公开 JSON/SSE、浏览器刷新和双访客验收。
 
-## 5. 验证与下一阶段
+## 5. 验证与公开配套
 
 - [内部工作流测试](../../tests/test_product_price_agent_loop.py)：单轮/多轮、无金额、过期/串作用域、条件失效、2/1/3 预算、SQLite 恢复、收据重放及公开门禁。
 - [生鲜执行测试](../../tests/test_product_price_fresh_execution.py)：地区、批零、市场候选、单位、原始时间及不放宽约束。
 - [真实 SQL 隔离测试](../../tests/test_product_price_mysql_integration.py)：MySQL 5.7/8、V2-only SELECT、选中身份精确重读/当前价格推进/指针删除。
 
-以上只使用合成数据。本轮没有查询生产库、写业务表、调用付费模型或部署。
+以上测试只使用合成数据，不查询生产库、写业务表或调用付费模型。
 最新执行结果集中在状态页，不在此复制计数。
 
-后续交付：公开白名单 DTO、结构化候选输入、`X-Agent-Contract: product-price-v1` 门禁、
+公开配套已交付：白名单 DTO、结构化候选输入、`X-Agent-Contract: product-price-v1` 门禁、
 OpenAPI/TS/Web/Eval 和 State 4 已配套实现。实际 CI/发布证据见状态页；D3 当时的验证不自动等于线上验收。

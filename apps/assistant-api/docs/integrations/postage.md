@@ -2,7 +2,8 @@
 
 [Assistant API](../../README.md) · [项目文档导航](../../../../docs/README.md)
 
-P0～P3 本地 / Mock 通路已完成，真实 P4 未验。代码仅接受显式 MockTransport，
+P0～P3 本地 / Mock 通路已完成，真实 P4 未验，按本轮收口约定作为遗留保留、暂不推进。
+代码仅接受显式 MockTransport，
 不能只填写 URL/Key 就开启生产报价。进度见[当前状态](../../../../docs/current-status.md)。
 
 ## 1. 原资料与采用范围

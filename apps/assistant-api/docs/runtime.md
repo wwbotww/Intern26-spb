@@ -8,7 +8,8 @@
 
 ## 1. 受约束 Agent 与 Query Understanding
 
-目标是五类只读查询，不是自由 ReAct。模型不能指定工具名、函数、SQL、URL、重试次数或权限。
+每个 profile 对外提供五类只读能力，不是自由 ReAct。catalog_v2 用 `product_price` 替代
+旧 `device_price`，不同时注册两个价格意图；兼容枚举保留旧历史。模型不能指定工具名、函数、SQL、URL、重试次数或权限。
 工作流一次处理一个明确业务目标；多意图先澄清，不并行拼出未经定义的综合结果。
 
 `QueryUnderstandingResult` 使用 Pydantic 和 `schema_version="1"`：
@@ -16,7 +17,7 @@
 | 字段组 | 用途 |
 | --- | --- |
 | original_query / normalized_query | 保留输入边界；不是允许模型改写业务事实 |
-| selected_intent / candidates / multi_intent | 五意图 + unknown、候选与歧义；score 是启发式信号而非校准概率 |
+| selected_intent / candidates / multi_intent | 当前 profile 的五意图 + unknown、候选与歧义；score 是启发式信号而非校准概率 |
 | slots / slot_provenance / missing_slots / ambiguities | 判别式槽位、字段来源、缺失与冲突 |
 | control | none / cancel / restart；确定性控制不交给模型 |
 | source / parser_version / prompt_version | 显式入口、活动会话、规则或模型的可解释来源 |
@@ -43,7 +44,8 @@ understand、clarify_intent、collect_slots、invoke_tool、validate_result、re
 
 Registry 静态白名单注册 Descriptor 与 Tool；Descriptor 声明意图、输入/输出、超时和尝试预算。
 Executor 校验 Command/Tool 匹配、执行身份与结果；不能由模型输出任意 tool name。
-政策/设备通过兼容 Adapter 复用 V1，其他能力通过领域 Gateway Port 执行。
+政策及旧 device_v1 配置的设备通过兼容 Adapter 复用 V1；catalog 商品 Tool 与 V1 设备包装器
+借用统一 Query Service / 只读 Repository。物流通过领域 Gateway Port 执行。
 
 ## 3. Stateful Workflow 与 Agent Loop
 
@@ -71,6 +73,11 @@ State 分别保存会话/消息/逻辑查询身份、当前意图与槽位、待
 共享 HTTP 每次仅尝试一次；业务瞬态故障默认最多两次实际尝试，由图独占重试预算。
 模型 fallback 另有一次调用预算，不与 Tool 重试混算。
 
+商品价格的合法 `need_more_info` 经结果校验后返回决策/澄清，不直接完成。
+每个价格 query 最多 2 次逻辑调用、1 次技术重试、3 轮澄清；选择、补槽和恢复不刷新预算。
+候选 token 绑定 owner/conversation/query/条件/有效期，选择后精确重读同一身份，
+不在用户等待时持有事务。详见[商品价格执行循环](integrations/product-price-agent-loop.md)。
+
 ## 4. 三层幂等与查询新鲜度
 
 | 标识/存储 | 作用 | 不能混同 |
@@ -86,14 +93,16 @@ State 分别保存会话/消息/逻辑查询身份、当前意图与槽位、待
 用户再次查询相同单号或价格，使用新消息/逻辑查询重新取数，不能误用旧收据作为业务缓存。
 执行前/写收据前、命中收据时、公开响应前均有相关合同校验，非法事实不成为可重放成功结果。
 
-当前业务 State v3 和 receipt v2 保留兼容迁移。仅从可证明的旧 pending action 恢复执行身份，
-不按相同参数猜测；旧表保留不代表可以直接用旧二进制打开新状态。
+当前业务 State 为 **4**，receipt 为 **2**。旧 1/2 的非价格迁移及 3→4 保留兼容，
+仅从可证明的旧 pending action 恢复执行身份；旧 1/2/3 未完成价格返回 `price_query_restart_required`。
+旧完成结果与合法消息收据保留原事实，不按相同参数猜测迁移；旧二进制不能直接打开新状态。
 升级和回退使用一致快照及匹配版本，见[运维](operations.md)。
 
 ## 5. 记忆、身份与并发
 
 - Checkpointer 保存工作状态；元数据保存 owner/状态/绝对 TTL；创建/消息/Tool 收据分别处理幂等。
-- RAG 是外部只读知识，不是会话记忆；没有跨会话长期记忆或跨设备历史查询功能。
+- RAG 是外部只读知识，不是会话记忆；没有跨会话长期记忆或跨设备历史列表。
+  owned snapshot GET 只读取指定会话的持久停止点，不运行 Graph、不续期；不是完整历史查询 API。
 - 每会话 coordinator 串行推进/清理；managed 目录整库合作进程租约拒绝第二个实例。
 - Browser Security 先验证代理服务 Key、Origin、签名 Cookie 和 session_ref，再进入会话服务。
   Graph 不读取 Cookie/Origin；其他可信服务 Key 仍为 key-scoped owner。

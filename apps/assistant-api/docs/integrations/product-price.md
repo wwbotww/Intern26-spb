@@ -20,11 +20,11 @@ manifest 用相关文件摘要定位这份审查快照，不能只凭 HEAD 宣�
 
 | 范围 | 本地冻结内容 | 仍须生产者/环境确认 |
 | --- | --- | --- |
-| 公共事实 | current 指针、来源版本、金额/单位、质量和地域关联 | 目标库必需表列、权限、实际更新和数据覆盖 |
+| 公共事实 | current 指针、来源版本、金额/单位、质量和地域关联；目标库必需投影已读 | 生产最小权限、实际更新和完整数据覆盖 |
 | 设备 | 五品牌官方渠道；规范产品/规格与有效 match；金额或状态分型 | J/K 建档夹具、五品牌扩展配置、运行期状态确认 |
 | 生鲜 | 上海零售均价、商务部批发均价；500g / kg；地区与来源日 | 最新真实样例、市场覆盖、更新频率 |
-| 无金额状态 | 新 `b72c910e4f31` 定义的静态语义 | 生产迁移及 K 阶段缺失确认/状态推进，不等于静态迁移通过 |
-| 恢复与接口 | 第五节的消费者设计选择 | D 阶段运行实现、活跃客户端核对与 E 升级窗口 |
+| 无金额状态 | `b72c910e4f31` 的静态语义及消费者校验；目标迁移已核对 | 生产运行期缺失确认/状态推进，不等于静态迁移通过 |
+| 恢复与接口 | D 已实现公开契约与 State 4，已限定发布 | 目标浏览器人工交互与正式回滚补验；见协调发布文档 |
 
 本地冻结允许 B 阶段隔离实现；字段变更需修改合同、事实模型和夹具再审查。
 不导入生产者 Python 包，不自动迁移业务库，不因 V2 无数据回退旧表。
@@ -33,7 +33,7 @@ CI 不需要生产者仓库、业务网络、数据库凭据或模型 Key。
 ## 2. Repository 必须交付的投影
 
 D1/D2 的自然语言条件和补槽规则另见[商品价格 Understanding](product-price-understanding.md)。
-它与下列读取事实不是同一个 DTO；公开 Tool/结果/State 的后续开放边界保持不变。
+它与下列读取事实不是同一个 DTO；公开结果/State 4 已配套，不能绕过[公开白名单](product-price-public-release.md)。
 
 `ProductPriceReadRecord` 是经过适配的内部只读记录，不是 API 的直接返回值。
 它包含完成一致性读取时的 `read_at`、listing 快照、current 指针、观察，以及可选最近有价历史。
@@ -155,7 +155,7 @@ listing URL、crawl 请求/最终 URL 都要符合固定来源白名单和数据
 | `FreshPriceReadQuery` | 同样的搜索词预算；可选商品码、地区、市场、批零口径；最多 100 条 listing/地区事实 | 不依赖标准商品建档；不跨地区或批零口径合并报价 |
 | `SelectedPriceReadQuery` | 服务器选择引用中的类目、listing ID 与地区；固定 SQL 最多检查两行 | 只读该身份当前指针，重复行拒绝；不重新模糊搜索、不替换相似商品 |
 | `PriceReadBatch` | 同 listing/地区或 observation 不重复；超限使用额外一条探测并标记 `truncated` | `truncated` 表示候选不完整，不声称库中没有其他候选 |
-| `ProductPriceQueryResult` | `candidates` / `no_match`，逐事实保留 freshness | 仅返回经过合同验证的召回候选；设备再进入 quote_device，生鲜的公开结果在 D 实施 |
+| `ProductPriceQueryResult` | `candidates` / `no_match`，逐事实保留 freshness | 仅返回经过合同验证的召回候选；quote_device / quote_product 再匹配并构造领域结果，API 单独公开投影 |
 
 搜索词去重并转小写，以绑定参数传入；LIKE 的 `%`、`_`、`!` 按字面转义。
 文本条件用于宽召回，设备必须继续经过共享硬身份策略；不得将被截断候选直接当成完整最低价范围。
@@ -185,8 +185,8 @@ SKU 标题、容量、内存与尺寸不补进产品身份；同分候选仍保�
 2026-09-11 真实旁路发现官方容量保留 `256 GB 1 脚注` 格式：匹配层允许单一容量后紧随
 明确数字脚注标记，并仍保留原始证据字符串。范围、多容量、任意前后说明不剥除，
 容量与内存不串字段；合成报价和两版隔离 SQL 的精确选择回归覆盖此边界，不修改来源数据。
-目前自然语言继续使用冻结的设备解析范围，颜色等新槽位的提取与确认属于 D，
-不能把内部可筛选字段说成已接入 Agent Understanding。
+自然语言已接入 D 的容量/内存/颜色等受支持条件提取与确认，见[Understanding](product-price-understanding.md)；
+内部可筛选字段仍不代表每种自然语言表达或任意扩展属性都能提取。
 
 | 内部结果 | 旧设备卡片协议的受控投影 |
 | --- | --- |
@@ -211,17 +211,18 @@ V2 产品/规格预算分别用 `ASSISTANT_PRICE_V2_PRODUCT_LIMIT`、`ASSISTANT_
 默认 10/20、硬上限 20/50；展示上限不得超出总候选预算，旧 candidate_limit 只用于 V1。
 
 [配置组合根](../../src/spb_assistant_api/configured_price.py)创建一个 Repository/Service；
-应用生命周期初始化 Repository，V1 包装器和既有 Agent 设备适配器借用它，退出先停消费者再关闭 Repository。
-启动异常也清理，清理异常不掩盖已发生的主异常。默认生产装配、物流与政策不因新增选项而切换。
-当前 catalog_v2 只用于隔离验证或明确批准的受控环境；D 的状态/客户端迁移完成前，
-**不要直接对现有持久 Agent 会话切换该选项**。真实库/发布仍由 E 门禁约束。
+应用生命周期初始化 Repository，V1 的 V2DevicePriceTool 包装器和 Agent ProductPriceTool 借用同一 Service，
+退出先停消费者再关闭 Repository；catalog 不注册旧 Agent 设备适配器。
+启动异常也清理，清理异常不掩盖主异常。代码默认 device_v1 不等于实际发布配置，政策/物流不随之重写。
+catalog_v2 已在明确批准的环境限定发布；升级其他持久环境仍须[协调 API/Web、备份与 State 4](product-price-public-release.md)，
+**不能只改数据开关让旧客户端直接恢复原 pending**。
 
 C5 的旧依赖清单如下，保留是限定迁移窗口，不是 V2 的运行 fallback：
 
 | 仍保留的旧路径 | 当前调用方与退出条件 |
 | --- | --- |
 | `adapters/mysql_price.py`、DevicePriceRepository/Record/SearchQuery | 默认 device_v1 装配及其单元测试；E 完成目标覆盖与回退验证后移除生产 SQL 路径 |
-| `tools/device_price.py` | 默认旧价格与 agent_demo 的合成设备入口；已删除重复身份/排序实现，与 V2 使用同一策略；Demo 在 D 同步迁移 |
+| `tools/device_price.py` | 默认旧价格与 agent_demo 的合成设备入口仍保留；身份/排序与 V2 使用同一策略；catalog 另有独立合成入口，不宣称旧 Demo 已迁移 |
 | `domain/tools/adapters` 包的旧导出 | 仍服务上述调用方；E 清理时一起处理，不留下隐藏旧查询入口 |
 | DevicePriceEvidence/Data 与旧 Agent decoder | 旧协议和历史记录仍需读取，不能跟旧 SQL 一并删除；是否仍保留按 D/E 兼容策略决定 |
 
@@ -265,7 +266,7 @@ C 的共享硬身份策略修复后，以上目标已改为普通通过的回归
 | 公开字段白名单 | 允许必要来源/商品描述及证据引用；不暴露内部 listing/revision/observation/variant/merchant ID、参数指纹、私有路径或原始 State |
 | 选择输入 | 新增 `price_selection: {candidate_token: string}`；至少 message / explicit_intent / 合法待恢复选择之一，不开放任意 slots 字典 |
 | 选择展示 | 在现有 RequiredInput 增加类型化 price 候选项（label/token），不把 JSON 编码塞进 choices 字符串 |
-| 候选身份 | 服务器生成不透明高熵 token，关联 owner/query/约束指纹/候选集；有效期不超过会话 TTL，D 默认拟为 10 分钟 |
+| 候选身份 | 服务器生成不透明高熵 token，关联 owner/query/约束指纹/候选集；到期取生成后 10 分钟与会话 TTL 的较早者 |
 | 客户端契约 | 采用 `X-Agent-Contract: product-price-v1`。catalog_v2 浏览器能力目录/会话推进/快照读取在打开 SSE 或返回新类型前检查；缺失/不匹配返回 HTTP 409、既有错误信封及 agent_client_upgrade_required；服务身份/V1 原认证不变 |
 | 不受门禁影响 | V1、健康检查和访客身份接口；Agent 元信息入口可提供契约发现。代理/CORS、Web 全部会话请求和 Eval 必须同步 |
 | 恢复 | 旧完成 device_price 结果原样解码；旧 pending 无法安全恢复时保留历史，提示新会话，不改指纹或自动执行 |

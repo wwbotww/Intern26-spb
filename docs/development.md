@@ -23,8 +23,8 @@ npm --prefix apps/chat-web run check:agent-types
 
 ## 2. 选择联调组合
 
-先启动 API，再启动表中的 Web 配置；各用一个终端。两个合成 Web 都用 13003 端口，
-不能同时运行。它们均不加载 Web dotenv，但后端的隔离边界不同，应按对应步骤执行。
+先启动 API，再启动表中的 Web 配置；各用一个终端。五能力/资费 Demo 共用 13003，不能同时运行；
+商品价格身份 Demo 用 13006。合成 Web 均不加载 dotenv，但后端隔离边界不同，应按对应步骤执行。
 
 | 目标 | API 入口与步骤 | Web 入口与步骤 | 验证重点 |
 | --- | --- | --- | --- |
@@ -33,7 +33,8 @@ npm --prefix apps/chat-web run check:agent-types
 | 连接已批准的真实依赖 | [Assistant 配置与入口](../apps/assistant-api/README.md) + [RAG](../apps/rag-api/README.md) | [常规开发与真实后端](../apps/chat-web/README.md#常规开发与真实后端) | API/UI 模式、服务 Key、Origin/身份、数据覆盖 |
 | 验证部署边界，不接业务数据 | [Agent 合成部署演练](../deploy/agent/README.md) | 演练自带匹配 Web | HTTPS、双访客、备份/恢复、V1 回退 |
 | 验证 V2 价格固定 SQL，不接业务数据 | [MySQL 5.7 / 8.4 隔离门禁](../deploy/price-query/README.md) | 不需要 Web | V2-only、SELECT 权限、当前状态/单位/关联和查询上限 |
-| 验证商品价格理解，不接模型/数据库 | [D1/D2 组件](../apps/assistant-api/docs/integrations/product-price-understanding.md) | 尚不开放 HTTP/Web | 商品/寄递重量区分、联合条件、冲突及候选失效信号 |
+| 验证商品价格理解，不接模型/数据库 | [Understanding 组件](../apps/assistant-api/docs/integrations/product-price-understanding.md) | 组件验证不需要 Web | 商品/寄递重量区分、联合条件、冲突及候选失效信号 |
+| 验证商品公开协议与候选，不接公司库 | [catalog 合成夹具](../apps/assistant-api/docs/local-development.md#商品价格与候选恢复演示)，18086 | [商品价格 Demo](../apps/chat-web/README.md#商品价格-demo)，13006 | 访客身份、候选点击、设备/生鲜卡片、刷新与旧来源日 |
 
 业务 fixture 的五能力 Demo 不等于真实物流互通；严格资费夹具也只有 MockTransport。
 默认 Web 为 V1，Agent UI 与浏览器身份是构建时开关，不能只换后端。
@@ -48,7 +49,7 @@ npm --prefix apps/chat-web run check:agent-types
 4. 修改共享数据契约时同时运行 Pipeline、RAG 和 contracts 回归，确认新旧数据兼容性。
 5. 模型或真实业务联调另行授权并限定预算；离线测试通过不是这些真实结果的证明。
 
-无需启动浏览器、无需网络的资费公开 Workflow 门禁：
+无需启动浏览器、无需网络的资费及商品价格公开 Workflow 门禁：
 
 ~~~bash
 AGENT_EVAL_DIR=$(mktemp -d)

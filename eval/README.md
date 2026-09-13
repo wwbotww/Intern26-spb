@@ -76,10 +76,22 @@ synthetic development / draft；真实对照已用 20 次模型请求完成，�
 商品价格 D1/D2 另有 `datasets/query-understanding-product-price-development.jsonl`，
 是 24 条 synthetic development，不替换原 48 条样本，也不是 holdout。
 沿用上面的 prepare/export/score 流程，改用该数据集与一个新输出目录，并在 exporter 加 `--product-price`。
-规则模式不读凭据、不访问数据库/模型；公开 HTTP 和 Web 暂未开放该能力。
+规则模式不读凭据、不访问数据库/模型；公开 HTTP/Web 已配套，组件评分与完整工作流仍分开验收。
 商品类目、型号/规格、生鲜地区/口径、数量单位与时间以白名单字段指纹独立评分。
 Macro-F1 标签由 Gold 固定选择旧价格、新价格或混合类集合；报告记录 labels，不能跨集合直接比较提升。
 细节见[商品价格 Understanding](../apps/assistant-api/docs/integrations/product-price-understanding.md)。
+
+### 商品价格公开 Workflow 回归
+
+[7 场景 / 9 Turn development 数据集](datasets/agent-product-price-workflow-development-v1.jsonl)
+使用公开 V2 与应用侧合成 Repository，覆盖设备/生鲜、候选序号恢复、补槽及结果事实。
+独立 Eval 校验商品 DTO 的金额/单位/来源/时间，不读内部 State 或数据库 ID。
+7 场景中的候选回复是“第二个”，不冒充动态 token 测试；结构化 price_selection、跨访客及重放
+另由 [公开 API 回归](../apps/assistant-api/tests/test_product_price_public_workflow.py)和 Web 测试覆盖。
+该数据集与原资费回归一起纳入
+`python -m apps.assistant-api.tests.ci_offline_eval --output <新报告目录>`，复跑见[开发指南](../docs/development.md)。
+SQL 真实性由专用 MySQL 隔离任务验证，真实发布、代表性覆盖与模型 holdout 另行留证；
+不把此 development 结果表述为全品类价格正确率。
 
 ### 审核与冻结
 
@@ -292,13 +304,10 @@ uv run --package spb-eval spb-eval assistant-run \
 }
 ```
 
-本地五能力 Demo 不需要 API Key：
+先在另一个终端按 [Assistant 本地开发](../apps/assistant-api/docs/local-development.md#五能力-demo)
+的完整隔离参数启动五能力 Demo，不使用固定旧状态库或继承本地模型/身份开关。随后运行（无需 API Key）：
 
 ```bash
-ASSISTANT_QUERY_MODEL_ENABLED=false ASSISTANT_HOST=127.0.0.1 \
-ASSISTANT_AGENT_DEMO_DB=/tmp/spb-agent-eval.db \
-uv run --package spb-assistant-api spb-assistant-agent-demo
-
 uv run --package spb-eval spb-eval agent-run \
   --dataset eval/datasets/agent-workflow-v1.jsonl \
   --label phase5a-local-fixture \
